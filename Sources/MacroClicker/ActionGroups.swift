@@ -1,0 +1,292 @@
+import AppKit
+import Carbon.HIToolbox
+
+/// A human-level action ("Tap", "Swipe up", "Type “hi”") made of one or more raw steps.
+struct ActionGroup: Identifiable {
+    enum Kind {
+        case click(button: MouseButton, count: Int, at: CGPoint?, hold: Double)
+        case drag(button: MouseButton, from: CGPoint, to: CGPoint)
+        case scroll(dx: Double, dy: Double, at: CGPoint?)
+        case keys(String)
+        case wait
+        case colorWait(at: CGPoint, ColorWait)
+        case image(ImageStep)
+        case move(to: CGPoint)
+        case other(String, icon: String)
+    }
+
+    /// Id of the first raw step.
+    let id: UUID
+    /// Indices into `macro.steps`.
+    let range: Range<Int>
+    /// Steps whose delays make up the wait before the action: cursor travel plus the first real step.
+    let lead: ClosedRange<Int>
+    /// Seconds before the action happens (at 1× speed).
+    let wait: Double
+    /// Seconds from the start of the macro until the action happens.
+    let start: Double
+    let kind: Kind
+
+    /// Index of the first non-travel step.
+    var actionIndex: Int { lead.upperBound }
+
+    // MARK: Presentation (touch = target is a phone, so say "tap"/"swipe")
+
+    func title(touch: Bool) -> String {
+        switch kind {
+        case .click(let b, let count, let at, let hold):
+            var s: String
+            if b == .left && count == 1 && hold >= 0.5 {
+                s = (touch ? "Long press" : "Click and hold") + String(format: " (%.1fs)", hold)
+            } else {
+                let base = b == .left ? (touch ? "tap" : "click") : "\(b.label.lowercased())-click"
+                let prefix = count == 2 ? "double-" : count >= 3 ? "triple-" : ""
+                s = prefix + base
+                s = s.prefix(1).uppercased() + s.dropFirst()
+            }
+            if at == nil { s += " at the cursor" }
+            return s
+        case .drag(_, let from, let to):
+            return (touch ? "Swipe " : "Drag ") + Self.direction(from, to)
+        case .scroll(let dx, let dy, _):
+            if abs(dy) >= abs(dx) { return "Scroll \(dy > 0 ? "up" : "down") \(Int(abs(dy)))px" }
+            return "Scroll \(dx > 0 ? "left" : "right") \(Int(abs(dx)))px"
+        case .keys(let s): return s
+        case .wait: return "Pause"
+        case .colorWait(_, let c):
+            return "Wait for \(c.hex)"
+        case .image(let s):
+            switch s.mode {
+            case .click: return (touch ? "Tap" : "Click") + " the picture" + (s.repeatUntilGone ? " until it's gone" : "")
+            case .appear, .gone: return s.mode.label
+            }
+        case .move: return "Move the mouse"
+        case .other(let s, _): return s
+        }
+    }
+
+    var detail: String? {
+        switch kind {
+        case .drag(_, let from, let to): "\(Self.fmt(from)) → \(Self.fmt(to))"
+        case .scroll(_, _, let at?): "at \(Self.fmt(at))"
+        case .image(let s):
+            (s.untilAppears ? (s.mode == .gone ? "no time limit" : "whenever it appears")
+                            : "up to \(s.timeout.formatted())s, else \(s.otherwise.label.lowercased())")
+                + " · \(Int((s.strictness * 100).rounded()))% match"
+        case .colorWait(let at, let c):
+            "at \(Self.fmt(at))"
+                + (c.untilAppears ? ", until it appears" : c.timeout > 0 ? ", up to \(c.timeout.formatted())s" : ", check once")
+                + (c.immediate ? ", ignores timing" : "")
+                + (c.untilAppears || c.otherwise == .continueAnyway ? "" : ". If not: \(c.otherwise.label.lowercased())")
+        case .move(let to): "to \(Self.fmt(to))"
+        default: nil
+        }
+    }
+
+    func icon(touch: Bool) -> String {
+        switch kind {
+        case .click(let b, let count, _, let hold):
+            if b == .left && count == 1 && hold >= 0.5 { return "hand.point.up.left" }
+            if count >= 2 { return "cursorarrow.click.2" }
+            return touch && b == .left ? "hand.tap" : "cursorarrow.click"
+        case .drag(_, let from, let to): return "arrow." + Self.direction(from, to)
+        case .scroll: return "scroll"
+        case .keys: return "keyboard"
+        case .wait: return "clock"
+        case .colorWait: return "eyedropper"
+        case .image(let s): return s.mode.icon
+        case .move: return "arrow.up.and.down.and.arrow.left.and.right"
+        case .other(_, let icon): return icon
+        }
+    }
+
+    /// Position that can be edited directly in the simple view (single-spot clicks only).
+    var editablePoint: CGPoint? {
+        switch kind {
+        case .click(_, _, let at?, _), .colorWait(let at, _): return at
+        default: return nil
+        }
+    }
+
+    private static func direction(_ a: CGPoint, _ b: CGPoint) -> String {
+        let dx = b.x - a.x, dy = b.y - a.y
+        if abs(dy) >= abs(dx) { return dy < 0 ? "up" : "down" }
+        return dx < 0 ? "left" : "right"
+    }
+
+    private static func fmt(_ p: CGPoint) -> String { "(\(Int(p.x)), \(Int(p.y)))" }
+}
+
+enum ActionGrouper {
+    private static let clickTolerance: CGFloat = 8
+    private static let scrollGap = 0.6
+    private static let keyGap = 1.0
+
+    static func groups(for steps: [MacroStep]) -> [ActionGroup] {
+        var out: [ActionGroup] = []
+        var clock = 0.0
+        var i = 0
+        let n = steps.count
+
+        while i < n {
+            let start = i
+            var first = i
+            while first < n, steps[first].action.isMouseMove { first += 1 }
+
+            if first == n { // only cursor travel left
+                let wait = steps[start..<n].reduce(0) { $0 + $1.delay }
+                out.append(ActionGroup(id: steps[start].id, range: start..<n, lead: start...(n - 1), wait: wait,
+                                       start: clock + wait, kind: .move(to: steps[n - 1].action.point ?? .zero)))
+                break
+            }
+
+            let wait = steps[start...first].reduce(0) { $0 + $1.delay }
+            var end = first + 1
+            let kind: ActionGroup.Kind
+
+            switch steps[first].action {
+            case .mouseDown(let b, let x, let y, let c, _):
+                let down = CGPoint(x: x, y: y)
+                let press = scanPress(steps, from: first, button: b)
+                end = press.end
+                if press.wander <= clickTolerance && dist(press.up, down) <= clickTolerance {
+                    var count = c, hold = press.hold
+                    // Fold the follow-up presses of a double/triple click into one action
+                    // (allowing for small cursor jiggle between presses).
+                    while true {
+                        var probe = end, gap = 0.0
+                        while probe < n, steps[probe].action.isMouseMove { gap += steps[probe].delay; probe += 1 }
+                        guard probe < n, case .mouseDown(let b2, let x2, let y2, let c2, _) = steps[probe].action,
+                              b2 == b, c2 > count, gap + steps[probe].delay < 0.6,
+                              dist(CGPoint(x: x2, y: y2), down) <= clickTolerance else { break }
+                        let next = scanPress(steps, from: probe, button: b)
+                        guard next.wander <= clickTolerance else { break }
+                        count = c2
+                        hold = 0
+                        end = next.end
+                    }
+                    kind = .click(button: b, count: count, at: down, hold: hold)
+                } else {
+                    kind = .drag(button: b, from: down, to: press.up)
+                }
+            case .click(let b, let x, let y, let count):
+                let at = (x != nil && y != nil) ? CGPoint(x: x!, y: y!) : nil
+                kind = .click(button: b, count: count, at: at, hold: 0)
+            case .scroll(var dx, var dy, let x, let y):
+                while end < n, case .scroll(let dx2, let dy2, _, _) = steps[end].action, steps[end].delay < scrollGap {
+                    dx += dx2; dy += dy2; end += 1
+                }
+                kind = .scroll(dx: dx, dy: dy, at: (x != nil && y != nil) ? CGPoint(x: x!, y: y!) : nil)
+            case .key, .flags:
+                // Keystrokes close together read as one action ("Type “hello”").
+                while end < n, steps[end].delay < keyGap, isKeyboard(steps[end].action) { end += 1 }
+                kind = .keys(describeKeys(steps[first..<end]))
+            case .wait:
+                kind = .wait
+            case .waitForColor(let x, let y, _, _, _, _, _):
+                kind = .colorWait(at: CGPoint(x: x, y: y), steps[first].action.colorWait!)
+            case .findImage(let s):
+                kind = .image(s)
+            case .mouseUp(let b, _, _, _, _):
+                kind = .other("Release the \(b.label.lowercased()) button", icon: "arrow.up.circle")
+            case .drag(let b, _, _):
+                while end < n, case .drag = steps[end].action { end += 1 }
+                kind = .other("\(b.label) drag (press wasn't recorded)", icon: "hand.draw")
+            case .move:
+                kind = .other("Move", icon: "arrow.up.and.down.and.arrow.left.and.right")
+            }
+
+            out.append(ActionGroup(id: steps[start].id, range: start..<end, lead: start...first, wait: wait,
+                                   start: clock + wait, kind: kind))
+            clock += steps[start..<end].reduce(0) { $0 + $1.delay }
+            i = end
+        }
+        return out
+    }
+
+    /// Follows a press to its release: where it ended, how far it wandered, how long it was held.
+    private static func scanPress(_ steps: [MacroStep], from downIndex: Int, button: MouseButton)
+        -> (end: Int, up: CGPoint, wander: CGFloat, hold: Double) {
+        let down = steps[downIndex].action.point ?? .zero
+        var last = down, wander: CGFloat = 0, hold = 0.0
+        var k = downIndex + 1
+        while k < steps.count {
+            let s = steps[k]
+            hold += s.delay
+            if let p = s.action.point {
+                last = p
+                wander = max(wander, dist(p, down))
+            }
+            if case .mouseUp(let b, _, _, _, _) = s.action, b == button { return (k + 1, last, wander, hold) }
+            k += 1
+        }
+        return (steps.count, last, wander, hold)
+    }
+
+    private static func isKeyboard(_ a: StepAction) -> Bool {
+        switch a {
+        case .key, .flags: true
+        default: false
+        }
+    }
+
+    private static func dist(_ a: CGPoint, _ b: CGPoint) -> CGFloat { hypot(a.x - b.x, a.y - b.y) }
+
+    /// "Type “hello”, then press ⌘S"
+    static func describeKeys(_ steps: ArraySlice<MacroStep>) -> String {
+        enum Part { case typed(String), press([String]) }
+        var parts: [Part] = []
+        for s in steps {
+            guard case .key(let code, true, let f) = s.action else { continue }
+            let flags = CGEventFlags(rawValue: f)
+            let shortcut = flags.contains(.maskCommand) || flags.contains(.maskControl) || flags.contains(.maskAlternate)
+            if !shortcut, let ch = KeyText.character(for: code, shift: flags.contains(.maskShift)) {
+                if case .typed(let t)? = parts.last { parts[parts.count - 1] = .typed(t + ch) } else { parts.append(.typed(ch)) }
+            } else {
+                let name = KeyNames.modifierSymbols(cgFlags: f) + KeyNames.name(for: code)
+                if case .press(let p)? = parts.last { parts[parts.count - 1] = .press(p + [name]) } else { parts.append(.press([name])) }
+            }
+        }
+        if parts.isEmpty { return "Modifier keys" }
+        let text = parts.map { part -> String in
+            switch part {
+            case .typed(let t): "type “\(t)”"
+            case .press(let names): "press " + names.joined(separator: ", ")
+            }
+        }.joined(separator: ", then ")
+        return text.prefix(1).uppercased() + text.dropFirst()
+    }
+}
+
+/// What a key produces on the user's current keyboard layout.
+enum KeyText {
+    private static var cache: [UInt32: String?] = [:]
+
+    /// The printable character for a key, or nil for non-printing keys (Return, arrows, F-keys…).
+    static func character(for code: UInt16, shift: Bool) -> String? {
+        let key = UInt32(code) | (shift ? 0x1_0000 : 0)
+        if let cached = cache[key] { return cached }
+        let result = translate(code, shift: shift)
+        cache[key] = result
+        return result
+    }
+
+    private static func translate(_ code: UInt16, shift: Bool) -> String? {
+        guard let source = TISCopyCurrentKeyboardLayoutInputSource()?.takeRetainedValue(),
+              let raw = TISGetInputSourceProperty(source, kTISPropertyUnicodeKeyLayoutData) else { return nil }
+        let data = Unmanaged<CFData>.fromOpaque(raw).takeUnretainedValue() as Data
+        var deadKeys: UInt32 = 0
+        var chars = [UniChar](repeating: 0, count: 4)
+        var length = 0
+        let mods: UInt32 = shift ? UInt32(shiftKey >> 8) & 0xFF : 0
+        let status = data.withUnsafeBytes { buf -> OSStatus in
+            guard let layout = buf.baseAddress?.assumingMemoryBound(to: UCKeyboardLayout.self) else { return -1 }
+            return UCKeyTranslate(layout, code, UInt16(kUCKeyActionDown), mods, UInt32(LMGetKbdType()),
+                                  OptionBits(kUCKeyTranslateNoDeadKeysBit), &deadKeys, chars.count, &length, &chars)
+        }
+        guard status == noErr, length > 0 else { return nil }
+        let s = String(utf16CodeUnits: chars, count: length)
+        let printable = s.unicodeScalars.allSatisfy { !CharacterSet.controlCharacters.contains($0) && $0.value != 0x7F }
+        return printable ? s : nil
+    }
+}

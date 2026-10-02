@@ -1,0 +1,5 @@
+.build/
+.demo/
+MacroClicker.app/
+*.iconset/
+.DS_Store
