@@ -29,6 +29,14 @@ enum ScreenshotTour {
         Task { @MainActor in
             try? await Task.sleep(for: .seconds(1.5))
             NSApp.activate(ignoringOtherApps: true)
+            // MACROCLICKER_SCREENSHOT_WIDTH: capture at this window width (e.g. the 820-point minimum).
+            if let w = ProcessInfo.processInfo.environment["MACROCLICKER_SCREENSHOT_WIDTH"].flatMap(Double.init),
+               let win = NSApp.windows.first(where: { $0.isVisible && $0.canBecomeMain }) {
+                var f = win.frame
+                f.size.width = w
+                f.size.height = 652
+                win.setFrame(f, display: true)
+            }
             for (name, page, viewMode) in shots {
                 if let viewMode { UserDefaults.standard.set(viewMode, forKey: "stepsViewMode") }
                 model.sidebar = page
@@ -39,6 +47,17 @@ enum ScreenshotTour {
                    let png = capture(win) {
                     try? png.write(to: out.appendingPathComponent("\(name).png"))
                 }
+            }
+            // Narrow-window check: the toolbar while something runs (status grows a Stop button).
+            if ProcessInfo.processInfo.environment["MACROCLICKER_SCREENSHOT_WIDTH"] != nil,
+               let w = watcher, let c = chain {
+                model.sidebar = .macro(c)
+                model.toggleWatcher(w)
+                try? await Task.sleep(for: .seconds(1.2))
+                if let win = NSApp.windows.first(where: { $0.isVisible && $0.canBecomeMain }), let png = capture(win) {
+                    try? png.write(to: out.appendingPathComponent("chain-busy.png"))
+                }
+                model.toggleWatcher(w)
             }
             NSApp.terminate(nil)
         }

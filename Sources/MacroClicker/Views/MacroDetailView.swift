@@ -55,18 +55,28 @@ struct MacroDetailView: View {
     private var windowToolbar: some ToolbarContent {
         ToolbarItemGroup(placement: .primaryAction) {
             Picker("View", selection: Binding(get: { mode.rawValue }, set: { viewMode = $0 })) {
-                Text("Visual").tag("visual")
-                Text("Actions").tag("actions")
-                Text("Raw").tag("raw")
+                if model.compactToolbar {
+                    // Like Finder's view buttons when the window is narrow.
+                    Label("Visual", systemImage: "map").labelStyle(.iconOnly).tag("visual")
+                    Label("Actions", systemImage: "list.bullet").labelStyle(.iconOnly).tag("actions")
+                    Label("Raw", systemImage: "list.number").labelStyle(.iconOnly).tag("raw")
+                } else {
+                    Text("Visual").tag("visual")
+                    Text("Actions").tag("actions")
+                    Text("Raw").tag("raw")
+                }
             }
             .pickerStyle(.segmented)
             .help("Visual: where and when things happen. Actions: a readable list. Raw: every recorded event.")
 
-            ControlGroup {
-                Button { undoManager?.undo() } label: { Image(systemName: "arrow.uturn.backward") }
-                    .help("Undo (⌘Z)")
-                Button { undoManager?.redo() } label: { Image(systemName: "arrow.uturn.forward") }
-                    .help("Redo (⇧⌘Z)")
+            // Narrow window: Undo/Redo stay in the Edit menu (⌘Z, ⇧⌘Z) so Play keeps its place.
+            if !model.compactToolbar {
+                ControlGroup {
+                    Button { undoManager?.undo() } label: { Image(systemName: "arrow.uturn.backward") }
+                        .help("Undo (⌘Z)")
+                    Button { undoManager?.redo() } label: { Image(systemName: "arrow.uturn.forward") }
+                        .help("Redo (⇧⌘Z)")
+                }
             }
 
             Button {

@@ -19,6 +19,11 @@ struct ContentView: View {
                 DetailView()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+            .background(GeometryReader { g in
+                Color.clear
+                    .onAppear { model.updateCompactToolbar(g.size.width) }
+                    .onChange(of: g.size.width) { _, w in model.updateCompactToolbar(w) }
+            })
             // Messages appear briefly over the content instead of in a permanent bar.
             .overlay(alignment: .bottom) {
                 if let msg = model.statusMessage {
@@ -251,11 +256,18 @@ struct ActivityStatus: View {
             .lineLimit(1)
             .truncationMode(.tail)
             // Never let a long status push the page's own toolbar buttons (Play, Stop…) into the overflow menu.
-            .frame(minWidth: 72, maxWidth: 280, alignment: .leading)
+            .frame(minWidth: 72, maxWidth: model.compactToolbar ? 72 : 280, alignment: .leading)
             .fixedSize(horizontal: false, vertical: true)
             if model.isBusy {
-                Button(model.hotkeys[.stopAll].map { "Stop  \($0.display)" } ?? "Stop") { model.stopAll() }
-                    .controlSize(.small)
+                let hotkey = model.hotkeys[.stopAll]?.display
+                if model.compactToolbar {
+                    Button { model.stopAll() } label: { Image(systemName: "stop.fill") }
+                        .controlSize(.small)
+                        .help(hotkey.map { "Stop  \($0)" } ?? "Stop")
+                } else {
+                    Button(hotkey.map { "Stop  \($0)" } ?? "Stop") { model.stopAll() }
+                        .controlSize(.small)
+                }
             }
         }
         .padding(.horizontal, 6)

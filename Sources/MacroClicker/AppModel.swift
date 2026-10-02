@@ -53,6 +53,8 @@ final class AppModel: ObservableObject {
     private var snapshotCache: [UUID: NSImage?] = [:]
     private var pendingSnapshot: NSImage?
     @Published var statusMessage: String?
+    /// The main area is narrow: toolbar items shrink so the page's main button (Play, Start) never overflows.
+    @Published var compactToolbar = false
 
     let store = MacroStore()
     private let clicker = AutoClicker()
@@ -109,6 +111,11 @@ final class AppModel: ObservableObject {
     var selectedMacro: Macro? { macros.first { $0.id == selectedMacroID } }
 
     // MARK: - Messages, sounds, permissions
+
+    func updateCompactToolbar(_ width: CGFloat) {
+        let compact = width < 760
+        if compactToolbar != compact { compactToolbar = compact }
+    }
 
     func flash(_ message: String) {
         statusMessage = message
