@@ -16,4 +16,7 @@ run() { # name, test file, sources...
 run cropper-logic cropper-logic.swift Views/RegionPicker.swift
 run cropper-events cropper-events.swift Views/RegionPicker.swift
 run click-spread click-spread.swift Models.swift KeyNames.swift Target.swift EventSynth.swift Storage.swift
+# Every app source, with the app's entry point switched off so the test's own top-level code runs.
+sed 's/^@main//' App.swift > "$OUT/App-no-main.swift"
+run lookup lookup.swift $(ls *.swift Views/*.swift | grep -v '^App.swift$') "$OUT/App-no-main.swift"
 echo "All suites passed. Cropper end-state picture: $OUT/cropper-events.png"

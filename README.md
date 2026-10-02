@@ -71,6 +71,10 @@ that wait for a button to appear before tapping it. It works with any app or win
 - Keep tapping until a picture is gone, wait before tapping, click at an offset, and choose what
   happens if a picture never shows up
 - Pick pictures by drawing a box on a screenshot, with zoom, panning and pixel-precise handles
+- **Text steps** look for words instead of a picture, such as “Claim”, read on your Mac with Apple's
+  built-in text recognition. Exact matches win over longer lines that merely contain the word
+- Limit any search to an **area** of the window, so it's faster and ignores look-alikes elsewhere
+- Switch any action **on or off** without deleting it
 
 <p align="center">
   <img src="docs/screenshots/chain.png" width="720" alt="A chain of picture steps">
@@ -82,6 +86,8 @@ that wait for a button to appear before tapping it. It works with any app or win
   while your macros and chains keep running
 - Matching looks at both the overall shape and the middle of the picture, so a button with the same
   frame but different text isn't mistaken for it
+- Watch for text instead of a picture, optionally only in part of the window
+- Start and stop each watcher with its switch in the sidebar
 
 <p align="center">
   <img src="docs/screenshots/watcher.png" width="720" alt="A watcher that clicks a Skip button whenever it appears">
@@ -95,6 +101,8 @@ that wait for a button to appear before tapping it. It works with any app or win
 - Positions are stored relative to the target app's window, so moving the window doesn't break anything
 - Optional click spread: every click lands at a random spot within a radius you choose, and clicks on a
   found picture always stay inside it
+- A notification if something stops on its own while you're in another app, such as a chain that
+  gave up waiting or a watcher that reached its click limit
 
 <p align="center">
   <img src="docs/screenshots/settings.png" width="720" alt="Settings with click spread">
@@ -108,7 +116,7 @@ See [Build it yourself](#build-it-yourself).
 ## Private by default
 
 MacroClicker runs entirely on your Mac. It has no accounts, no analytics and no network code at all.
-Macros are readable `.json` files in `~/Library/Application Support/MacroClicker`, which you can back
+Text recognition happens on-device too. Macros are readable `.json` files in `~/Library/Application Support/MacroClicker`, which you can back
 up, edit or share.
 
 It asks only for the permissions a feature needs, and works without the optional one:

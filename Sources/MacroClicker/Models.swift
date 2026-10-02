@@ -284,6 +284,12 @@ struct ImageStep: Codable, Equatable {
     /// Keep clicking every `repeatEvery` seconds until it disappears (for taps that don't register the first time).
     var repeatUntilGone = false
     var repeatEvery: Double = 0.5
+    /// Look for this text instead of the picture (nil = picture).
+    var text: String?
+    /// Only search inside this part of the window (window points; nil = whole window).
+    var area: CGRect?
+
+    var isText: Bool { !(text ?? "").trimmingCharacters(in: .whitespaces).isEmpty }
 
     init(png: Data, width: Double, height: Double, originX: Double, originY: Double) {
         self.png = png
@@ -318,6 +324,8 @@ extension ImageStep {
         settle = try c.decodeIfPresent(Double.self, forKey: .settle) ?? 0
         repeatUntilGone = try c.decodeIfPresent(Bool.self, forKey: .repeatUntilGone) ?? false
         repeatEvery = try c.decodeIfPresent(Double.self, forKey: .repeatEvery) ?? 0.5
+        text = try c.decodeIfPresent(String.self, forKey: .text)
+        area = try c.decodeIfPresent(CGRect.self, forKey: .area)
     }
 }
 
@@ -326,6 +334,26 @@ struct MacroStep: Codable, Identifiable, Equatable {
     /// Seconds to wait (at 1× speed) before performing this step.
     var delay: Double
     var action: StepAction
+    /// Switched-off steps stay in the macro but are skipped when it plays.
+    var enabled = true
+
+    init(id: UUID = UUID(), delay: Double, action: StepAction, enabled: Bool = true) {
+        self.id = id
+        self.delay = delay
+        self.action = action
+        self.enabled = enabled
+    }
+}
+
+extension MacroStep {
+    // Hand-written so steps saved before on/off switches existed still load.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        delay = try c.decode(Double.self, forKey: .delay)
+        action = try c.decode(StepAction.self, forKey: .action)
+        enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
+    }
 }
 
 struct PlaybackOptions: Codable, Equatable {
@@ -456,6 +484,8 @@ struct Preferences: Codable, Equatable {
     /// Every click lands at a random spot within `clickSpreadRadius` points of its target.
     var clickSpread = true
     var clickSpreadRadius: Double = 15
+    /// A notification when something stops on its own while MacroClicker is in the background.
+    var notifyWhenStopped = true
 }
 
 // MARK: - Formatting

@@ -243,6 +243,7 @@ struct MacroDetailView: View {
         HStack {
             Menu {
                 Button("Picture step… (wait for a picture, then click it)") { addPictureStep() }
+                Button("Text step… (wait for some text, then click it)") { addTextStep() }
                 Divider()
                 Button("Wait (1s)") { insert(.wait, delay: 1) }
                 Button("Wait for a color… (hover the spot, 3s countdown)") {
@@ -374,6 +375,13 @@ struct MacroDetailView: View {
         Task { @MainActor in
             if let img = await model.windowPicture(for: app) { ui.pictureSource = img }
         }
+    }
+
+    /// A step that reads the window for some text; the editor opens so it can be typed in.
+    private func addTextStep() {
+        var step = ImageStep(png: Data(), width: 0, height: 0, originX: 0, originY: 0)
+        step.text = ""
+        ui.editingPicture = insert(.findImage(step), delay: macro.steps.isEmpty ? 0 : 0.1)
     }
 
     private func editPicture(_ g: ActionGroup) {

@@ -84,7 +84,9 @@ final class AppModel: ObservableObject {
         watcherEngine.onFinished = { [weak self] id in
             guard let self else { return }
             self.stopWatcher(id)
-            self.flash("“\(self.watchers.first { $0.id == id }?.name ?? "Watcher")” reached its click limit and stopped.")
+            let name = self.watchers.first { $0.id == id }?.name ?? "Watcher"
+            self.flash("“\(name)” reached its click limit and stopped.")
+            Notifier.post(name, "Reached its click limit and stopped.", enabled: self.prefs.notifyWhenStopped)
         }
         refreshPermissions()
         registerHotkeys()
@@ -210,7 +212,10 @@ final class AppModel: ObservableObject {
         }, finished: { [weak self] error in
             guard let self, !self.clicker.isRunning else { return }
             self.isAutoClicking = false
-            if let error { self.flash(error); self.sound("Basso") }
+            if let error {
+                self.flash(error); self.sound("Basso")
+                Notifier.post("Auto clicker stopped", error, enabled: self.prefs.notifyWhenStopped)
+            }
         })
     }
 
@@ -564,7 +569,10 @@ final class AppModel: ObservableObject {
             guard let self, !self.player.isRunning else { return }
             self.playingMacroID = nil
             self.playWaitingColor = nil
-            if let error { self.flash(error); self.sound("Basso") }
+            if let error {
+                self.flash(error); self.sound("Basso")
+                Notifier.post(macro.name, error, enabled: self.prefs.notifyWhenStopped)
+            }
         })
     }
 
@@ -631,7 +639,7 @@ final class AppModel: ObservableObject {
     /// Why a watcher can't run yet, or nil if it's ready.
     func watcherProblem(_ w: Watcher) -> String? {
         if w.target.app == nil { return "Choose the app to watch." }
-        if !w.hasTemplate { return "Pick the picture to look for." }
+        if !w.canSearch { return "Pick the picture or type the text to look for." }
         // Screenshot copies have no permissions on purpose.
         if ProcessInfo.processInfo.environment["MACROCLICKER_SCREENSHOTS"] != nil { return nil }
         if !(hasScreenRecording || ScreenReader.hasPermission) { return "Allow Screen Recording in Permissions so the window can be seen." }
@@ -686,24 +694,26 @@ final class AppModel: ObservableObject {
     /// Looks for the picture once and describes the result.
     func testWatcher(_ w: Watcher) async -> String {
         if let problem = watcherProblem(w), !problem.contains("Accessibility") { return problem }
-        guard let data = w.templatePNG else { return "Pick the picture to look for." }
-        return await testMatch(png: data, width: w.templateWidth, height: w.templateHeight, strictness: w.strictness, in: w.target.app)
+        return await testMatch(Lookup(watcher: w), in: w.target.app)
     }
 
     func testPicture(_ s: ImageStep, in app: TargetApp?) async -> String {
-        await testMatch(png: s.png, width: s.width, height: s.height, strictness: s.strictness, in: app)
+        await testMatch(Lookup(step: s), in: app)
     }
 
-    private func testMatch(png: Data, width: Double, height: Double, strictness: Double, in app: TargetApp?) async -> String {
+    private func testMatch(_ lookup: Lookup?, in app: TargetApp?) async -> String {
         guard let app else { return "Choose the app to watch first." }
         guard let win = WindowFinder.find(app) else { return "Can't find \(app.name)'s window. Is it open?" }
-        guard let t = TemplateMatcher.prepare(png: png, width: width, height: height) else {
-            return "The picture couldn't be read. Pick it again."
-        }
+        guard let lookup else { return "The picture couldn't be read. Pick it again." }
         guard let shot = await ScreenReader.captureWindowAsync(win) else {
             return "Couldn't capture \(app.name). Allow Screen Recording in Permissions."
         }
-        let match = await Task.detached { TemplateMatcher.find(t, inRGBA: shot.rgba, width: shot.width, height: shot.height) }.value
+        let match = await Task.detached { lookup.find(in: shot) }.value
+        if let text = lookup.text, !text.isEmpty {
+            guard let m = match else { return "“\(text)” isn't on screen right now." }
+            return "Found “\(text)” at (\(Int(m.rect.midX)), \(Int(m.rect.midY)))."
+        }
+        let strictness = lookup.strictness
         guard let m = match else { return "Not found." }
         let pct = Int((m.score * 100).rounded())
         if m.score >= strictness {

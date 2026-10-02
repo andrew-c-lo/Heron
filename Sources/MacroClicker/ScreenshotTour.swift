@@ -6,6 +6,7 @@ import SwiftUI
 /// no Screen Recording permission, and there's no mouse pointer in the pictures.
 @MainActor
 enum ScreenshotTour {
+
     static func runIfRequested(_ model: AppModel) {
         guard let dir = ProcessInfo.processInfo.environment["MACROCLICKER_SCREENSHOT_DIR"], !dir.isEmpty else { return }
         let out = URL(fileURLWithPath: dir, isDirectory: true)
@@ -14,11 +15,13 @@ enum ScreenshotTour {
         let routine = model.macros.first { $0.name == "Morning routine" }?.id
         let chain = model.macros.first { $0.name == "Collect daily rewards" }?.id
         let watcher = model.watchers.first?.id
+        let textWatcher = model.watchers.first { $0.text != nil }?.id
         var shots: [(String, SidebarItem?, String?)] = [
             ("visual", routine.map { .macro($0) }, "visual"),
             ("chain", chain.map { .macro($0) }, "actions"),
             ("auto-clicker", .autoClicker, nil),
             ("watcher", watcher.map { .watcher($0) }, nil),
+            ("watcher-text", textWatcher.map { .watcher($0) }, nil),
             ("settings", .general, nil),
         ]
         shots.removeAll { $0.1 == nil }

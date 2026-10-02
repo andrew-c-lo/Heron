@@ -4,6 +4,61 @@ final class WatcherUIState: ObservableObject {
     @Published var picker: NSImage?
     @Published var testResult: String?
     @Published var testing = false
+    /// The open screenshot is for choosing the search area (not the picture).
+    @Published var pickingArea = false
+}
+
+/// "Look for: Picture | Text". Text mode is `text != nil`, so an empty box stays in text mode.
+struct LookForPicker: View {
+    @Binding var text: String?
+
+    var body: some View {
+        Picker("Look for", selection: Binding(get: { text != nil }, set: { text = $0 ? (text ?? "") : nil })) {
+            Text("Picture").tag(false)
+            Text("Text").tag(true)
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden() // the section is already titled "Look for"
+    }
+}
+
+/// The text to look for, read on-device with Live Text–style recognition.
+struct LookForTextField: View {
+    @Binding var text: String?
+
+    var body: some View {
+        LabeledContent {
+            TextField("Text", text: Binding(get: { text ?? "" }, set: { text = $0 }), prompt: Text("Claim"))
+                .labelsHidden()
+                .multilineTextAlignment(.trailing)
+                .frame(width: 220)
+        } label: {
+            Text("Text")
+            Text("Found anywhere it appears, ignoring capitals. Read on this Mac; nothing is uploaded.")
+        }
+    }
+}
+
+/// Limit the search to part of the window: faster, and avoids matches elsewhere.
+struct SearchAreaRow: View {
+    @Binding var area: CGRect?
+    let onChoose: () -> Void
+
+    var body: some View {
+        LabeledContent {
+            HStack(spacing: 8) {
+                Text(area.map { "\(Int($0.width)) × \(Int($0.height)) at (\(Int($0.minX)), \(Int($0.minY)))" } ?? "Whole window")
+                    .monospacedDigit().foregroundStyle(.secondary)
+                Button(area == nil ? "Choose…" : "Change…", action: onChoose)
+                if area != nil {
+                    Button("Clear") { area = nil }
+                }
+            }
+        } label: {
+            Text("Search area")
+            Text("Only look inside part of the window.")
+        }
+    }
 }
 
 struct WatcherDetailView: View {
@@ -35,18 +90,25 @@ struct WatcherDetailView: View {
             }
 
             Section {
+                LookForPicker(text: $watcher.text)
+                if watcher.text != nil {
+                    LookForTextField(text: $watcher.text)
+                    HStack {
+                        testButton
+                        Spacer()
+                    }
+                } else {
                 HStack(alignment: .center, spacing: 16) {
                     templatePreview
                     VStack(alignment: .leading, spacing: 8) {
                         Button(watcher.hasTemplate ? "Pick Again from Screenshot…" : "Pick from Screenshot…") { pick() }
-                        Button(ui.testing ? "Looking…" : "Test Now") { test() }
-                            .disabled(ui.testing || !watcher.hasTemplate)
-                        if let r = ui.testResult {
-                            Text(r).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                        }
+                        testButton
                     }
                     Spacer(minLength: 0)
                 }
+                }
+                SearchAreaRow(area: $watcher.area) { pick(area: true) }
+                if watcher.text == nil {
                 LabeledContent {
                     HStack {
                         Slider(value: $watcher.strictness, in: 0.6...0.98)
@@ -57,6 +119,7 @@ struct WatcherDetailView: View {
                 } label: {
                     Text("Match strictness")
                     Text("How closely the screen must match the picture. 80% suits most buttons; raise it if look-alikes get clicked.")
+                }
                 }
             } header: {
                 Text("Look for")
@@ -69,7 +132,8 @@ struct WatcherDetailView: View {
                     Text("Click with")
                 }
                 .pickerStyle(.segmented)
-                seconds("Click every", "While the picture stays on screen.", $watcher.interval)
+                seconds("Click every", watcher.text != nil ? "While the text stays on screen." : "While the picture stays on screen.",
+                        $watcher.interval)
                 seconds("Wait before the first click", "How long it must be visible first. Helps with buttons that animate in.",
                         $watcher.firstClickDelay)
                 LabeledContent {
@@ -91,7 +155,7 @@ struct WatcherDetailView: View {
                     }
                 } label: {
                     Text("Click offset")
-                    Text("Shift the click away from the picture's center, in points.")
+                    Text("Shift the click away from the \(watcher.text != nil ? "text" : "picture")'s center, in points.")
                 }
             }
 
@@ -118,7 +182,7 @@ struct WatcherDetailView: View {
         }
         .sheet(item: Binding(get: { ui.picker.map(PickerImage.init) }, set: { ui.picker = $0?.image })) { item in
             RegionPickerSheet(image: item.image) { rect in
-                useRegion(rect, of: item.image)
+                if ui.pickingArea { watcher.area = rect.integral } else { useRegion(rect, of: item.image) }
                 ui.picker = nil
             } onCancel: {
                 ui.picker = nil
@@ -131,7 +195,8 @@ struct WatcherDetailView: View {
         guard let st = status else { return "Starting…" }
         if let e = st.error { return e }
         let seen = st.visible ? "On screen now" : st.lastSeen.map { "Last seen \(relative($0))" } ?? "Not seen yet"
-        return "\(seen) · \(st.clicks) click\(st.clicks == 1 ? "" : "s") · best match \(Int((st.score * 100).rounded()))%"
+        let clicks = "\(seen) · \(st.clicks) click\(st.clicks == 1 ? "" : "s")"
+        return watcher.text != nil ? clicks : clicks + " · best match \(Int((st.score * 100).rounded()))%"
     }
 
     private func relative(_ d: Date) -> String {
@@ -175,9 +240,22 @@ struct WatcherDetailView: View {
         }
     }
 
-    private func pick() {
+    private var testButton: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Button(ui.testing ? "Looking…" : "Test Now") { test() }
+                .disabled(ui.testing || !watcher.canSearch)
+            if let r = ui.testResult {
+                Text(r).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private func pick(area: Bool = false) {
         Task { @MainActor in
-            if let img = await model.windowPicture(for: watcher.target.app) { ui.picker = img }
+            if let img = await model.windowPicture(for: watcher.target.app) {
+                ui.pickingArea = area
+                ui.picker = img
+            }
         }
     }
 

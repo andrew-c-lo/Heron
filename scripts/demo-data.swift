@@ -121,7 +121,17 @@ for (i, r) in [claims[0], claims[1], cont, skip].enumerated() {
     s.otherwise = .continueAnyway
     s.strictness = 0.85
     chain.steps.append(MacroStep(delay: i == 0 ? 0 : 0.3, action: .findImage(s)))
+    if i == 1 {
+        // A text step: tap the last card's "Claim", searching only that card.
+        var t = ImageStep(png: Data(), width: 0, height: 0, originX: 0, originY: 0)
+        t.text = "Claim"
+        t.area = CGRect(x: 16, y: 482, width: W - 32, height: 78)
+        t.timeout = 5
+        t.otherwise = .continueAnyway
+        chain.steps.append(MacroStep(delay: 0.3, action: .findImage(t)))
+    }
 }
+chain.steps[chain.steps.count - 1].enabled = false // "Skip" switched off
 save(chain, snapshot: true)
 
 // MARK: Watcher
@@ -134,7 +144,11 @@ watcher.templateWidth = skipCrop.1
 watcher.templateHeight = skipCrop.2
 watcher.interval = 0.5
 watcher.firstClickDelay = 0.3
-try! JSONEncoder().encode([watcher]).write(to: home.appendingPathComponent("Watchers.json"))
+var gifts = Watcher(name: "Claim gifts")
+gifts.target = TargetOptions(app: phone, delivery: .jumpReturn)
+gifts.text = "4 gifts waiting"
+gifts.interval = 2
+try! JSONEncoder().encode([watcher, gifts]).write(to: home.appendingPathComponent("Watchers.json"))
 
 // MARK: Preferences for the demo copy (its own bundle id, so its own settings)
 

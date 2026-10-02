@@ -87,7 +87,7 @@ struct ActionEditing {
         guard macro.wrappedValue.playback.order == .allAtOnce, case .image(let s) = g.kind else { return nil }
         guard s.mode == .click else { return "Skipped in All at once (only steps that click are used)" }
         let how = s.repeatUntilGone ? "every \(s.repeatEvery.formatted())s while it's showing" : "once each time it appears"
-        return "Whenever it appears, \(how) · \(Int((s.strictness * 100).rounded()))% match"
+        return "Whenever it appears, \(how)" + (s.isText ? "" : " · \(Int((s.strictness * 100).rounded()))% match")
     }
 
     /// The id of the step that holds a group's main action (e.g. the picture step itself).
@@ -105,6 +105,19 @@ struct ActionEditing {
             set: { v in
                 guard let i = steps.firstIndex(where: { $0.id == stepID }) else { return }
                 macro.wrappedValue.steps[i].action = .findImage(v)
+            }
+        )
+    }
+
+    /// Switching an action off switches off all of its raw steps (and its wait), so playback skips it whole.
+    func enabledBinding(_ g: ActionGroup) -> Binding<Bool> {
+        Binding(
+            get: { g.enabled },
+            set: { on in
+                guard g.range.upperBound <= steps.count else { return }
+                var s = steps
+                for k in g.range { s[k].enabled = on }
+                macro.wrappedValue.steps = s
             }
         )
     }
@@ -142,7 +155,7 @@ struct ActionEditing {
 
     func summary(_ groups: [ActionGroup]) -> String {
         let touch = isTouch
-        var clicks = 0, drags = 0, scrolls = 0, keys = 0, pauses = 0, colors = 0, pictures = 0
+        var clicks = 0, drags = 0, scrolls = 0, keys = 0, pauses = 0, colors = 0, pictures = 0, texts = 0
         for g in groups {
             switch g.kind {
             case .click: clicks += 1
@@ -151,14 +164,14 @@ struct ActionEditing {
             case .keys: keys += 1
             case .wait: pauses += 1
             case .colorWait: colors += 1
-            case .image: pictures += 1
+            case .image(let s): if s.text != nil { texts += 1 } else { pictures += 1 }
             default: break
             }
         }
         func n(_ count: Int, _ word: String) -> String? {
             count == 0 ? nil : "\(count) \(word)\(count == 1 ? "" : "s")"
         }
-        let parts = [n(pictures, "picture step"), n(clicks, touch ? "tap" : "click"), n(drags, touch ? "swipe" : "drag"), n(scrolls, "scroll"),
+        let parts = [n(pictures, "picture step"), n(texts, "text step"), n(clicks, touch ? "tap" : "click"), n(drags, touch ? "swipe" : "drag"), n(scrolls, "scroll"),
                      n(keys, "keyboard action"), n(colors, "color check"), n(pauses, "pause")].compactMap { $0 }
         let head = "\(groups.count) action\(groups.count == 1 ? "" : "s")"
         return parts.isEmpty ? head : head + ": " + parts.joined(separator: ", ")
@@ -184,6 +197,7 @@ struct SimpleStepsList: View {
             List(selection: editing.selectionBinding(groups)) {
                 ForEach(Array(groups.enumerated()), id: \.element.id) { i, g in
                     ActionRow(group: g, number: i + 1, touch: touch,
+                              enabled: editing.enabledBinding(g),
                               wait: editing.waitBinding(g),
                               point: g.editablePoint == nil ? nil : editing.pointBinding(g),
                               color: editing.colorBinding(g),
@@ -218,9 +232,10 @@ struct ActionMenu: View {
     var onEditPicture: (ActionGroup) -> Void = { _ in }
 
     var body: some View {
-        if case .image = group.kind {
-            Button("Edit Picture Step…") { onEditPicture(group) }
+        if case .image(let s) = group.kind {
+            Button(s.isText ? "Edit Text Step…" : "Edit Picture Step…") { onEditPicture(group) }
         }
+        Toggle("On", isOn: editing.enabledBinding(group))
         if case .click = group.kind, group.editablePoint != nil {
             Button("Only \(editing.isTouch ? "tap" : "click") if the color matches…") { onAddColorCheck(group) }
         }
@@ -234,6 +249,7 @@ struct ActionRow: View {
     let group: ActionGroup
     let number: Int
     let touch: Bool
+    var enabled: Binding<Bool>? = nil
     let wait: Binding<Double>
     let point: Binding<CGPoint>?
     var color: Binding<ColorWait>? = nil
@@ -246,6 +262,13 @@ struct ActionRow: View {
 
     var body: some View {
         HStack(spacing: 10) {
+            if let enabled {
+                Toggle("", isOn: enabled)
+                    .toggleStyle(.checkbox)
+                    .labelsHidden()
+                    .help(enabled.wrappedValue ? "On. Uncheck to skip this action when the macro plays."
+                                               : "Off. This action is skipped when the macro plays.")
+            }
             Text("\(number)")
                 .monospacedDigit()
                 .foregroundStyle(.tertiary)
@@ -274,7 +297,7 @@ struct ActionRow: View {
                     ColorWaitControls(wait: color, onSampleColor: onSampleColor)
                 } else if case .image(let pic) = group.kind {
                     HStack(spacing: 8) {
-                        PictureThumbnail(png: pic.png, maxWidth: 110, maxHeight: 26)
+                        if !pic.isText { PictureThumbnail(png: pic.png, maxWidth: 110, maxHeight: 26) }
                         if let d = detailOverride ?? group.detail { Text(d).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
                         // Shown on the row under the pointer only (double-click or right-click also edits).
                         Button("Edit…", action: onEditPicture)
@@ -305,6 +328,7 @@ struct ActionRow: View {
                 .help("When this happens, counted from the start of the macro at 1× speed")
         }
         .padding(.vertical, 3)
+        .opacity(group.enabled ? 1 : 0.45)
         .contentShape(Rectangle())
         .onHover { h in withAnimation(Motion.snap(reduceMotion)) { hover.hovering = h } }
         .simultaneousGesture(TapGesture(count: 2).onEnded {

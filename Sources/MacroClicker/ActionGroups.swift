@@ -26,6 +26,8 @@ struct ActionGroup: Identifiable {
     /// Seconds from the start of the macro until the action happens.
     let start: Double
     let kind: Kind
+    /// Off = skipped when the macro plays.
+    var enabled = true
 
     /// Index of the first non-travel step.
     var actionIndex: Int { lead.upperBound }
@@ -56,6 +58,14 @@ struct ActionGroup: Identifiable {
         case .colorWait(_, let c):
             return "Wait for \(c.hex)"
         case .image(let s):
+            if s.isText {
+                let t = "“\(s.text!.trimmingCharacters(in: .whitespaces))”"
+                switch s.mode {
+                case .click: return (touch ? "Tap " : "Click ") + t + (s.repeatUntilGone ? " until it's gone" : "")
+                case .appear: return "Wait for " + t
+                case .gone: return "Wait until " + t + " is gone"
+                }
+            }
             switch s.mode {
             case .click: return (touch ? "Tap" : "Click") + " the picture" + (s.repeatUntilGone ? " until it's gone" : "")
             case .appear, .gone: return s.mode.label
@@ -72,7 +82,8 @@ struct ActionGroup: Identifiable {
         case .image(let s):
             (s.untilAppears ? (s.mode == .gone ? "no time limit" : "whenever it appears")
                             : "up to \(s.timeout.formatted())s, else \(s.otherwise.label.lowercased())")
-                + " · \(Int((s.strictness * 100).rounded()))% match"
+                + (s.isText ? "" : " · \(Int((s.strictness * 100).rounded()))% match")
+                + (s.area == nil ? "" : " · in an area")
         case .colorWait(let at, let c):
             "at \(Self.fmt(at))"
                 + (c.untilAppears ? ", until it appears" : c.timeout > 0 ? ", up to \(c.timeout.formatted())s" : ", check once")
@@ -94,7 +105,7 @@ struct ActionGroup: Identifiable {
         case .keys: return "keyboard"
         case .wait: return "clock"
         case .colorWait: return "eyedropper"
-        case .image(let s): return s.mode.icon
+        case .image(let s): return s.isText && s.mode == .click ? "text.viewfinder" : s.mode.icon
         case .move: return "arrow.up.and.down.and.arrow.left.and.right"
         case .other(_, let icon): return icon
         }
@@ -197,7 +208,7 @@ enum ActionGrouper {
             }
 
             out.append(ActionGroup(id: steps[start].id, range: start..<end, lead: start...first, wait: wait,
-                                   start: clock + wait, kind: kind))
+                                   start: clock + wait, kind: kind, enabled: steps[first].enabled))
             clock += steps[start..<end].reduce(0) { $0 + $1.delay }
             i = end
         }

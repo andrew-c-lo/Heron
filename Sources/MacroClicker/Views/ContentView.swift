@@ -89,6 +89,7 @@ struct Sidebar: View {
                 ForEach(model.watchers) { w in
                     let running = model.runningWatchers.contains(w.id)
                     let visible = model.watcherStatus[w.id]?.visible == true
+                    HStack {
                     Label {
                         VStack(alignment: .leading, spacing: 1) {
                             Text(w.name).lineLimit(1)
@@ -98,6 +99,13 @@ struct Sidebar: View {
                     } icon: {
                         Image(systemName: running ? "eye.fill" : "eye")
                             .foregroundStyle(running ? (visible ? Color.orange : Color.green) : Color.accentColor)
+                    }
+                    Spacer(minLength: 4)
+                    Toggle("", isOn: Binding(get: { running }, set: { if $0 != running { model.toggleWatcher(w.id) } }))
+                        .toggleStyle(.switch)
+                        .controlSize(.mini)
+                        .labelsHidden()
+                        .help(running ? "Stop watching" : "Start watching")
                     }
                     .tag(SidebarItem.watcher(w.id))
                     .contextMenu {

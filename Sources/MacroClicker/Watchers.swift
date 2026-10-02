@@ -26,6 +26,14 @@ struct Watcher: Codable, Identifiable, Equatable {
     /// Where to click, relative to the picture's centre (points).
     var offsetX: Double = 0
     var offsetY: Double = 0
+    /// Look for this text instead of the picture (nil = picture).
+    var text: String?
+    /// Only search inside this part of the window (window points; nil = whole window).
+    var area: CGRect?
+
+    var isText: Bool { !(text ?? "").trimmingCharacters(in: .whitespaces).isEmpty }
+    /// Has something to look for.
+    var canSearch: Bool { text != nil ? isText : hasTemplate }
 
     var templateSize: CGSize { CGSize(width: templateWidth, height: templateHeight) }
     var hasTemplate: Bool { templatePNG != nil && templateWidth >= 4 && templateHeight >= 4 }
@@ -467,7 +475,10 @@ final class WatcherEngine {
     }
 
     private func loop(_ token: CancelToken) {
-        var prepared: [UUID: (data: Data?, size: CGSize, t: TemplateMatcher.Prepared?)] = [:]
+        var prepared: [UUID: (key: LookupKey, lookup: Lookup?)] = [:]
+        // Reading text takes far longer than matching a picture, so it's done a few times a second at most.
+        var lastTextRead: [UUID: Double] = [:]
+        var unreadText: Set<UUID> = []
         var status: [UUID: WatcherStatus] = [:]
         var seenSince: [UUID: Double] = [:]
         var lastClick: [UUID: Double] = [:]
@@ -505,20 +516,33 @@ final class WatcherEngine {
                 for w in group {
                     var st = status[w.id] ?? WatcherStatus()
                     st.error = nil
-                    // Re-prepare only when the picture changes.
-                    if prepared[w.id]?.data != w.templatePNG || prepared[w.id]?.size != w.templateSize {
-                        prepared[w.id] = (w.templatePNG, w.templateSize, TemplateMatcher.prepare(w))
-                    }
-                    guard let t = prepared[w.id]?.t else {
-                        st.error = "Pick the picture to look for."
+                    // Re-prepare only when what it looks for changes.
+                    let key = LookupKey(w)
+                    if prepared[w.id]?.key != key { prepared[w.id] = (key, Lookup(watcher: w)) }
+                    guard let lookup = prepared[w.id]?.lookup else {
+                        st.error = w.text != nil ? "Type the text to look for." : "Pick the picture to look for."
                         status[w.id] = st
                         continue
                     }
+                    // A text watcher that skipped a new frame still reads it once its turn comes, even if the
+                    // screen has gone still since.
+                    if scene != nil && lookup.isText { unreadText.insert(w.id) }
+                    let due: Bool
+                    if lookup.isText {
+                        due = unreadText.contains(w.id) && Timing.now() - (lastTextRead[w.id] ?? 0) >= 0.25
+                    } else {
+                        due = scene != nil
+                    }
                     let match: TemplateMatcher.Match?
-                    if let scene { match = TemplateMatcher.find(t, in: scene); lastMatch[w.id] = match }
-                    else { match = lastMatch[w.id] ?? nil }
+                    if due {
+                        match = lookup.find(in: frame.pixels, scene: scene)
+                        lastMatch[w.id] = match
+                        if lookup.isText { lastTextRead[w.id] = Timing.now(); unreadText.remove(w.id) }
+                    } else {
+                        match = lastMatch[w.id] ?? nil
+                    }
                     st.score = match?.score ?? 0
-                    let found = (match?.score ?? 0) >= w.strictness
+                    let found = match != nil && (lookup.isText || (match?.score ?? 0) >= w.strictness)
                     let now = Timing.now()
                     if found, let m = match {
                         if !st.visible { seenSince[w.id] = now }
@@ -580,5 +604,13 @@ enum PictureCrop {
         guard let cropped = cg.cropping(to: px),
               let png = NSBitmapImageRep(cgImage: cropped).representation(using: .png, properties: [:]) else { return nil }
         return (png, Double(rect.width.rounded()), Double(rect.height.rounded()))
+    }
+}
+
+/// What a watcher looks for, for noticing when it changed.
+struct LookupKey: Equatable {
+    let png: Data?, width: Double, height: Double, text: String?, area: CGRect?, strictness: Double
+    init(_ w: Watcher) {
+        (png, width, height, text, area, strictness) = (w.templatePNG, w.templateWidth, w.templateHeight, w.text, w.area, w.strictness)
     }
 }

@@ -110,6 +110,7 @@ extension ActionGroup {
     var points: [CGPoint] {
         switch kind {
         case .click(_, _, let at?, _), .scroll(_, _, let at?), .colorWait(let at, _), .move(let at): [at]
+        case .image(let s) where s.text != nil: s.area.map { [CGPoint(x: $0.midX, y: $0.midY)] } ?? []
         case .image(let s): [CGPoint(x: s.originX + s.width / 2, y: s.originY + s.height / 2)]
         case .drag(_, let a, let b): [a, b]
         default: []
@@ -252,6 +253,7 @@ struct ActionMap: View {
         return MapMarker(number: item.number, tint: g.tint, icon: markerIcon(g), rings: ringCount(g),
                          selected: selected, playing: playing == item.number - 1,
                          isColorCheck: { if case .colorWait = g.kind { return true } else { return false } }())
+            .opacity(g.enabled ? 1 : 0.35)
             .position(item.point)
             .help("\(item.number). \(g.title(touch: editing.isTouch)) · at \(ActionRow.timestamp(g.start))")
             .onTapGesture { editing.select(g) }
@@ -283,7 +285,7 @@ struct ActionMap: View {
         switch g.kind {
         case .scroll: "scroll"
         case .colorWait: "eyedropper"
-        case .image(let s): s.mode.icon
+        case .image(let s): s.isText && s.mode == .click ? "text.viewfinder" : s.mode.icon
         default: nil
         }
     }

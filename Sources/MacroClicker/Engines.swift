@@ -35,7 +35,9 @@ final class Player {
         self.token = token
         let opts = macro.playback
         let target = macro.target
-        let steps = opts.skipMouseMoves ? Self.removingMoves(macro.steps) : macro.steps
+        // Switched-off steps are skipped entirely (their waits too).
+        let enabledSteps = macro.steps.filter(\.enabled)
+        let steps = opts.skipMouseMoves ? Self.removingMoves(enabledSteps) : enabledSteps
         let speed = max(opts.speed, 0.01)
         let groups = ActionGrouper.groups(for: steps)
         // Color checks that ignore timing: no recorded wait before the check, or before the action after it.
@@ -111,7 +113,12 @@ final class Player {
                                 error = "Picture steps need a target app. Choose one with the Target button."
                                 break outer
                             }
-                            Task { @MainActor in waiting("the picture") }
+                            if pic.text != nil && !pic.isText {
+                                error = "Step \(i + 1) has no text to look for. Type it in the step's settings."
+                                break outer
+                            }
+                            let looking = pic.isText ? "“\(pic.text!.trimmingCharacters(in: .whitespaces))”" : "the picture"
+                            Task { @MainActor in waiting(looking) }
                             let result = Self.runPictureStep(pic, performer: performer, resolver: resolver, token: token)
                             Task { @MainActor in waiting(nil) }
                             switch result {
@@ -126,7 +133,7 @@ final class Player {
                                 case .skipNext: skipUntil = nextActionEnd[i]
                                 case .nextLoop: t = Timing.now(); loop += 1; continue outer
                                 case .stopMacro:
-                                    error = "Stopped: step \(i + 1)'s picture didn't \(pic.mode == .gone ? "go away" : "appear") in time."
+                                    error = "Stopped: step \(i + 1)'s \(pic.text != nil ? "text" : "picture") didn't \(pic.mode == .gone ? "go away" : "appear") in time."
                                     break outer
                                 }
                             }
@@ -206,11 +213,10 @@ final class Player {
                              progress: @escaping @MainActor (Int, Int, Double?) -> Void,
                              waiting: @escaping @MainActor (String?) -> Void) -> String? {
         guard let resolver else { return "Picture steps need a target app. Choose one with the Target button." }
-        struct Item { let index: Int; let step: ImageStep; let template: TemplateMatcher.Prepared }
+        struct Item { let index: Int; let step: ImageStep; let lookup: Lookup }
         let items: [Item] = steps.enumerated().compactMap { i, s in
-            guard case .findImage(let p) = s.action, p.mode == .click,
-                  let t = TemplateMatcher.prepare(png: p.png, width: p.width, height: p.height) else { return nil }
-            return Item(index: i, step: p, template: t)
+            guard case .findImage(let p) = s.action, p.mode == .click, let l = Lookup(step: p) else { return nil }
+            return Item(index: i, step: p, lookup: l)
         }
         guard !items.isEmpty else { return "“All at once” needs at least one picture step set to click." }
 
@@ -241,7 +247,7 @@ final class Player {
                 let scene = TemplateMatcher.Scene(rgba: frame.pixels.rgba, width: frame.pixels.width, height: frame.pixels.height)
                 found = [:]
                 for it in items {
-                    if let m = TemplateMatcher.find(it.template, in: scene), m.score >= it.step.strictness { found[it.index] = m.rect }
+                    if let r = it.lookup.locate(in: frame.pixels, scene: scene) { found[it.index] = r }
                 }
             }
             if let index = chooser.choose(found: Set(found.keys), now: tick),
@@ -268,7 +274,7 @@ final class Player {
 
     /// Looks for the picture in the target window and acts on it.
     static func runPictureStep(_ s: ImageStep, performer: Performer, resolver: TargetResolver, token: CancelToken) -> ColorResult {
-        guard let template = TemplateMatcher.prepare(png: s.png, width: s.width, height: s.height) else { return .unreadable }
+        guard let lookup = Lookup(step: s) else { return .unreadable }
         let deadline = s.timeout < 0 ? .infinity : Timing.now() + s.timeout
 
         enum Look { case found(CGRect, TargetWindow), missing, unreadable }
@@ -285,9 +291,8 @@ final class Player {
                   let frame = FrameSource.shared.frame(for: win, after: frameNumber, timeout: 0.1) else { return .unreadable }
             if frame.number == frameNumber { return cached }
             frameNumber = frame.number
-            if let m = TemplateMatcher.find(template, inRGBA: frame.pixels.rgba, width: frame.pixels.width, height: frame.pixels.height),
-               m.score >= s.strictness {
-                cached = .found(m.rect, win)
+            if let r = lookup.locate(in: frame.pixels) {
+                cached = .found(r, win)
             } else {
                 cached = .missing
             }

@@ -22,7 +22,10 @@ struct PictureStepEditor: View {
     var body: some View {
         if let screenshot = ui.picker {
             RegionPickerSheet(image: screenshot) { rect in
-                if let c = PictureCrop.crop(rect, from: screenshot) {
+                if ui.pickingArea {
+                    step.wrappedValue.area = rect.integral
+                    ui.testResult = nil
+                } else if let c = PictureCrop.crop(rect, from: screenshot) {
                     step.wrappedValue.png = c.png
                     step.wrappedValue.width = c.width
                     step.wrappedValue.height = c.height
@@ -53,30 +56,30 @@ struct PictureStepEditor: View {
 
     private var form: some View {
         Form {
-            Section("Picture") {
+            Section("Look for") {
+                LookForPicker(text: step.text)
+                if s.text != nil {
+                    LookForTextField(text: step.text)
+                    HStack {
+                        testButton
+                        Spacer()
+                    }
+                } else {
                 HStack(alignment: .center, spacing: 16) {
-                    PictureThumbnail(png: s.png, maxWidth: 220, maxHeight: 90)
+                    if s.png.isEmpty {
+                        Text("No picture yet").font(.caption).foregroundStyle(.secondary).frame(width: 160, height: 70)
+                    } else {
+                        PictureThumbnail(png: s.png, maxWidth: 220, maxHeight: 90)
+                    }
                     VStack(alignment: .leading, spacing: 8) {
-                        Button("Pick Again from Screenshot…") {
-                            Task { @MainActor in
-                                if let img = await model.windowPicture(for: app) { ui.picker = img }
-                            }
-                        }
-                        Button(ui.testing ? "Looking…" : "Test Now") {
-                            ui.testing = true
-                            let current = s
-                            Task { @MainActor in
-                                ui.testResult = await model.testPicture(current, in: app)
-                                ui.testing = false
-                            }
-                        }
-                        .disabled(ui.testing)
-                        if let r = ui.testResult {
-                            Text(r).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                        }
+                        Button(s.png.isEmpty ? "Pick from Screenshot…" : "Pick Again from Screenshot…") { pick(area: false) }
+                        testButton
                     }
                     Spacer(minLength: 0)
                 }
+                }
+                SearchAreaRow(area: step.area) { pick(area: true) }
+                if s.text == nil {
                 LabeledContent {
                     HStack {
                         Slider(value: step.strictness, in: 0.6...0.98).frame(width: 170)
@@ -86,6 +89,7 @@ struct PictureStepEditor: View {
                 } label: {
                     Text("Match strictness")
                     Text("Raise it if look-alikes get matched.")
+                }
                 }
             }
 
@@ -121,7 +125,7 @@ struct PictureStepEditor: View {
                         }
                     } label: {
                         Text("Click offset")
-                        Text("Shift the \(touch ? "tap" : "click") away from the picture's center, in points.")
+                        Text("Shift the \(touch ? "tap" : "click") away from the \(s.text != nil ? "text" : "picture")'s center, in points.")
                     }
                 }
             }
@@ -153,6 +157,33 @@ struct PictureStepEditor: View {
         } label: {
             Text(title)
             if !detail.isEmpty { Text(detail) }
+        }
+    }
+
+    private var testButton: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Button(ui.testing ? "Looking…" : "Test Now") {
+                ui.testing = true
+                let current = s
+                Task { @MainActor in
+                    ui.testResult = await model.testPicture(current, in: app)
+                    ui.testing = false
+                }
+            }
+            .disabled(ui.testing || (s.text != nil && !s.isText))
+            if let r = ui.testResult {
+                Text(r).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    /// Screenshot the window to re-pick the picture, or to box the search area.
+    private func pick(area: Bool) {
+        Task { @MainActor in
+            if let img = await model.windowPicture(for: app) {
+                ui.pickingArea = area
+                ui.picker = img
+            }
         }
     }
 }

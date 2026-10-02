@@ -10,7 +10,7 @@ SRC=Sources/MacroClicker
 mkdir -p "$DEMO/gen"
 cp scripts/demo-data.swift "$DEMO/gen/main.swift"
 swiftc -O -o "$DEMO/gen/demo-data" $SRC/Models.swift $SRC/KeyNames.swift $SRC/Target.swift $SRC/EventSynth.swift \
-    $SRC/Watchers.swift $SRC/Hotkeys.swift $SRC/ScreenReader.swift $SRC/Storage.swift $SRC/FrameSource.swift "$DEMO/gen/main.swift"
+    $SRC/Watchers.swift $SRC/Hotkeys.swift $SRC/ScreenReader.swift $SRC/Storage.swift $SRC/FrameSource.swift $SRC/Lookup.swift "$DEMO/gen/main.swift"
 "$DEMO/gen/demo-data" "$DEMO/home"
 
 ./build.sh >/dev/null

@@ -118,6 +118,11 @@ struct GeneralSettingsView: View {
                 }
             }
             Section {
+                Toggle(isOn: $model.prefs.notifyWhenStopped) {
+                    Text("Notify when something stops")
+                    Text("If a macro, the auto clicker or a watcher stops on its own while you're in another app.")
+                }
+                .onChange(of: model.prefs.notifyWhenStopped) { _, on in if on { Notifier.requestPermission() } }
                 Toggle(isOn: $model.prefs.playSounds) {
                     Text("Sounds")
                     Text("A soft sound when clicking, recording or playback starts and stops.")
