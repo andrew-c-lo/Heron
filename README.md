@@ -31,8 +31,7 @@
 Most auto clickers for the Mac cost money, want a subscription, or stop at "click here every second".
 MacroClicker is a native Mac app that does the simple thing well and keeps going: record what you do and
 replay it, see a recording as taps and swipes on a map instead of hundreds of raw events, and build chains
-that wait for a button to appear before tapping it. It was made with iPhone Mirroring in mind, but works
-with any app.
+that wait for a button to appear before tapping it. It works with any app or window.
 
 ## Everything it does
 

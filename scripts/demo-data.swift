@@ -39,7 +39,6 @@ func pill(_ r: CGRect, _ fill: NSColor, _ label: String, _ labelColor: NSColor =
 }
 
 NSGradient(colors: [color(0x0E1424), color(0x1A2747)])!.draw(in: NSRect(x: 0, y: 0, width: W, height: H), angle: 90)
-text("9:41", CGPoint(x: 32, y: 26), size: 15, weight: .semibold)
 let skip = CGRect(x: 296, y: 64, width: 72, height: 30)
 pill(skip, color(0xFFFFFF, 0.16), "Skip", size: 14)
 text("Rewards", CGPoint(x: 24, y: 130), size: 34, weight: .bold)
@@ -75,7 +74,7 @@ func crop(_ r: CGRect) -> (Data, Double, Double, CGRect) {
 
 // MARK: Macros
 
-let phone = TargetApp(bundleID: "com.apple.ScreenContinuity", name: "iPhone Mirroring")
+let phone = TargetApp(bundleID: "com.example.rewards", name: "Rewards")
 let enc = JSONEncoder(); enc.outputFormatting = [.prettyPrinted, .sortedKeys]; enc.dateEncodingStrategy = .iso8601
 func save(_ m: Macro, snapshot: Bool) {
     try! enc.encode(m).write(to: macroDir.appendingPathComponent("\(m.id.uuidString).json"))

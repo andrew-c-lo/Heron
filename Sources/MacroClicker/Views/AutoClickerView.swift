@@ -122,7 +122,7 @@ struct AutoClickerView: View {
                         }
                     }
                     IntField(title: "Tolerance (0 = exact)", value: s.colorTolerance, range: 0...255)
-                    Text("How far each of red, green and blue may differ. iPhone Mirroring is a video stream, so its colors flicker slightly. A small tolerance like 4–10 is more reliable than an exact match.")
+                    Text("How far each of red, green and blue may differ. Windows that show streamed video flicker slightly in color. A small tolerance like 4–10 is more reliable than an exact match.")
                         .font(.caption).foregroundStyle(.secondary)
                     if !model.hasScreenRecording {
                         HStack {

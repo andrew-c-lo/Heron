@@ -30,7 +30,7 @@ struct TargetControls: View {
     var body: some View {
         LabeledContent("Target app") {
             HStack {
-                if let app = target.app {
+                if let app = target.app, ProcessInfo.processInfo.environment["MACROCLICKER_SCREENSHOTS"] == nil {
                     Circle()
                         .fill(WindowFinder.find(app) != nil ? Color.green : Color.red)
                         .frame(width: 7, height: 7)
