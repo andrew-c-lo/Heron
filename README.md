@@ -101,6 +101,8 @@ that wait for a button to appear before tapping it. It works with any app or win
 - Positions are stored relative to the target app's window, so moving the window doesn't break anything
 - Optional click spread: every click lands at a random spot within a radius you choose, and clicks on a
   found picture always stay inside it
+- Optional double-click everywhere: every single click is sent as a double click, while drags and long
+  presses stay as they are
 - A notification if something stops on its own while you're in another app, such as a chain that
   gave up waiting or a watcher that reached its click limit
 

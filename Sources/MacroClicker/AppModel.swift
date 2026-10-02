@@ -9,6 +9,7 @@ final class AppModel: ObservableObject {
         didSet {
             Persist.save(prefs, "prefs")
             ClickSpread.configure(enabled: prefs.clickSpread, radius: prefs.clickSpreadRadius)
+            DoubleClickEverywhere.configure(enabled: prefs.doubleClickEverywhere)
         }
     }
     @Published private(set) var hotkeys: [HotkeyAction: Hotkey] {
@@ -70,6 +71,7 @@ final class AppModel: ObservableObject {
         let loadedPrefs = Persist.load("prefs", default: Preferences())
         prefs = loadedPrefs
         ClickSpread.configure(enabled: loadedPrefs.clickSpread, radius: loadedPrefs.clickSpreadRadius)
+        DoubleClickEverywhere.configure(enabled: loadedPrefs.doubleClickEverywhere)
         var loadedHotkeys = Persist.load("hotkeys", default: HotkeyAction.defaults)
         // Hotkeys added in later versions get their default once (unless that shortcut is already taken).
         if UserDefaults.standard.integer(forKey: "hotkeysVersion") < 2 {

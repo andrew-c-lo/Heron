@@ -116,6 +116,10 @@ struct GeneralSettingsView: View {
                         Text("How far from the target a click may land. Clicks at your own cursor position are never moved.")
                     }
                 }
+                Toggle(isOn: $model.prefs.doubleClickEverywhere) {
+                    Text("Double-click everywhere")
+                    Text("Every single click is sent as a double click: auto clicker, macros, chains, watchers and picture steps. Drags, long presses and clicks that are already double stay as they are.")
+                }
             }
             Section {
                 Toggle(isOn: $model.prefs.notifyWhenStopped) {

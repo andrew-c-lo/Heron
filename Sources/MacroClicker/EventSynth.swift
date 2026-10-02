@@ -57,12 +57,16 @@ enum EventSynth {
 
     /// Posts the event; returns its sequence number. Numbering and posting happen together so that
     /// sequence order is the order events reach the system.
+    /// Tests only: when set, events are handed here instead of being posted.
+    nonisolated(unsafe) static var testSink: ((CGEvent) -> Void)?
+
     @discardableResult
     private static func post(_ e: CGEvent, _ route: Route, keyboard: Bool = false) -> UInt32 {
         postLock.lock()
         defer { postLock.unlock() }
         sequence &+= 1
         e.setIntegerValueField(.eventSourceUserData, value: marker << 32 | Int64(sequence))
+        if let testSink { testSink(e); return sequence } // tests: record instead of clicking for real
         if route.pid != 0 && (keyboard || route.mode == .background) {
             if !keyboard && route.windowNumber != 0 {
                 e.setIntegerValueField(.mouseEventWindowUnderMousePointer, value: Int64(route.windowNumber))
@@ -143,8 +147,24 @@ enum ClickSpread {
     }
 }
 
+/// Global double-click: every single click is sent as a double click (drags and long presses stay as they are).
+/// Set from Settings › General.
+enum DoubleClickEverywhere {
+    private static let lock = NSLock()
+    private static var on = false
+    static var enabled: Bool { lock.withLock { on } }
+    static func configure(enabled: Bool) { lock.withLock { on = enabled } }
+    /// Presses held at least this long are long presses, not clicks.
+    static let longPress = 0.5
+}
+
 final class Performer {
     var route: Route
+    /// Double-click everywhere bookkeeping: the current press (button, when, whether it dragged), and a
+    /// button whose recorded 2nd press is skipped because its first click was already doubled.
+    private var press: (button: MouseButton, start: Double, dragged: Bool)?
+    private var skipRecordedPress: MouseButton?
+    private var skippingRelease: MouseButton?
     /// Spread for the current press, reused for its drags and release and for the next press of a double-click.
     private var pressOffset = CGVector.zero
     /// When set (window coordinates), spread clicks stay inside it, e.g. the picture that was found.
@@ -227,10 +247,21 @@ final class Performer {
         case .move(let x, let y):
             EventSynth.mouse(.mouseMoved, at: pos(x, y), button: .left, route: route)
         case .drag(let b, let x, let y):
+            press?.dragged = true
             let at = spreadPoint(pos(x, y), newPress: false, absolute: absolute)
             landed = at
             seq = EventSynth.mouse(b.dragType, at: at, button: b, route: route)
+        case .mouseDown(let b, _, _, let c, _) where c >= 2 && skipRecordedPress == b:
+            // Recorded double-click whose first click was already sent as a double: skip this press and its release.
+            skipRecordedPress = nil
+            skippingRelease = b
+            return waited
+        case .mouseUp(let b, _, _, _, _) where skippingRelease == b:
+            skippingRelease = nil
+            return waited
         case .mouseDown(let b, let x, let y, let c, let f):
+            press = c <= 1 ? (b, Timing.now(), false) : nil
+            if c <= 1 { skipRecordedPress = nil }
             // A new spot for each new press; the 2nd/3rd press of a double/triple click keeps the first one's.
             let at = spreadPoint(pos(x, y), newPress: c <= 1, absolute: absolute)
             // Some apps only accept a press where the pointer is already hovering.
@@ -243,11 +274,20 @@ final class Performer {
             landed = at
             seq = EventSynth.mouse(b.upType, at: at, button: b, clickCount: c, flags: f, route: route)
             heldButtons.remove(b)
+            if c <= 1, let p = press, p.button == b, !p.dragged, Timing.now() - p.start < DoubleClickEverywhere.longPress,
+               DoubleClickEverywhere.enabled {
+                usleep(30_000) // a short, human-like gap between the two clicks
+                EventSynth.mouse(b.downType, at: at, button: b, clickCount: 2, flags: f, route: route)
+                seq = EventSynth.mouse(b.upType, at: at, button: b, clickCount: 2, flags: f, route: route)
+                skipRecordedPress = b
+            }
+            press = nil
         case .click(let b, let x, let y, let count):
             let p = (x != nil && y != nil) ? spreadPoint(pos(x!, y!), newPress: true, absolute: absolute) : EventSynth.cursor
             landed = p
             if background { EventSynth.mouse(.mouseMoved, at: p, button: .left, route: route) }
-            for i in 1...max(1, count) {
+            let presses = count <= 1 && DoubleClickEverywhere.enabled ? 2 : max(1, count)
+            for i in 1...presses {
                 EventSynth.mouse(b.downType, at: p, button: b, clickCount: i, route: route)
                 seq = EventSynth.mouse(b.upType, at: p, button: b, clickCount: i, route: route)
             }
