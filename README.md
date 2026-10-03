@@ -5,162 +5,176 @@
 <h1 align="center">MacroClicker</h1>
 
 <p align="center">
-  A free, open-source auto clicker and macro recorder for the Mac.<br>
-  Click on a timer, record and replay what you do, or let it click buttons the moment they appear.
+  <b>The free Mac auto clicker that can see your screen.</b><br>
+  Click on a timer, replay what you did, or click a button or a word the moment it shows up.
 </p>
 
 <p align="center">
-  <a href="#everything-it-does">Features</a> ·
   <a href="#install">Install</a> ·
-  <a href="#private-by-default">Privacy</a> ·
-  <a href="#build-it-yourself">Build</a> ·
-  <a href="#license">License</a>
+  <a href="#everything-it-does">Everything it does</a> ·
+  <a href="#private-by-default">Privacy</a>
 </p>
 
 <p align="center">
   <img alt="macOS 14 or later" src="https://img.shields.io/badge/macOS-14%2B-000000?logo=apple&logoColor=white">
-  <img alt="Swift" src="https://img.shields.io/badge/Swift-SwiftUI-F05138?logo=swift&logoColor=white">
   <img alt="License: GPL-3.0" src="https://img.shields.io/badge/license-GPL--3.0-blue">
   <img alt="Free" src="https://img.shields.io/badge/price-free-34C759">
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/visual.png" width="880" alt="A recorded macro shown as numbered taps, a swipe and a color check on top of a phone screen, with a timeline underneath">
+  <img src="docs/screenshots/chain.png" width="880" alt="A macro that finds pictures and the word “Claim” in a window and clicks them, with each step's settings beside the list">
 </p>
 
-Most auto clickers for the Mac cost money, want a subscription, or stop at "click here every second".
-MacroClicker is a native Mac app that does the simple thing well and keeps going: record what you do and
-replay it, see a recording as taps and swipes on a map instead of hundreds of raw events, and build chains
-that wait for a button to appear before tapping it. It works with any app or window.
+## Why MacroClicker
 
-## Everything it does
+**It sees the screen.** Point it at a picture or a word in any window, like a Close button or “Claim”, and it
+clicks it the moment it appears, wherever it appears. Words are read on your Mac with Apple's built-in text
+recognition.
 
-### Auto clicker
+**Record once, see what you did.** A recording shows up as numbered taps and swipes on top of the window,
+with a timeline, instead of hundreds of raw events. Drag a tap to move it.
 
-- Click on an interval (shown in clicks per second), with optional random jitter and hold time
-- Left, right or middle button; single, double or triple clicks
-- Follow the cursor, or cycle through fixed points you add by hovering and pressing a hotkey
-- Stop after a number of clicks, after a duration, or never
-- Simple mode: a small strip with just the speed and Start that stays above other windows
-- Only click when the color under a point matches, picked with the eyedropper or typed as a hex code
+**Runs in the background.** Switch on a macro that clicks pop-ups whenever they show up, while another
+macro plays or you keep working.
 
-<p align="center">
-  <img src="docs/screenshots/auto-clicker.png" width="720" alt="Auto clicker settings">
-</p>
+**A proper auto clicker too.** Set the speed, press a hotkey, done. Simple mode shrinks it to a small strip
+that stays on top.
 
-### Record and replay
+**Free, private and made for the Mac.** No account, no subscription, no network code. Everything stays on
+your Mac.
 
-- Records mouse moves, clicks, drags, scrolls and keystrokes, and can record just one app's window
-- Replay at any speed, once, a number of times, until stopped, or for a set duration
-- A wait between loops, with a random extra so every pause is a little different
-- Global hotkeys for everything, including a panic stop
-
-### See what a macro does
-
-- **Visual**: the target window with a numbered marker for every tap, arrows for swipes, and a timeline.
-  Drag a marker to move a tap
-- **Actions**: a readable list, such as "Tap", "Swipe up", "Type “hello”", with editable waits and positions
-- **Raw**: every recorded event, for the details
-- Undo and redo for every edit
-
-### Picture steps and chains
-
-- A picture step waits for a picture to appear in the target window, then clicks it wherever it is.
-  It can also just wait for it, or wait until it's gone
-- Chains are macros built from picture steps. Run them in order, or **all at once**, where every
-  picture is watched at the same time and whichever appears gets clicked
-- Keep tapping until a picture is gone, wait before tapping, click at an offset, and choose what
-  happens if a picture never shows up
-- Pick pictures by drawing a box on a screenshot, with zoom, panning and pixel-precise handles
-- **Text steps** look for words instead of a picture, such as “Claim”, read on your Mac with Apple's
-  built-in text recognition. Exact matches win over longer lines that merely contain the word
-- Limit any search to an **area** of the window, so it's faster and ignores look-alikes elsewhere
-- Switch any action **on or off** without deleting it
-
-<p align="center">
-  <img src="docs/screenshots/chain.png" width="720" alt="A chain of picture steps">
-</p>
-
-### Background macros
-
-- Any macro can keep running in the background, alongside whatever else is playing, with its own
-  on/off switch in the list. For example, a chain that closes pop-ups whenever they appear
-- “Watch for Something…” starts one: a picture or some words to click whenever they show up
-- Matching looks at both the overall shape and the middle of the picture, so a button with the same
-  frame but different text isn't mistaken for it
-- Optionally stop after a number of clicks
-
-<p align="center">
-  <img src="docs/screenshots/background.png" width="720" alt="A background macro that clicks Skip whenever it appears, with its switch in the macro list">
-</p>
-
-### Clicking that stays out of your way
-
-- **Jump & return**: the cursor jumps to each click and straight back, and waits until you've stopped
-  moving the mouse
-- **Background** delivery for apps that accept it, without moving the cursor at all
-- Positions are stored relative to the target app's window, so moving the window doesn't break anything
-- Optional click spread: every click lands at a random spot within a radius you choose, and clicks on a
-  found picture always stay inside it
-- Optional double-click everywhere: every single click is sent as a double click, while drags and long
-  presses stay as they are
-- A notification if something stops on its own while you're in another app, such as a chain that
-  gave up waiting or a background macro that reached its click limit
-
-<p align="center">
-  <img src="docs/screenshots/settings.png" width="720" alt="Settings with click spread">
-</p>
+<table>
+  <tr>
+    <td><img src="docs/screenshots/visual.png" alt="A recording shown as numbered taps, a swipe and a color check on a phone screen, with a timeline"></td>
+    <td><img src="docs/screenshots/background.png" alt="A background macro that clicks Skip whenever it appears, with its switch in the macro list"></td>
+  </tr>
+  <tr>
+    <td align="center">Recordings as a map</td>
+    <td align="center">Background macros</td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/auto-clicker.png" alt="The auto clicker with a large speed readout and its settings"></td>
+    <td><img src="docs/screenshots/simple.png" alt="Simple mode: a small strip with the speed and a Start button"></td>
+  </tr>
+  <tr>
+    <td align="center">Auto clicker</td>
+    <td align="center">Simple mode</td>
+  </tr>
+</table>
 
 ## Install
 
-MacroClicker is built from source for now, which takes a minute with Apple's free command line tools.
-See [Build it yourself](#build-it-yourself).
-
-## Private by default
-
-MacroClicker runs entirely on your Mac. It has no accounts, no analytics and no network code at all.
-Text recognition happens on-device too. Macros are readable `.json` files in `~/Library/Application Support/MacroClicker`, which you can back
-up, edit or share.
-
-It asks only for the permissions a feature needs, and works without the optional one:
-
-| Permission | Used for |
-|---|---|
-| Accessibility | Clicking, moving the mouse and typing |
-| Input Monitoring | Recording your mouse and keyboard |
-| Screen Recording *(optional)* | Color checks, picture steps and the screenshot in the Visual view. Only the target window is read, and nothing is saved except the screenshots and pictures you choose |
-
-## What you need
-
-- macOS 14 Sonoma or later
-- Apple's Command Line Tools to build it (`xcode-select --install`)
-
-## Build it yourself
+MacroClicker is built from source for now. It takes about a minute with Apple's free command line tools
+on macOS 14 or later:
 
 ```bash
+xcode-select --install     # once, if you don't have the command line tools
 git clone https://github.com/andrew-c-lo/MacroClicker.git
 cd MacroClicker
 scripts/setup-signing.sh   # once: a personal signing certificate, so permissions survive rebuilds
 ./build.sh install         # builds MacroClicker.app and copies it to /Applications
 ```
 
-Then open MacroClicker and allow the permissions it asks for (a banner links to the right place in
-System Settings).
+Then open MacroClicker and allow the permissions it asks for. A banner links to the right place in
+System Settings.
+
+## Everything it does
+
+<details>
+<summary><b>Auto clicker</b></summary>
+
+- Set the speed in clicks a second, or an exact interval in milliseconds
+- Left, right or middle button; single, double or triple clicks; hold each click
+- Click wherever the pointer is, or cycle through spots you pick by hovering and pressing a hotkey
+- Stop after a number of clicks, after some time, or when you press the hotkey
+- Vary the timing a little so the rhythm isn't exact
+- Only click when the color at a spot matches, picked with the eyedropper or typed as a hex code
+- Simple mode: a small strip with just the speed and Start that stays above other windows
+
+</details>
+
+<details>
+<summary><b>Record and build macros</b></summary>
+
+- Record mouse moves, clicks, drags, scrolls and keystrokes, or just one app's window
+- Or build one step by step: Click, Type, Wait, Find Picture and Find Text are one click each, and the
+  selected step's settings show beside the list
+- See a macro three ways: a map of the window with every tap, a readable list (“Tap”, “Swipe up”,
+  “Type “hello””), or every raw event
+- Switch any step off without deleting it
+- Replay at any speed, once, a number of times, until stopped or for a set time, with a random pause
+  between rounds
+- Undo and redo for every edit, and global hotkeys for everything, including a panic stop
+
+</details>
+
+<details>
+<summary><b>Finding pictures and words</b></summary>
+
+- A picture step waits for a picture to appear in the window, then clicks it wherever it is. It can also
+  just wait for it, or wait until it's gone
+- A text step does the same for words, read on your Mac
+- Pick pictures by drawing a box on a screenshot, with zoom and pixel-precise handles
+- Limit any search to an area of the window, so it's faster and ignores look-alikes elsewhere
+- Keep clicking until it's gone, wait before clicking, click at an offset, and choose what happens if it
+  never shows up
+- Run steps in order, or all at once: every picture is watched together and whichever appears gets clicked
+- Test Now shows whether it's on screen right now and how close the match is
+
+</details>
+
+<details>
+<summary><b>Background macros</b></summary>
+
+- Any macro can keep running in the background with its own on/off switch, alongside whatever else is
+  playing
+- “Watch for something” starts one: a picture or some words to click whenever they show up
+- Optionally stop after a number of clicks
+
+</details>
+
+<details>
+<summary><b>Clicking that stays out of your way</b></summary>
+
+- Jump & return: the cursor jumps to each click and straight back, and waits until you've stopped moving
+  the mouse
+- Background delivery for apps that accept it, without moving the cursor at all
+- Positions are relative to the app's window, so moving the window doesn't break anything
+- Optional click spread: each click lands at a random spot near its target, and clicks on a found picture
+  always stay inside it
+- Optional double-click everywhere: every single click is sent as a double click
+- A notification if something stops on its own while you're in another app
+
+</details>
+
+## Private by default
+
+MacroClicker runs entirely on your Mac. It has no accounts, no analytics and no network code at all, and
+text recognition happens on-device. Macros are readable `.json` files in
+`~/Library/Application Support/MacroClicker` that you can back up, edit or share.
+
+It asks only for the permissions a feature needs:
+
+| Permission | Used for |
+|---|---|
+| Accessibility | Clicking, moving the mouse and typing |
+| Input Monitoring | Recording your mouse and keyboard |
+| Screen Recording *(optional)* | Color checks, finding pictures and words, and the map view. Only the target window is read, and nothing is saved except the pictures you pick |
 
 ## When something misbehaves
 
 - **A permission stopped working after an update**: remove MacroClicker from that list in System Settings
   › Privacy & Security and add it again
 - **The cursor didn't come back after a click**: every jump and return is logged in
-  `~/Library/Application Support/MacroClicker/jump-log.txt`, which shows what happened
-- **A picture isn't found**: use **Test Now** to see how close the match is, crop the picture more
-  tightly, or lower the match strictness a little
+  `~/Library/Application Support/MacroClicker/jump-log.txt`
+- **A picture isn't found**: use **Test Now** to see how close the match is, crop the picture more tightly,
+  or lower the match strictness a little
 
 ## Contributing
 
-Issues and pull requests are welcome. The cropper and click-spread logic have tests you can run with
-`Tests/qa/run.sh`, and `scripts/make-demo.sh --screenshots` regenerates the screenshots on this page from
-neutral demo data.
+Issues and pull requests are welcome. `Tests/qa/run.sh` runs the tests (the screenshot cropper, click
+spread, double-click, and finding pictures and words), and `scripts/make-demo.sh --screenshots`
+regenerates the screenshots on this page from neutral demo data.
 
 ## License
 
