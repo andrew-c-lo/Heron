@@ -103,7 +103,7 @@ struct AutoClickerView: View {
                 }
                 Toggle(isOn: $model.prefs.clickSpread) {
                     Text("Spread the position")
-                    Text("Within \(Int(model.prefs.clickSpreadRadius)) points of the target. Applies to macros and watchers too.")
+                    Text("Within \(Int(model.prefs.clickSpreadRadius)) points of the target. Applies to macros too.")
                 }
                 NumberField(title: "Hold each click for", value: s.holdMs, unit: "ms")
                 NumberField(title: "Wait before starting", value: s.startDelay, unit: "s")

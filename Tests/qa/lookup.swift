@@ -109,5 +109,17 @@ let t0 = Date()
 for _ in 0..<5 { _ = claim.find(in: px) }
 print(String(format: "INFO text read of an 800×500 window: %.0f ms", Date().timeIntervalSince(t0) / 5 * 1000))
 
+// Background macros: the switch and the click limit survive saving and loading.
+var bg = Macro(name: "bg", steps: [])
+bg.runsInBackground = true
+bg.playback.order = .allAtOnce
+bg.playback.maxClicks = 3
+let bg2 = try! JSONDecoder().decode(Macro.self, from: JSONEncoder().encode(bg))
+check("background switch saves and loads", bg2.runsInBackground)
+check("click limit saves and loads", bg2.playback.maxClicks == 3, "\(bg2.playback.maxClicks)")
+let oldMacro = #"{"name":"old","steps":[]}"#.data(using: .utf8)!
+let om = Lenient.decode(oldMacro, defaults: Macro(name: "", steps: []))
+check("older macros load as not-background with no limit", om?.runsInBackground == false && om?.playback.maxClicks == 0)
+
 print(failures == 0 ? "ALL PASSED" : "\(failures) FAILED")
 exit(failures == 0 ? 0 : 1)

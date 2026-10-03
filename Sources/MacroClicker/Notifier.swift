@@ -2,7 +2,7 @@ import AppKit
 @preconcurrency import UserNotifications
 
 /// A Notification Center banner when something stops on its own while you're in another app (a chain gave up,
-/// the auto clicker hit a problem, a watcher reached its limit). Never for routine starts and stops.
+/// the auto clicker hit a problem, a background macro reached its click limit). Never for routine starts and stops.
 @MainActor
 enum Notifier {
     /// Only inside the real app bundle (the notification center isn't available to a bare executable).

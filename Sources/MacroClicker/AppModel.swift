@@ -39,13 +39,10 @@ final class AppModel: ObservableObject {
     @Published private(set) var playPausing: Double?
     @Published private(set) var playWaitingColor: String?
 
-    // Watchers
-    @Published private(set) var watchers: [Watcher] = []
-    @Published private(set) var runningWatchers: Set<UUID> = []
-    @Published private(set) var watcherStatus: [UUID: WatcherStatus] = [:]
-    let watcherStore = WatcherStore()
-    private let watcherEngine = WatcherEngine()
-    private var watcherSave: DispatchWorkItem?
+    // Macros running in the background (each on its own player, alongside everything else)
+    @Published private(set) var backgroundRunning: Set<UUID> = []
+    @Published private(set) var backgroundClicks: [UUID: Int] = [:]
+    private var backgroundPlayers: [UUID: Player] = [:]
     @Published private(set) var hasAccessibility = false
     @Published private(set) var hasInputMonitoring = false
     @Published private(set) var hasScreenRecording = false
@@ -83,15 +80,7 @@ final class AppModel: ObservableObject {
         macros = store.loadAll()
         selectedMacroID = macros.first?.id
         recorder.onChange = { [weak self] n in self?.recordedSteps = n }
-        watchers = watcherStore.load()
-        watcherEngine.onStatus = { [weak self] st in self?.watcherStatus = st }
-        watcherEngine.onFinished = { [weak self] id in
-            guard let self else { return }
-            self.stopWatcher(id)
-            let name = self.watchers.first { $0.id == id }?.name ?? "Watcher"
-            self.flash("“\(name)” reached its click limit and stopped.")
-            Notifier.post(name, "Reached its click limit and stopped.", enabled: self.prefs.notifyWhenStopped)
-        }
+        convertOldWatchers()
         refreshPermissions()
         registerHotkeys()
         ScreenshotTour.runIfRequested(self)
@@ -100,13 +89,13 @@ final class AppModel: ObservableObject {
         }
     }
 
-    var isBusy: Bool { isAutoClicking || isRecording || playingMacroID != nil || countdown != nil || !runningWatchers.isEmpty }
+    var isBusy: Bool { isAutoClicking || isRecording || playingMacroID != nil || countdown != nil || !backgroundRunning.isEmpty }
 
     var menuBarIcon: String {
         if isRecording || countdown != nil { return "record.circle.fill" }
         if playingMacroID != nil { return "play.circle.fill" }
         if isAutoClicking { return "cursorarrow.click.2" }
-        if !runningWatchers.isEmpty { return "eye.fill" }
+        if !backgroundRunning.isEmpty { return "eye.fill" }
         return "cursorarrow.click"
     }
 
@@ -183,7 +172,7 @@ final class AppModel: ObservableObject {
         case .togglePlayback: togglePlayback()
         case .stopAll: stopAll()
         case .capturePoint: addPoint(EventSynth.cursor)
-        case .toggleWatchers: toggleAllWatchers()
+        case .toggleWatchers: toggleAllBackground()
         }
     }
 
@@ -558,6 +547,8 @@ final class AppModel: ObservableObject {
     }
 
     func play(_ macro: Macro) {
+        // Background macros run on their own player, with their own switch.
+        if macro.runsInBackground { toggleBackground(macro.id); return }
         guard requireAccessibility() else { return }
         guard !macro.steps.isEmpty else { flash("This macro has no steps."); return }
         if isRecording { stopRecording(fromUI: false) }
@@ -593,117 +584,132 @@ final class AppModel: ObservableObject {
     }
 
     func stopAll() {
-        if !runningWatchers.isEmpty { stopAllWatchers() }
+        if !backgroundRunning.isEmpty { stopAllBackground() }
         cancelCountdown()
         stopAutoClick()
         stopPlayback()
         if isRecording { stopRecording(fromUI: false) }
     }
 
-    // MARK: - Watchers
+    // MARK: - Background macros
 
-    func watcherBinding(for id: UUID) -> Binding<Watcher>? {
-        guard watchers.contains(where: { $0.id == id }) else { return nil }
-        return Binding(
-            get: { [weak self] in self?.watchers.first { $0.id == id } ?? Watcher(name: "") },
-            set: { [weak self] in self?.updateWatcher($0) }
-        )
+    func isRunningInBackground(_ id: UUID) -> Bool { backgroundRunning.contains(id) }
+
+    func toggleBackground(_ id: UUID) {
+        backgroundRunning.contains(id) ? stopBackground(id) : startBackground(id)
     }
 
-    func newWatcher() {
-        var w = Watcher(name: "Watcher \(watchers.count + 1)")
-        w.target.app = autoClick.target.app ?? prefs.recordTarget ?? macros.last?.target.app
-        watchers.append(w)
-        saveWatchers()
-        sidebar = .watcher(w.id)
-    }
-
-    func updateWatcher(_ w: Watcher) {
-        guard let i = watchers.firstIndex(where: { $0.id == w.id }) else { return }
-        watchers[i] = w
-        saveWatchers()
-        if runningWatchers.contains(w.id) { watcherEngine.run(activeWatchers) }
-    }
-
-    func deleteWatcher(_ w: Watcher) {
-        stopWatcher(w.id)
-        watchers.removeAll { $0.id == w.id }
-        saveWatchers()
-        if sidebar == .watcher(w.id) { sidebar = .watchers }
-        flash("Deleted “\(w.name)”.")
-    }
-
-    private var activeWatchers: [Watcher] { watchers.filter { runningWatchers.contains($0.id) } }
-
-    private func saveWatchers() {
-        watcherSave?.cancel()
-        let work = DispatchWorkItem { [weak self] in
-            guard let self else { return }
-            self.watcherStore.save(self.watchers)
-        }
-        watcherSave = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4, execute: work)
-    }
-
-    /// Why a watcher can't run yet, or nil if it's ready.
-    func watcherProblem(_ w: Watcher) -> String? {
-        if w.target.app == nil { return "Choose the app to watch." }
-        if !w.canSearch { return "Pick the picture or type the text to look for." }
+    /// Why a background macro can't start, or nil if it's ready.
+    func backgroundProblem(_ m: Macro) -> String? {
+        if m.steps.filter(\.enabled).isEmpty { return "“\(m.name)” has no steps yet." }
+        let pictures = m.steps.contains { if case .findImage = $0.action { true } else { false } }
+        if pictures, m.target.app == nil { return "Choose the app for “\(m.name)” to watch (Target)." }
         // Screenshot copies have no permissions on purpose.
         if ProcessInfo.processInfo.environment["MACROCLICKER_SCREENSHOTS"] != nil { return nil }
-        if !(hasScreenRecording || ScreenReader.hasPermission) { return "Allow Screen Recording in Permissions so the window can be seen." }
-        if !(hasAccessibility || Permissions.accessibility) { return "Allow Accessibility in Permissions so it can click." }
+        if pictures, !(hasScreenRecording || ScreenReader.hasPermission) {
+            return "Allow Screen Recording in Settings › Permissions so the window can be seen."
+        }
+        if !(hasAccessibility || Permissions.accessibility) { return "Allow Accessibility in Settings › Permissions so it can click." }
         return nil
     }
 
-    func toggleWatcher(_ id: UUID) {
-        runningWatchers.contains(id) ? stopWatcher(id) : startWatcher(id)
+    func startBackground(_ id: UUID, quietly: Bool = false) {
+        guard let m = macros.first(where: { $0.id == id }), !backgroundRunning.contains(id) else { return }
+        if let problem = backgroundProblem(m) {
+            if !quietly { flash(problem); sound("Basso") }
+            return
+        }
+        let player = Player()
+        backgroundPlayers[id] = player
+        backgroundRunning.insert(id)
+        backgroundClicks[id] = 0
+        if !quietly { sound("Tink") }
+        player.play(m, progress: { _, _, _ in }, clicked: { [weak self] in
+            self?.backgroundClicks[id, default: 0] += 1
+        }, finished: { [weak self, weak player] error in
+            guard let self, player?.isRunning != true, self.backgroundPlayers[id] === player else { return }
+            self.backgroundPlayers[id] = nil
+            self.backgroundRunning.remove(id)
+            let name = self.macros.first { $0.id == id }?.name ?? "Macro"
+            if let error {
+                self.flash("“\(name)”: \(error)"); self.sound("Basso")
+                Notifier.post(name, error, enabled: self.prefs.notifyWhenStopped)
+            } else if m.playback.maxClicks > 0, (self.backgroundClicks[id] ?? 0) >= m.playback.maxClicks {
+                self.flash("“\(name)” reached its click limit and stopped.")
+                Notifier.post(name, "Reached its click limit and stopped.", enabled: self.prefs.notifyWhenStopped)
+            }
+        })
     }
 
-    func startWatcher(_ id: UUID) {
-        guard let w = watchers.first(where: { $0.id == id }) else { return }
-        if let problem = watcherProblem(w) {
-            flash(problem)
+    func stopBackground(_ id: UUID, quietly: Bool = false) {
+        guard let player = backgroundPlayers.removeValue(forKey: id) else { return }
+        player.stop()
+        backgroundRunning.remove(id)
+        if !quietly { sound("Pop") }
+    }
+
+    /// The hotkey: stop every background macro if any runs, otherwise start all of them.
+    func toggleAllBackground() {
+        if !backgroundRunning.isEmpty { stopAllBackground(); return }
+        let all = macros.filter(\.runsInBackground)
+        guard !all.isEmpty else {
+            flash("No background macros yet. Turn on “Keep running in the background” in a macro’s Playback settings.")
             sound("Basso")
             return
         }
-        runningWatchers.insert(id)
-        watcherStatus[id] = WatcherStatus()
-        watcherEngine.run(activeWatchers)
+        let ready = all.filter { backgroundProblem($0) == nil }
+        guard !ready.isEmpty else { flash(backgroundProblem(all[0]) ?? "Not ready yet."); sound("Basso"); return }
+        for m in ready { startBackground(m.id, quietly: true) }
         sound("Tink")
+        flash("Started \(ready.count) background macro\(ready.count == 1 ? "" : "s").")
     }
 
-    func stopWatcher(_ id: UUID) {
-        guard runningWatchers.contains(id) else { return }
-        runningWatchers.remove(id)
-        watcherEngine.run(activeWatchers)
+    func stopAllBackground() {
+        for id in backgroundRunning { stopBackground(id, quietly: true) }
         sound("Pop")
     }
 
-    func toggleAllWatchers() {
-        if !runningWatchers.isEmpty { stopAllWatchers(); return }
-        let ready = watchers.filter { watcherProblem($0) == nil }
-        guard !ready.isEmpty else {
-            flash(watchers.isEmpty ? "No watchers yet. Add one in the Watchers tab." : "No watcher is ready to run yet.")
-            sound("Basso")
-            return
+    /// A background chain with one picture step: "whenever this shows up, click it".
+    func newBackgroundChain() {
+        var m = Macro(name: "Watch \(macros.filter(\.runsInBackground).count + 1)", steps: [])
+        m.target.app = selectedMacro?.target.app ?? autoClick.target.app ?? prefs.recordTarget
+        m.target.delivery = selectedMacro?.target.delivery ?? .jumpReturn
+        m.runsInBackground = true
+        m.playback.order = .allAtOnce
+        m.playback.repeatMode = .untilStopped
+        macros.append(m)
+        store.save(m)
+        show(m.id)
+    }
+
+    /// Watchers used to be their own thing; each becomes a one-step background chain. The old file is kept
+    /// next to the macros as a backup.
+    private func convertOldWatchers() {
+        let old = WatcherStore()
+        let watchers = old.load()
+        guard !watchers.isEmpty else { return }
+        for w in watchers {
+            var step = ImageStep(png: w.templatePNG ?? Data(), width: w.templateWidth, height: w.templateHeight,
+                                 originX: 0, originY: 0)
+            step.text = w.text
+            step.area = w.area
+            step.strictness = w.strictness
+            step.button = w.button
+            step.offsetX = w.offsetX
+            step.offsetY = w.offsetY
+            step.settle = w.firstClickDelay
+            step.repeatUntilGone = true
+            step.repeatEvery = w.interval
+            var m = Macro(name: w.name, steps: [MacroStep(delay: 0, action: .findImage(step))])
+            m.target = w.target
+            m.runsInBackground = true
+            m.playback.order = .allAtOnce
+            m.playback.repeatMode = .untilStopped
+            m.playback.maxClicks = w.maxClicks
+            macros.append(m)
+            store.save(m)
         }
-        for w in ready { runningWatchers.insert(w.id); watcherStatus[w.id] = WatcherStatus() }
-        watcherEngine.run(activeWatchers)
-        sound("Tink")
-        flash("Started \(ready.count) watcher\(ready.count == 1 ? "" : "s").")
-    }
-
-    func stopAllWatchers() {
-        runningWatchers.removeAll()
-        watcherEngine.run([])
-        sound("Pop")
-    }
-
-    /// Looks for the picture once and describes the result.
-    func testWatcher(_ w: Watcher) async -> String {
-        if let problem = watcherProblem(w), !problem.contains("Accessibility") { return problem }
-        return await testMatch(Lookup(watcher: w), in: w.target.app)
+        old.retire()
     }
 
     func testPicture(_ s: ImageStep, in app: TargetApp?) async -> String {
@@ -770,7 +776,13 @@ final class AppModel: ObservableObject {
 
     func update(_ m: Macro) {
         guard let i = macros.firstIndex(where: { $0.id == m.id }) else { return }
+        let old = macros[i]
         macros[i] = m
+        // A running background macro picks up edits by restarting with them.
+        if backgroundRunning.contains(m.id), old.steps != m.steps || old.target != m.target || old.playback != m.playback {
+            stopBackground(m.id, quietly: true)
+            startBackground(m.id, quietly: true)
+        }
         // Debounce disk writes while typing.
         pendingSaves[m.id]?.cancel()
         let work = DispatchWorkItem { [weak self] in
@@ -813,6 +825,7 @@ final class AppModel: ObservableObject {
 
     func delete(_ m: Macro) {
         if playingMacroID == m.id { stopPlayback() }
+        stopBackground(m.id, quietly: true)
         pendingSaves[m.id]?.cancel()
         store.delete(m)
         store.deleteSnapshot(m.id)
@@ -855,9 +868,8 @@ final class AppModel: ObservableObject {
 
 enum SidebarItem: Hashable {
     case autoClicker
-    case watcher(UUID)
     case macro(UUID)
-    /// The Macros or Watchers tab with nothing selected.
-    case macros, watchers
+    /// The Macros tab with nothing selected.
+    case macros
     case hotkeys, recording, permissions, general
 }

@@ -175,7 +175,7 @@ final class Performer {
     private var jumpOrigin: CGPoint?
     /// Sequence number of the last pointer event posted during the current jump.
     private var lastPointerSeq: UInt32?
-    /// Only one jump-and-return at a time across the whole app (watchers, chains, macros, auto clicker),
+    /// Only one jump-and-return at a time across the whole app (background macros, chains, macros, auto clicker),
     /// so "home" is always where the user left the cursor, never another jump's click spot.
     private static let jumpLock = NSLock()
     private var holdsJumpLock = false

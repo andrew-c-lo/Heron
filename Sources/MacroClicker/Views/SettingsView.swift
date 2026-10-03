@@ -102,7 +102,7 @@ struct GeneralSettingsView: View {
             Section("Clicking") {
                 Toggle(isOn: $model.prefs.clickSpread) {
                     Text("Randomize click position")
-                    Text("Each click lands at a random spot within this distance of its target instead of the exact same point every time. Applies everywhere: auto clicker points, macros, watchers and picture steps. Clicks on a found picture stay inside it.")
+                    Text("Each click lands at a random spot within this distance of its target instead of the exact same point every time. Applies everywhere: auto clicker points, macros and picture steps. Clicks on a found picture stay inside it.")
                 }
                 if model.prefs.clickSpread {
                     LabeledContent {
@@ -118,13 +118,13 @@ struct GeneralSettingsView: View {
                 }
                 Toggle(isOn: $model.prefs.doubleClickEverywhere) {
                     Text("Double-click everywhere")
-                    Text("Every single click is sent as a double click: auto clicker, macros, chains, watchers and picture steps. Drags, long presses and clicks that are already double stay as they are.")
+                    Text("Every single click is sent as a double click: auto clicker, macros, chains and picture steps. Drags, long presses and clicks that are already double stay as they are.")
                 }
             }
             Section {
                 Toggle(isOn: $model.prefs.notifyWhenStopped) {
                     Text("Notify when something stops")
-                    Text("If a macro, the auto clicker or a watcher stops on its own while you're in another app.")
+                    Text("If a macro or the auto clicker stops on its own while you're in another app.")
                 }
                 .onChange(of: model.prefs.notifyWhenStopped) { _, on in if on { Notifier.requestPermission() } }
                 Toggle(isOn: $model.prefs.playSounds) {

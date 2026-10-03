@@ -47,14 +47,25 @@ private struct MacroList: View {
                         Text(subtitle(m)).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                     }
                     Spacer(minLength: 4)
-                    if model.playingMacroID == m.id {
+                    if m.runsInBackground {
+                        let on = model.isRunningInBackground(m.id)
+                        Toggle("", isOn: Binding(get: { on }, set: { if $0 != on { model.toggleBackground(m.id) } }))
+                            .toggleStyle(.switch)
+                            .controlSize(.mini)
+                            .labelsHidden()
+                            .help(on ? "Running in the background. Switch off to stop." : "Start running in the background")
+                    } else if model.playingMacroID == m.id {
                         Circle().fill(.green).frame(width: 8, height: 8).help("Playing")
                     }
                 }
                 .padding(.vertical, 3)
                 .tag(SidebarItem.macro(m.id))
                 .contextMenu {
-                    Button("Play") { model.play(m) }
+                    if m.runsInBackground {
+                        Button(model.isRunningInBackground(m.id) ? "Stop" : "Start") { model.toggleBackground(m.id) }
+                    } else {
+                        Button("Play") { model.play(m) }
+                    }
                     Button("Duplicate") { model.duplicate(m) }
                     Button("Export…") { model.export(m) }
                     Divider()
@@ -77,6 +88,8 @@ private struct MacroList: View {
                     Button("New Empty Macro") { model.newMacro() }
                     Button("New Chain") { model.newChain() }
                         .help("A macro built from picture steps: wait for something to appear, click it, then the next")
+                    Button("Watch for Something…") { model.newBackgroundChain() }
+                        .help("Runs in the background and clicks a picture or some words whenever they show up")
                     Divider()
                     Button("Import Macros (.json)…") { model.importMacros() }
                     Button("Show Macro Files in Finder") { model.revealMacroFolder() }
@@ -93,130 +106,14 @@ private struct MacroList: View {
     }
 
     private func subtitle(_ m: Macro) -> String {
+        if model.isRunningInBackground(m.id) {
+            let c = model.backgroundClicks[m.id] ?? 0
+            return c > 0 ? "Running, \(c) click\(c == 1 ? "" : "s")" : "Running in the background"
+        }
         let n = ActionGrouper.groups(for: m.steps).count
         let steps = "\(n) action\(n == 1 ? "" : "s")"
-        return m.target.app.map { "\(steps) in \($0.name)" } ?? steps
-    }
-}
-
-// MARK: - Watchers
-
-/// One row per watcher with its switch; a row opens its settings.
-struct WatchersPage: View {
-    @EnvironmentObject var model: AppModel
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text("Watchers click something whenever it shows up, while you keep working.")
-                    .foregroundStyle(.secondary)
-                Spacer()
-                Button("New Watcher") { model.newWatcher() }
-            }
-            if model.watchers.isEmpty {
-                ContentUnavailableView("No watchers yet", systemImage: "eye",
-                                       description: Text("A watcher looks for a picture or some words and clicks it when it appears."))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                List {
-                    ForEach(model.watchers) { w in
-                        WatcherRow(watcher: w)
-                    }
-                }
-                .listStyle(.inset(alternatesRowBackgrounds: false))
-                .clipShape(RoundedRectangle(cornerRadius: 9))
-                .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(.separator))
-            }
-        }
-        .padding(18)
-        .sheet(item: Binding(get: { editingID.map(WatcherSheetItem.init) },
-                             set: { if $0 == nil { model.sidebar = .watchers } })) { item in
-            if let binding = model.watcherBinding(for: item.id) {
-                VStack(spacing: 0) {
-                    WatcherDetailView(watcher: binding)
-                    Divider()
-                    HStack {
-                        Spacer()
-                        Button("Done") { model.sidebar = .watchers }.keyboardShortcut(.defaultAction)
-                    }
-                    .padding(12)
-                }
-                .frame(width: 600, height: 680)
-            }
-        }
-    }
-
-    private var editingID: UUID? {
-        if case .watcher(let id) = model.sidebar { return id }
-        return nil
-    }
-}
-
-private struct WatcherSheetItem: Identifiable { let id: UUID }
-
-private struct WatcherRow: View {
-    @EnvironmentObject var model: AppModel
-    let watcher: Watcher
-
-    private var running: Bool { model.runningWatchers.contains(watcher.id) }
-    private var status: WatcherStatus? { model.watcherStatus[watcher.id] }
-
-    var body: some View {
-        HStack(spacing: 14) {
-            thumbnail
-            VStack(alignment: .leading, spacing: 2) {
-                Text(watcher.name).fontWeight(.semibold).lineLimit(1)
-                Text(summary).font(.callout).foregroundStyle(.secondary).lineLimit(1)
-            }
-            Spacer(minLength: 8)
-            Text(state)
-                .font(.callout)
-                .foregroundStyle(running && status?.error == nil ? Color.green : Color.secondary)
-                .lineLimit(1)
-            Button("Edit…") { model.sidebar = .watcher(watcher.id) }
-                .buttonStyle(.borderless)
-            Toggle("", isOn: Binding(get: { running }, set: { if $0 != running { model.toggleWatcher(watcher.id) } }))
-                .toggleStyle(.switch)
-                .labelsHidden()
-                .help(running ? "Stop watching" : "Start watching")
-        }
-        .padding(.vertical, 6)
-        .contentShape(Rectangle())
-        .onTapGesture(count: 2) { model.sidebar = .watcher(watcher.id) }
-        .contextMenu {
-            Button("Edit…") { model.sidebar = .watcher(watcher.id) }
-            Button(running ? "Stop" : "Start") { model.toggleWatcher(watcher.id) }
-            Divider()
-            Button("Delete", role: .destructive) { model.deleteWatcher(watcher) }
-        }
-    }
-
-    @ViewBuilder
-    private var thumbnail: some View {
-        let box = RoundedRectangle(cornerRadius: 6)
-        Group {
-            if watcher.text == nil, let data = watcher.templatePNG, let img = NSImage(data: data) {
-                Image(nsImage: img).resizable().interpolation(.high).aspectRatio(contentMode: .fit).padding(3)
-            } else {
-                Image(systemName: watcher.text != nil ? "text.viewfinder" : "photo").foregroundStyle(.secondary)
-            }
-        }
-        .frame(width: 60, height: 34)
-        .background(box.fill(.quaternary.opacity(0.6)))
-        .overlay(box.strokeBorder(.separator))
-    }
-
-    private var summary: String {
-        let what: String
-        if let t = watcher.text { what = t.isEmpty ? "some words" : "“\(t)”" } else { what = watcher.hasTemplate ? "its picture" : "a picture" }
-        return "Clicks \(what) in \(watcher.target.app?.name ?? "any app")"
-    }
-
-    private var state: String {
-        guard running else { return "Off" }
-        if let e = status?.error { return e }
-        let c = status?.clicks ?? 0
-        return c > 0 ? "\(c) click\(c == 1 ? "" : "s")" : "Watching"
+        let place = m.target.app.map { " in \($0.name)" } ?? ""
+        return m.runsInBackground ? "Background\(place)" : steps + place
     }
 }
 

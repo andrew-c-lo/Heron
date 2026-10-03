@@ -81,17 +81,17 @@ that wait for a button to appear before tapping it. It works with any app or win
   <img src="docs/screenshots/chain.png" width="720" alt="A chain of picture steps">
 </p>
 
-### Watchers
+### Background macros
 
-- Keep an eye on a window and click a button whenever it appears, for example to close pop-ups,
-  while your macros and chains keep running
+- Any macro can keep running in the background, alongside whatever else is playing, with its own
+  on/off switch in the list. For example, a chain that closes pop-ups whenever they appear
+- “Watch for Something…” starts one: a picture or some words to click whenever they show up
 - Matching looks at both the overall shape and the middle of the picture, so a button with the same
   frame but different text isn't mistaken for it
-- Watch for text instead of a picture, optionally only in part of the window
-- Start and stop each watcher with its switch in the Watchers list
+- Optionally stop after a number of clicks
 
 <p align="center">
-  <img src="docs/screenshots/watchers.png" width="720" alt="The Watchers list, each watcher with its own switch">
+  <img src="docs/screenshots/background.png" width="720" alt="A background macro that clicks Skip whenever it appears, with its switch in the macro list">
 </p>
 
 ### Clicking that stays out of your way

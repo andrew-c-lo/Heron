@@ -59,8 +59,8 @@ struct MenuBarContent: View {
                 }
             }
         }
-        if !model.watchers.isEmpty {
-            Button(model.runningWatchers.isEmpty ? "Start All Watchers" : "Stop All Watchers") { model.toggleAllWatchers() }
+        if model.macros.contains(where: \.runsInBackground) {
+            Button(model.backgroundRunning.isEmpty ? "Start Background Macros" : "Stop Background Macros") { model.toggleAllBackground() }
                 .shortcutHint(model, .toggleWatchers)
         }
         Button("Stop Everything") { model.stopAll() }

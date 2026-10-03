@@ -36,7 +36,7 @@ enum HotkeyAction: String, Codable, CaseIterable, Identifiable {
         case .togglePlayback: "Play / stop selected macro"
         case .stopAll: "Stop everything (panic)"
         case .capturePoint: "Add cursor position as click point"
-        case .toggleWatchers: "Start / stop all watchers"
+        case .toggleWatchers: "Start / stop background macros"
         }
     }
 

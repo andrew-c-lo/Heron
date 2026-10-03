@@ -14,14 +14,12 @@ enum ScreenshotTour {
 
         let routine = model.macros.first { $0.name == "Morning routine" }?.id
         let chain = model.macros.first { $0.name == "Collect daily rewards" }?.id
-        let watcher = model.watchers.first?.id
-        let textWatcher = model.watchers.first { $0.text != nil }?.id
+        let background = model.macros.first { $0.name == "Close pop-ups" }?.id
         var shots: [(String, SidebarItem?, String?)] = [
             ("visual", routine.map { .macro($0) }, "visual"),
             ("chain", chain.map { .macro($0) }, "actions"),
             ("auto-clicker", .autoClicker, nil),
-            ("watchers", .watchers, nil),
-            ("watcher-text", textWatcher.map { .watcher($0) }, nil),
+            ("background", background.map { .macro($0) }, "actions"),
         ]
         shots.removeAll { $0.1 == nil }
 
@@ -42,7 +40,7 @@ enum ScreenshotTour {
                 try? await Task.sleep(for: .seconds(1.2))
                 NSApp.activate(ignoringOtherApps: true)
                 try? await Task.sleep(for: .seconds(0.4))
-                // An open sheet (a watcher's settings) is its own window.
+                // An open sheet is its own window.
                 if let win = NSApp.windows.first(where: { $0.isVisible && $0.canBecomeMain }),
                    let png = capture(win.attachedSheet ?? win) {
                     try? png.write(to: out.appendingPathComponent("\(name).png"))
@@ -69,14 +67,14 @@ enum ScreenshotTour {
             UserDefaults.standard.set(false, forKey: "simpleMode")
             // Narrow-window check: the toolbar while something runs (status grows a Stop button).
             if ProcessInfo.processInfo.environment["MACROCLICKER_SCREENSHOT_WIDTH"] != nil,
-               let w = watcher, let c = chain {
+               let w = background, let c = chain {
                 model.sidebar = .macro(c)
-                model.toggleWatcher(w)
+                model.toggleBackground(w)
                 try? await Task.sleep(for: .seconds(1.2))
                 if let win = NSApp.windows.first(where: { $0.isVisible && $0.canBecomeMain }), let png = capture(win) {
                     try? png.write(to: out.appendingPathComponent("chain-busy.png"))
                 }
-                model.toggleWatcher(w)
+                model.toggleBackground(w)
             }
             NSApp.terminate(nil)
         }

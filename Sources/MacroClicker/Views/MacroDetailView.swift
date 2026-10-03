@@ -132,10 +132,12 @@ struct MacroDetailView: View {
 
     private var playbackSummary: String {
         let pb = macro.playback
+        let bg = macro.runsInBackground ? "in the background · " : ""
         if pb.order == .allAtOnce {
-            return "all at once · " + (pb.repeatMode == .duration ? "for \(formatDuration(pb.repeatDuration))" : "until stopped")
+            return bg + "all at once · " + (pb.repeatMode == .duration ? "for \(formatDuration(pb.repeatDuration))" : "until stopped")
+                + (pb.maxClicks > 0 ? " · up to \(pb.maxClicks) clicks" : "")
         }
-        var parts = ["\(pb.speed.formatted())×"]
+        var parts = [bg + "\(pb.speed.formatted())×"]
         switch pb.repeatMode {
         case .once: parts.append("once")
         case .times: parts.append("\(pb.loops) times")
@@ -159,6 +161,14 @@ struct MacroDetailView: View {
         let pb = $macro.playback
         return VStack(alignment: .leading, spacing: 12) {
             Text("Playback").font(.headline)
+            Toggle(isOn: Binding(get: { macro.runsInBackground }, set: { on in
+                if !on { model.stopBackground(macro.id) }
+                macro.runsInBackground = on
+            })) {
+                Text("Keep running in the background")
+                Text("Gets its own on/off switch in the list and runs alongside whatever else is playing. Good for clicking pop-ups whenever they show up.")
+            }
+            Divider()
             if hasPictureSteps || allAtOnce {
                 Picker("Steps run", selection: pb.order) {
                     ForEach(PlaybackOptions.StepOrder.allCases) { Text($0.label).tag($0) }
@@ -176,6 +186,7 @@ struct MacroDetailView: View {
                     NumberField(title: "Minutes", value: Binding(get: { macro.playback.repeatDuration / 60 },
                                                                set: { macro.playback.repeatDuration = max(0, $0) * 60 }))
                 }
+                IntField(title: "Stop after (0 = never)", value: pb.maxClicks, unit: "clicks", range: 0...10_000_000)
                 Text("All at once watches every picture step together and clicks whichever appears. Step order, waits and time limits don't apply.")
                     .font(.caption).foregroundStyle(.secondary)
             } else {

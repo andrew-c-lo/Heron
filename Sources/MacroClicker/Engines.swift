@@ -29,6 +29,7 @@ final class Player {
               startDelay: Double = 0,
               progress: @escaping @MainActor (_ step: Int, _ loop: Int, _ pausing: Double?) -> Void,
               waiting: @escaping @MainActor (_ color: String?) -> Void = { _ in },
+              clicked: @escaping @MainActor () -> Void = {},
               finished: @escaping @MainActor (_ error: String?) -> Void) {
         stop()
         let token = CancelToken()
@@ -73,7 +74,8 @@ final class Player {
 
             if opts.order == .allAtOnce {
                 error = Self.runAllAtOnce(steps, opts: opts, target: target, resolver: resolver, performer: performer,
-                                          pauseable: pauseable, token: token, progress: progress, waiting: waiting)
+                                          pauseable: pauseable, token: token, progress: progress, waiting: waiting,
+                                          clicked: clicked)
             } else {
                 outer: while true {
                     if let n = opts.loopCount, loop >= n { break }
@@ -211,7 +213,8 @@ final class Player {
                              performer: Performer,
                              pauseable: Bool, token: CancelToken,
                              progress: @escaping @MainActor (Int, Int, Double?) -> Void,
-                             waiting: @escaping @MainActor (String?) -> Void) -> String? {
+                             waiting: @escaping @MainActor (String?) -> Void,
+                             clicked: @escaping @MainActor () -> Void = {}) -> String? {
         guard let resolver else { return "Picture steps need a target app. Choose one with the Target button." }
         struct Item { let index: Int; let step: ImageStep; let lookup: Lookup }
         let items: [Item] = steps.enumerated().compactMap { i, s in
@@ -230,8 +233,10 @@ final class Player {
 
         var frameNumber = 0
         var found: [Int: CGRect] = [:]
+        var clicks = 0
         while !token.isCancelled {
             if opts.repeatMode == .duration, Timing.now() - began >= opts.repeatDuration { break }
+            if opts.maxClicks > 0, clicks >= opts.maxClicks { break }
             let tick = Timing.now()
             guard let win = resolver.window() else { return "Can't find \(resolver.app.name)'s window." }
             if pauseable, WindowFinder.frontmostPID() != win.pid {
@@ -265,7 +270,8 @@ final class Player {
                 performer.perform(.mouseUp(button: s.button, x: x, y: y, clickCount: 1, flags: 0))
                 performer.spreadBounds = nil
                 chooser.clicked(index, at: Timing.now())
-                Task { @MainActor in progress(index + 1, 1, nil) }
+                clicks += 1
+                Task { @MainActor in progress(index + 1, 1, nil); clicked() }
             }
             _ = Timing.wait(until: tick + 1.0 / 30, token) // ~30 checks a second at most
         }

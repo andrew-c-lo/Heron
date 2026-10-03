@@ -4,7 +4,7 @@ import CoreGraphics
 
 // MARK: - Model
 
-/// "When this picture appears in the target window, click it."
+/// What a watcher was before watchers became background macros. Kept only to convert old files.
 struct Watcher: Codable, Identifiable, Equatable {
     var id = UUID()
     var name: String
@@ -39,16 +39,6 @@ struct Watcher: Codable, Identifiable, Equatable {
     var hasTemplate: Bool { templatePNG != nil && templateWidth >= 4 && templateHeight >= 4 }
 }
 
-struct WatcherStatus: Equatable {
-    var visible = false
-    /// Best match score from the last scan (0…1).
-    var score: Double = 0
-    var clicks = 0
-    var lastSeen: Date?
-    var lastMatch: CGRect?
-    var error: String?
-}
-
 struct WatcherStore {
     let url: URL
 
@@ -64,10 +54,11 @@ struct WatcherStore {
         return list
     }
 
-    func save(_ list: [Watcher]) {
-        let e = JSONEncoder()
-        e.outputFormatting = [.prettyPrinted, .sortedKeys]
-        try? e.encode(list).write(to: url, options: .atomic)
+    /// After the watchers became background macros: keep the old file as a backup, out of the way.
+    func retire() {
+        let backup = url.deletingLastPathComponent().appendingPathComponent("Watchers (converted to macros).json")
+        try? FileManager.default.removeItem(at: backup)
+        try? FileManager.default.moveItem(at: url, to: backup)
     }
 }
 
@@ -451,149 +442,6 @@ enum TemplateMatcher {
     }
 }
 
-// MARK: - Engine
-
-/// Runs every active watcher on one background thread: capture each target window, look for the pictures, click.
-final class WatcherEngine {
-    private let lock = NSLock()
-    private var active: [Watcher] = []
-    private var token: CancelToken?
-    var onStatus: (@MainActor ([UUID: WatcherStatus]) -> Void)?
-    var onFinished: (@MainActor (UUID) -> Void)?
-
-    /// Replace the set of running watchers (empty stops the engine).
-    func run(_ watchers: [Watcher]) {
-        lock.withLock { active = watchers }
-        if watchers.isEmpty {
-            token?.cancel()
-            token = nil
-        } else if token == nil {
-            let t = CancelToken()
-            token = t
-            Thread.detachNewThread { [weak self] in self?.loop(t) }
-        }
-    }
-
-    private func loop(_ token: CancelToken) {
-        var prepared: [UUID: (key: LookupKey, lookup: Lookup?)] = [:]
-        // Reading text takes far longer than matching a picture, so it's done a few times a second at most.
-        var lastTextRead: [UUID: Double] = [:]
-        var unreadText: Set<UUID> = []
-        var status: [UUID: WatcherStatus] = [:]
-        var seenSince: [UUID: Double] = [:]
-        var lastClick: [UUID: Double] = [:]
-        var resolvers: [String: TargetResolver] = [:]
-        var lastFrame: [String: Int] = [:]
-        var lastMatch: [UUID: TemplateMatcher.Match?] = [:]
-        var lastReport = 0.0
-
-        while !token.isCancelled {
-            let tickStart = Timing.now()
-            let watchers = lock.withLock { active }
-            if watchers.isEmpty { break }
-
-            // One live feed per app, shared by all of its watchers. Waiting for the next frame paces the loop:
-            // a new frame arrives the moment the window changes.
-            let byApp = Dictionary(grouping: watchers.filter { $0.target.app != nil }, by: { $0.target.app!.bundleID })
-            for (bundleID, group) in byApp {
-                guard let app = group.first?.target.app else { continue }
-                let resolver = resolvers[bundleID] ?? TargetResolver(app: app)
-                resolvers[bundleID] = resolver
-                guard let win = resolver.window() else {
-                    for w in group { status[w.id, default: .init()].error = "Can't find \(app.name)'s window." }
-                    continue
-                }
-                guard let frame = FrameSource.shared.frame(for: win, after: lastFrame[bundleID] ?? 0,
-                                                           timeout: 0.1 / Double(max(1, byApp.count))) else {
-                    for w in group { status[w.id, default: .init()].error = "Can't see the screen. Allow Screen Recording in Permissions." }
-                    continue
-                }
-                // Same frame as last time = nothing changed on screen: reuse the earlier results.
-                let isNew = frame.number != lastFrame[bundleID]
-                lastFrame[bundleID] = frame.number
-                let scene = isNew ? TemplateMatcher.Scene(rgba: frame.pixels.rgba, width: frame.pixels.width,
-                                                          height: frame.pixels.height) : nil
-                for w in group {
-                    var st = status[w.id] ?? WatcherStatus()
-                    st.error = nil
-                    // Re-prepare only when what it looks for changes.
-                    let key = LookupKey(w)
-                    if prepared[w.id]?.key != key { prepared[w.id] = (key, Lookup(watcher: w)) }
-                    guard let lookup = prepared[w.id]?.lookup else {
-                        st.error = w.text != nil ? "Type the text to look for." : "Pick the picture to look for."
-                        status[w.id] = st
-                        continue
-                    }
-                    // A text watcher that skipped a new frame still reads it once its turn comes, even if the
-                    // screen has gone still since.
-                    if scene != nil && lookup.isText { unreadText.insert(w.id) }
-                    let due: Bool
-                    if lookup.isText {
-                        due = unreadText.contains(w.id) && Timing.now() - (lastTextRead[w.id] ?? 0) >= 0.25
-                    } else {
-                        due = scene != nil
-                    }
-                    let match: TemplateMatcher.Match?
-                    if due {
-                        match = lookup.find(in: frame.pixels, scene: scene)
-                        lastMatch[w.id] = match
-                        if lookup.isText { lastTextRead[w.id] = Timing.now(); unreadText.remove(w.id) }
-                    } else {
-                        match = lastMatch[w.id] ?? nil
-                    }
-                    st.score = match?.score ?? 0
-                    let found = match != nil && (lookup.isText || (match?.score ?? 0) >= w.strictness)
-                    let now = Timing.now()
-                    if found, let m = match {
-                        if !st.visible { seenSince[w.id] = now }
-                        st.visible = true
-                        st.lastSeen = Date()
-                        st.lastMatch = m.rect
-                        let shown = now - (seenSince[w.id] ?? now)
-                        let since = now - (lastClick[w.id] ?? -.infinity)
-                        let frontOK = !(w.target.pauseWhenInactive && w.target.delivery != .background
-                                        && WindowFinder.frontmostPID() != win.pid)
-                        if shown >= w.firstClickDelay, since >= w.interval, frontOK {
-                            click(w, at: CGPoint(x: m.rect.midX + w.offsetX, y: m.rect.midY + w.offsetY), in: win, token: token,
-                                  bounds: m.rect.offsetBy(dx: w.offsetX, dy: w.offsetY))
-                            lastClick[w.id] = Timing.now()
-                            st.clicks += 1
-                            if w.maxClicks > 0, st.clicks >= w.maxClicks {
-                                let id = w.id
-                                Task { @MainActor in self.onFinished?(id) }
-                            }
-                        }
-                    } else {
-                        st.visible = false
-                        seenSince[w.id] = nil
-                    }
-                    status[w.id] = st
-                }
-            }
-
-            let now = Timing.now()
-            if now - lastReport > 0.25 {
-                lastReport = now
-                let snapshot = status.filter { id, _ in watchers.contains { $0.id == id } }
-                Task { @MainActor in self.onStatus?(snapshot) }
-            }
-            // At most ~30 checks a second: fast enough to react within a frame or two, without keeping a
-            // CPU core busy when the game animates nonstop.
-            _ = Timing.wait(until: tickStart + 1.0 / 30, token)
-        }
-    }
-
-    private func click(_ w: Watcher, at p: CGPoint, in win: TargetWindow, token: CancelToken, bounds: CGRect) {
-        let performer = Performer(route: Route(mode: w.target.delivery, pid: win.pid, windowNumber: win.windowNumber,
-                                               origin: win.frame.origin))
-        performer.token = token
-        performer.spreadBounds = bounds // the click spread keeps clicks on the button
-        performer.stillThreshold = w.target.jumpWhenStillMs / 1000
-        performer.perform(.mouseDown(button: w.button, x: Double(p.x), y: Double(p.y), clickCount: 1, flags: 0))
-        performer.perform(.mouseUp(button: w.button, x: Double(p.x), y: Double(p.y), clickCount: 1, flags: 0))
-    }
-}
-
 enum PictureCrop {
     /// Crops `rect` (window points) from a full-resolution window screenshot. Returns PNG data and the size in points.
     static func crop(_ rect: CGRect, from image: NSImage) -> (png: Data, width: Double, height: Double)? {
@@ -607,10 +455,3 @@ enum PictureCrop {
     }
 }
 
-/// What a watcher looks for, for noticing when it changed.
-struct LookupKey: Equatable {
-    let png: Data?, width: Double, height: Double, text: String?, area: CGRect?, strictness: Double
-    init(_ w: Watcher) {
-        (png, width, height, text, area, strictness) = (w.templatePNG, w.templateWidth, w.templateHeight, w.text, w.area, w.strictness)
-    }
-}

@@ -381,6 +381,8 @@ struct PlaybackOptions: Codable, Equatable {
 
     var speed: Double = 1
     var order: StepOrder = .inOrder
+    /// All at once: stop after this many clicks (0 = no limit).
+    var maxClicks: Int = 0
     var repeatMode: RepeatMode = .once
     /// Used by `.times`.
     var loops: Int = 2
@@ -416,6 +418,7 @@ extension PlaybackOptions {
         loopDelay = try c.decodeIfPresent(Double.self, forKey: .loopDelay) ?? 0
         loopDelayRandom = try c.decodeIfPresent(Double.self, forKey: .loopDelayRandom) ?? 0
         skipMouseMoves = try c.decodeIfPresent(Bool.self, forKey: .skipMouseMoves) ?? false
+        maxClicks = try c.decodeIfPresent(Int.self, forKey: .maxClicks) ?? 0
     }
 }
 
@@ -427,6 +430,9 @@ struct Macro: Codable, Identifiable, Equatable {
     var playback = PlaybackOptions()
     /// When target.app is set, step coordinates are relative to that app's window.
     var target = TargetOptions()
+    /// Runs on its own, alongside whatever else is playing, with its own on/off switch
+    /// (what used to be a "watcher").
+    var runsInBackground = false
 
     var duration: Double { steps.reduce(0) { $0 + $1.delay } }
 }

@@ -2,7 +2,7 @@ import SwiftUI
 
 /// The three things MacroClicker does, as tabs in the window toolbar.
 enum MainTab: String, CaseIterable, Identifiable {
-    case clicker = "Clicker", macros = "Macros", watchers = "Watchers"
+    case clicker = "Clicker", macros = "Macros"
     var id: String { rawValue }
 }
 
@@ -11,7 +11,6 @@ extension AppModel {
         get {
             switch sidebar ?? .autoClicker {
             case .macro, .macros: .macros
-            case .watcher, .watchers: .watchers
             default: .clicker
             }
         }
@@ -20,7 +19,6 @@ extension AppModel {
             switch newValue {
             case .clicker: sidebar = .autoClicker
             case .macros: sidebar = (selectedMacroID ?? macros.first?.id).map { .macro($0) } ?? .macros
-            case .watchers: sidebar = .watchers
             }
         }
     }
@@ -55,7 +53,6 @@ struct ContentView: View {
                 switch model.tab {
                 case .clicker: AutoClickerView()
                 case .macros: MacrosPage()
-                case .watchers: WatchersPage()
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -99,7 +96,19 @@ struct WindowLevel: NSViewRepresentable {
 
     final class Probe: NSView {
         var floating = false { didSet { apply() } }
-        override func viewDidMoveToWindow() { apply() }
+        private var observers: [NSObjectProtocol] = []
+
+        override func viewDidMoveToWindow() {
+            observers.forEach(NotificationCenter.default.removeObserver)
+            observers = []
+            apply()
+            guard let window else { return }
+            for name in [NSWindow.didResizeNotification, NSWindow.didBecomeKeyNotification, NSWindow.didEndLiveResizeNotification] {
+                observers.append(NotificationCenter.default.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in
+                    MainActor.assumeIsolated { self?.apply() }
+                })
+            }
+        }
         // SwiftUI sets the title back up as the toolbar changes, so keep it hidden.
         override func layout() { super.layout(); apply() }
         func apply() {
@@ -170,29 +179,32 @@ struct StatusBar: View {
             return Content(dot: .secondary.opacity(0.5), title: "Stopped", detail: clickerSummary, button: "Start",
                            hotkey: .toggleAutoClick, action: { model.toggleAutoClick() })
         case .macros:
+            let others = model.backgroundRunning.count
+            let also = others > 0 ? ", \(others) in the background" : ""
             if let id = model.playingMacroID {
                 let name = model.macros.first { $0.id == id }?.name ?? ""
-                return Content(dot: .green, title: "Playing", detail: "\(name), \(model.playStatus)", button: "Stop",
+                return Content(dot: .green, title: "Playing", detail: "\(name), \(model.playStatus)\(also)", button: "Stop",
                                hotkey: .togglePlayback, tint: .green, action: { model.stopPlayback() })
             }
-            let m = model.selectedMacro
-            let detail = m.map { m in
-                let n = ActionGrouper.groups(for: m.steps).count
-                return "\(n) action\(n == 1 ? "" : "s")" + (m.target.app.map { " in \($0.name)" } ?? "")
-            } ?? "Record or create a macro"
-            return Content(dot: .secondary.opacity(0.5), title: "Ready", detail: detail, button: "Play",
-                           hotkey: .togglePlayback, enabled: m != nil, action: { if let m { model.play(m) } })
-        case .watchers:
-            let on = model.runningWatchers.count
-            if on > 0 {
-                let clicks = model.watcherStatus.values.reduce(0) { $0 + $1.clicks }
-                return Content(dot: .green, title: "\(on) watching", detail: "\(clicks) click\(clicks == 1 ? "" : "s") so far",
-                               button: "Stop All", hotkey: .toggleWatchers, tint: .green, action: { model.toggleAllWatchers() })
+            guard let m = model.selectedMacro else {
+                return Content(dot: .secondary.opacity(0.5), title: others > 0 ? "\(others) in the background" : "Ready",
+                               detail: "Record or create a macro", button: "Play", hotkey: .togglePlayback, enabled: false,
+                               action: {})
             }
-            return Content(dot: .secondary.opacity(0.5), title: "Off",
-                           detail: model.watchers.isEmpty ? "Add a watcher to get started" : "Switch watchers on in the list",
-                           button: "Start All", hotkey: .toggleWatchers, enabled: !model.watchers.isEmpty,
-                           action: { model.toggleAllWatchers() })
+            if m.runsInBackground {
+                if model.isRunningInBackground(m.id) {
+                    let c = model.backgroundClicks[m.id] ?? 0
+                    return Content(dot: .green, title: "Running in the background",
+                                   detail: "\(c) click\(c == 1 ? "" : "s") so far" + (others > 1 ? ", \(others - 1) more running" : ""),
+                                   button: "Stop", hotkey: nil, tint: .green, action: { model.stopBackground(m.id) })
+                }
+                return Content(dot: .secondary.opacity(0.5), title: "Off", detail: "Runs in the background once started\(also)",
+                               button: "Start", hotkey: nil, action: { model.startBackground(m.id) })
+            }
+            let n = ActionGrouper.groups(for: m.steps).count
+            let detail = "\(n) action\(n == 1 ? "" : "s")" + (m.target.app.map { " in \($0.name)" } ?? "") + also
+            return Content(dot: others > 0 ? .green : .secondary.opacity(0.5), title: "Ready", detail: detail, button: "Play",
+                           hotkey: .togglePlayback, action: { model.play(m) })
         }
     }
 
