@@ -339,7 +339,16 @@ final class Player {
                 seenAt = since
                 if Timing.now() - since >= s.settle { spot = (r, w); continue }
             }
-            if Timing.now() >= deadline { return .timedOut }
+            if Timing.now() >= deadline {
+                // Smart recording: not found, so click where it was when it was recorded.
+                if s.mode == .click, let fx = s.fallbackX, let fy = s.fallbackY {
+                    if let win = resolver.window() { performer.route.origin = win.frame.origin }
+                    performer.perform(.mouseDown(button: s.button, x: fx, y: fy, clickCount: 1, flags: 0))
+                    performer.perform(.mouseUp(button: s.button, x: fx, y: fy, clickCount: 1, flags: 0))
+                    return .matched
+                }
+                return .timedOut
+            }
         }
         if s.mode == .appear { return .matched }
         guard let found = spot else { return .timedOut }

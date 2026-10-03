@@ -81,7 +81,8 @@ struct ActionGroup: Identifiable {
         case .scroll(_, _, let at?): "at \(Self.fmt(at))"
         case .image(let s):
             (s.untilAppears ? (s.mode == .gone ? "no time limit" : "whenever it appears")
-                            : "up to \(s.timeout.formatted())s, else \(s.otherwise.label.lowercased())")
+                            : "up to \(s.timeout.formatted())s, else "
+                                + (s.fallbackX != nil ? "clicks where it was recorded" : s.otherwise.label.lowercased()))
                 + (s.text != nil ? "" : " · \(Int((s.strictness * 100).rounded()))% match")
                 + (s.area == nil ? "" : " · in an area")
         case .colorWait(let at, let c):

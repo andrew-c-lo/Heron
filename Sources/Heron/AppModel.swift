@@ -43,6 +43,8 @@ final class AppModel: ObservableObject {
     @Published private(set) var backgroundRunning: Set<UUID> = []
     @Published private(set) var backgroundClicks: [UUID: Int] = [:]
     private var backgroundPlayers: [UUID: Player] = [:]
+    /// Smart recording, while a recording is in progress.
+    private var clickReader: ClickReader?
     @Published private(set) var hasAccessibility = false
     @Published private(set) var hasInputMonitoring = false
     @Published private(set) var hasScreenRecording = false
@@ -469,13 +471,19 @@ final class AppModel: ObservableObject {
 
     private func startRecordingNow() {
         let keys = Array(hotkeys.values)
-        let opts = Recorder.Options(
+        var opts = Recorder.Options(
             recordMouseMoves: prefs.recordMouseMoves,
             recordKeyboard: prefs.recordKeyboard,
             coalesceInterval: prefs.moveCoalesceMs / 1000,
             ignoreKey: { code, flags in keys.contains { $0.matches(keyCode: code, flags: flags) } },
             target: prefs.recordTarget
         )
+        // Smart recording reads what's under each click, inside the chosen app's window.
+        clickReader = nil
+        if prefs.smartRecording, let t = prefs.recordTarget, hasScreenRecording || ScreenReader.hasPermission {
+            clickReader = ClickReader(target: t)
+        }
+        if let reader = clickReader { opts.onPress = { id, p in reader.notePress(id, at: p) } }
         if let t = prefs.recordTarget, WindowFinder.find(t) == nil {
             flash("Can't find a window for \(t.name). Open it first, or turn off “Record only in”.")
             sound("Basso")
@@ -498,8 +506,13 @@ final class AppModel: ObservableObject {
 
     func stopRecording(fromUI: Bool) {
         guard isRecording else { return }
-        let steps = recorder.stop(trimTrailingClick: fromUI)
+        var steps = recorder.stop(trimTrailingClick: fromUI)
         isRecording = false
+        var smart = 0
+        if let reader = clickReader {
+            (steps, smart) = ClickReader.convert(steps, labels: reader.finish())
+            clickReader = nil
+        }
         sound("Pop")
         guard !steps.isEmpty else {
             flash("Nothing was recorded.")
@@ -514,7 +527,8 @@ final class AppModel: ObservableObject {
         if let snap = pendingSnapshot { setSnapshot(snap, for: m.id) }
         pendingSnapshot = nil
         show(m.id)
-        flash("Saved “\(m.name)” — \(steps.count) steps, \(formatDuration(m.duration))")
+        flash("Saved “\(m.name)” — \(steps.count) steps, \(formatDuration(m.duration))"
+              + (smart > 0 ? ". \(smart) click\(smart == 1 ? "" : "s") will find \(smart == 1 ? "its" : "their") text wherever it is." : ""))
     }
 
     private func runCountdown(_ seconds: Int, then action: @escaping () -> Void) {

@@ -89,6 +89,35 @@ enum TextFinder {
         }
         return best.map { TemplateMatcher.Match(rect: $0.rect, score: Double(min($0.confidence, 1))) }
     }
+
+    struct Line {
+        let text: String
+        let rect: CGRect
+        let words: [(text: String, rect: CGRect)]
+    }
+
+    /// Every line of text in the picture, with a box for the line and for each word (window coordinates).
+    static func read(_ px: ScreenReader.WindowPixels) -> [Line] {
+        guard let image = px.cgImage else { return [] }
+        let request = VNRecognizeTextRequest()
+        request.recognitionLevel = .accurate
+        request.usesLanguageCorrection = false
+        try? VNImageRequestHandler(cgImage: image).perform([request])
+        let w = CGFloat(px.width), h = CGFloat(px.height)
+        func rect(_ box: CGRect) -> CGRect {
+            CGRect(x: box.minX * w, y: (1 - box.maxY) * h, width: box.width * w, height: box.height * h)
+        }
+        return (request.results ?? []).compactMap { observation in
+            guard let candidate = observation.topCandidates(1).first else { return nil }
+            let string = candidate.string
+            var words: [(String, CGRect)] = []
+            string.enumerateSubstrings(in: string.startIndex..., options: .byWords) { word, range, _, _ in
+                guard let word, let box = try? candidate.boundingBox(for: range)?.boundingBox else { return }
+                words.append((word, rect(box)))
+            }
+            return Line(text: string, rect: rect(observation.boundingBox), words: words)
+        }
+    }
 }
 
 extension ScreenReader.WindowPixels {

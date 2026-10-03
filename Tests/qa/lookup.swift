@@ -121,5 +121,41 @@ let oldMacro = #"{"name":"old","steps":[]}"#.data(using: .utf8)!
 let om = Lenient.decode(oldMacro, defaults: Macro(name: "", steps: []))
 check("older macros load as not-background with no limit", om?.runsInBackground == false && om?.playback.maxClicks == 0)
 
+// Smart recording: what's under a click becomes a label.
+let (sx, sb) = window([("Daily login", CGPoint(x: 40, y: 40)), ("Claim", CGPoint(x: 600, y: 60)),
+                       ("Claim", CGPoint(x: 600, y: 300)),
+                       ("This is a long sentence that explains the rewards screen in detail", CGPoint(x: 30, y: 420))])
+let lines = TextFinder.read(sx)
+let size = CGSize(width: sx.width, height: sx.height)
+func centre(_ r: CGRect) -> CGPoint { CGPoint(x: r.midX, y: r.midY) }
+let l1 = ClickReader.label(in: lines, at: centre(sb["Daily login"]!), window: size)
+check("a click on a label reads the label", l1?.text == "Daily login" && l1?.area == nil, "\(String(describing: l1))")
+let l2 = ClickReader.label(in: lines, at: centre(sb["Claim"]!), window: size)
+check("a word that appears twice gets a search area around the click",
+      l2?.text == "Claim" && (l2?.area?.contains(centre(sb["Claim"]!)) ?? false), "\(String(describing: l2))")
+let sentence = sb["This is a long sentence that explains the rewards screen in detail"]!
+let wordPoint = CGPoint(x: sentence.minX + sentence.width * 0.62, y: sentence.midY)
+let l3 = ClickReader.label(in: lines, at: wordPoint, window: size)
+check("a click inside a long sentence stays a plain click", l3 == nil, "\(String(describing: l3))")
+check("a click on empty space reads nothing", ClickReader.label(in: lines, at: CGPoint(x: 400, y: 200), window: size) == nil)
+
+let clickSteps = [MacroStep(delay: 0.5, action: .move(x: 10, y: 10)),
+                  MacroStep(delay: 0.2, action: .mouseDown(button: .left, x: 80, y: 52, clickCount: 1, flags: 0)),
+                  MacroStep(delay: 0.08, action: .mouseUp(button: .left, x: 80, y: 52, clickCount: 1, flags: 0)),
+                  MacroStep(delay: 1.0, action: .mouseDown(button: .left, x: 300, y: 300, clickCount: 1, flags: 0)),
+                  MacroStep(delay: 0.08, action: .mouseUp(button: .left, x: 300, y: 300, clickCount: 1, flags: 0))]
+let conv = ClickReader.convert(clickSteps, labels: [clickSteps[1].id: .init(text: "Daily login", area: nil)])
+if conv.steps.count == 4, case .findImage(let f) = conv.steps[1].action {
+    check("a labelled click becomes a text step with the recorded spot as fallback",
+          f.text == "Daily login" && f.fallbackX == 80 && f.fallbackY == 52 && f.mode == .click && f.timeout == 5)
+    check("…keeping its timing and the travel before it", conv.steps[1].delay == 0.2 && conv.steps[0].delay == 0.5)
+    check("…and other clicks stay as they were", { if case .mouseDown = conv.steps[2].action { return true }; return false }())
+} else {
+    check("a labelled click becomes a text step", false, "\(conv.steps.map(\.action))")
+}
+let fb = try! JSONDecoder().decode(ImageStep.self, from: JSONEncoder().encode({ () -> ImageStep in
+    var s = ImageStep(png: Data(), width: 0, height: 0, originX: 0, originY: 0); s.fallbackX = 5; s.fallbackY = 6; return s }()))
+check("the fallback spot saves and loads", fb.fallbackX == 5 && fb.fallbackY == 6)
+
 print(failures == 0 ? "ALL PASSED" : "\(failures) FAILED")
 exit(failures == 0 ? 0 : 1)

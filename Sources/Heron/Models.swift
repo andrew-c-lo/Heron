@@ -284,6 +284,9 @@ struct ImageStep: Codable, Equatable {
     /// Keep clicking every `repeatEvery` seconds until it disappears (for taps that don't register the first time).
     var repeatUntilGone = false
     var repeatEvery: Double = 0.5
+    /// Smart recording: if it isn't found in time, click here instead (window points), where it was recorded.
+    var fallbackX: Double?
+    var fallbackY: Double?
     /// Look for this text instead of the picture (nil = picture).
     var text: String?
     /// Only search inside this part of the window (window points; nil = whole window).
@@ -324,6 +327,8 @@ extension ImageStep {
         settle = try c.decodeIfPresent(Double.self, forKey: .settle) ?? 0
         repeatUntilGone = try c.decodeIfPresent(Bool.self, forKey: .repeatUntilGone) ?? false
         repeatEvery = try c.decodeIfPresent(Double.self, forKey: .repeatEvery) ?? 0.5
+        fallbackX = try c.decodeIfPresent(Double.self, forKey: .fallbackX)
+        fallbackY = try c.decodeIfPresent(Double.self, forKey: .fallbackY)
         text = try c.decodeIfPresent(String.self, forKey: .text)
         area = try c.decodeIfPresent(CGRect.self, forKey: .area)
     }
@@ -492,6 +497,8 @@ struct Preferences: Codable, Equatable {
     var clickSpreadRadius: Double = 15
     /// A notification when something stops on its own while Heron is in the background.
     var notifyWhenStopped = true
+    /// Recorded clicks on a short label become “Click “label”” steps (needs “Record only in” and Screen Recording).
+    var smartRecording = true
     /// Every single click is sent as a double click (everywhere: auto clicker, macros, chains, watchers).
     var doubleClickEverywhere = false
 }

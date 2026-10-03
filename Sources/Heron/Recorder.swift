@@ -11,6 +11,8 @@ final class Recorder {
         var ignoreKey: (UInt16, CGEventFlags) -> Bool = { _, _ in false }
         /// Only record input aimed at this app; coordinates become relative to its window.
         var target: TargetApp?
+        /// Called for each new press (step id, window position), so smart recording can read what's under it.
+        var onPress: ((UUID, CGPoint) -> Void)?
     }
 
     private(set) var steps: [MacroStep] = []
@@ -84,8 +86,9 @@ final class Recorder {
         while let first = s.first, case .flags = first.action { s.removeFirst() }
         while let last = s.last, case .flags = last.action { s.removeLast() }
 
-        // The click on the "Stop" button itself.
-        if trimTrailingClick, let i = s.lastIndex(where: { if case .mouseDown = $0.action { true } else { false } }) {
+        // The click on the "Stop" button itself. When recording only inside one app, clicks on Heron's own
+        // window are never recorded, so the last click is a real one and stays.
+        if trimTrailingClick, resolver == nil, let i = s.lastIndex(where: { if case .mouseDown = $0.action { true } else { false } }) {
             let tailIsClickOnly = s[i...].allSatisfy {
                 switch $0.action {
                 case .mouseDown, .mouseUp, .move, .drag: true
@@ -182,7 +185,11 @@ final class Recorder {
         }
         let delay = lastTime.map { now - $0 } ?? 0
         lastTime = now
-        steps.append(MacroStep(delay: delay, action: action))
+        let step = MacroStep(delay: delay, action: action)
+        steps.append(step)
         onChange?(steps.count)
+        if case .mouseDown(_, let x, let y, let c, _) = action, c <= 1, resolver != nil {
+            options.onPress?(step.id, CGPoint(x: x, y: y))
+        }
     }
 }

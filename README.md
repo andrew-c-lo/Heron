@@ -105,6 +105,8 @@ scripts/setup-signing.sh   # once: a personal signing certificate, so permission
 <summary><b>Record and build macros</b></summary>
 
 - Record mouse moves, clicks, drags, scrolls and keystrokes, or just one app's window
+- Remember what you click: when recording inside one app, a click on a word like “Claim” becomes a step that
+  finds that word wherever it is, and clicks the recorded spot if it isn't there
 - Or build one step by step: Click, Type, Wait, Find Picture and Find Text are one click each, and the
   selected step's settings show beside the list
 - See a macro three ways: a map of the window with every tap, a readable list (“Tap”, “Swipe up”,

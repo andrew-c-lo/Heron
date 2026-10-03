@@ -43,6 +43,16 @@ struct RecordingSettingsView: View {
                         "Only clicks inside the \($0.name) window, and keys while it's in front. New recordings target it automatically."
                     } ?? "Choose an app to ignore everything outside its window.")
                 }
+                Toggle(isOn: $model.prefs.smartRecording) {
+                    Text("Remember what you click")
+                    Text(model.prefs.recordTarget == nil
+                         ? "Clicks on a word, like “Claim”, find that word wherever it is when played back. Works when recording only in one app."
+                         : "Clicks on a word, like “Claim”, find that word wherever it is when played back, and click the recorded spot if it isn't there.")
+                }
+                if model.prefs.smartRecording, !model.hasScreenRecording {
+                    Label("Needs Screen Recording permission (Permissions tab).", systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption).foregroundStyle(.orange)
+                }
             }
             Section("Fine-tuning") {
                 LabeledContent {
