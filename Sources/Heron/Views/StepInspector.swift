@@ -53,6 +53,25 @@ struct StepInspector: View {
             Divider()
 
             if case .image = g.kind, let id = editing.actionStepID(g), let binding = editing.imageBinding(stepID: id) {
+                if let hits = model.stepHits[id] {
+                    Text("Fired \(hits) time\(hits == 1 ? "" : "s") last run.")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 14).padding(.top, 8)
+                }
+                if let area = model.suggestedArea(for: id), binding.wrappedValue.area != area {
+                    HStack(alignment: .top, spacing: 8) {
+                        Image(systemName: "scope").foregroundStyle(.tint)
+                        Text("Last run it only showed up in one part of the window. Searching just there is faster and avoids look-alikes.")
+                            .font(.caption)
+                        Spacer(minLength: 4)
+                        Button("Use It") { binding.wrappedValue.area = area }
+                            .controlSize(.small)
+                    }
+                    .padding(10)
+                    .background(RoundedRectangle(cornerRadius: 8).fill(Color.accentColor.opacity(0.1)))
+                    .padding(.horizontal, 10).padding(.top, 8)
+                }
                 PictureStepEditor(step: binding, app: app, touch: touch, allAtOnce: allAtOnce)
             } else {
                 Form {

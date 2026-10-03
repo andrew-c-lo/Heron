@@ -89,6 +89,24 @@ enum WindowFinder {
         return onscreen ?? fallback
     }
 
+    /// The app window under a screen point (front to back), skipping Heron's own windows.
+    static func window(at p: CGPoint) -> (app: TargetApp, window: TargetWindow)? {
+        guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
+                as? [[String: Any]] else { return nil }
+        let me = ProcessInfo.processInfo.processIdentifier
+        for info in list {
+            guard (info[kCGWindowLayer as String] as? Int) == 0,
+                  let pid = info[kCGWindowOwnerPID as String] as? pid_t, pid != me,
+                  let number = info[kCGWindowNumber as String] as? Int,
+                  let bounds = info[kCGWindowBounds as String] as? NSDictionary,
+                  let frame = CGRect(dictionaryRepresentation: bounds as CFDictionary), frame.contains(p),
+                  let running = NSRunningApplication(processIdentifier: pid), let id = running.bundleIdentifier
+            else { continue }
+            return (TargetApp(bundleID: id, name: running.localizedName ?? id), TargetWindow(pid: pid, windowNumber: number, frame: frame))
+        }
+        return nil
+    }
+
     static func frontmostPID() -> pid_t? {
         NSWorkspace.shared.frontmostApplication?.processIdentifier
     }

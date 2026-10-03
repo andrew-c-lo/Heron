@@ -66,13 +66,16 @@ struct TargetControls: View {
             }
         }
         if target.delivery == .jumpReturn {
-            LabeledContent("Wait for your mouse to be still") {
+            LabeledContent {
                 HStack(spacing: 4) {
                     TextField("", value: $target.jumpWhenStillMs, format: .number)
                         .multilineTextAlignment(.trailing)
                         .frame(width: 60)
                     Text("ms").foregroundStyle(.secondary)
                 }
+            } label: {
+                Text("Wait for your mouse to be still")
+                Text("0 doesn't wait: fastest when you're away from the Mac.")
             }
             .help("Before each jump, wait until you haven't moved the mouse (or held a button) for this long, so it never fights your hand. 0 = don't wait.")
         }

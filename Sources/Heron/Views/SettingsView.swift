@@ -45,9 +45,7 @@ struct RecordingSettingsView: View {
                 }
                 Toggle(isOn: $model.prefs.smartRecording) {
                     Text("Remember what you click")
-                    Text(model.prefs.recordTarget == nil
-                         ? "Clicks on a word, like “Claim”, find that word wherever it is when played back. Works when recording only in one app."
-                         : "Clicks on a word, like “Claim”, find that word wherever it is when played back, and click the recorded spot if it isn't there.")
+                    Text("Clicks on a word, like “Claim”, or on an icon find it wherever it is when played back, and click the recorded spot if it isn't there. Works when every click goes to one app.")
                 }
                 if model.prefs.smartRecording, !model.hasScreenRecording {
                     Label("Needs Screen Recording permission (Permissions tab).", systemImage: "exclamationmark.triangle.fill")

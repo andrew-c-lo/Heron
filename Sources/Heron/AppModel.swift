@@ -43,6 +43,11 @@ final class AppModel: ObservableObject {
     @Published private(set) var backgroundRunning: Set<UUID> = []
     @Published private(set) var backgroundClicks: [UUID: Int] = [:]
     private var backgroundPlayers: [UUID: Player] = [:]
+    /// Last run: how often each step fired, and the area its picture or text was found in.
+    @Published private(set) var stepHits: [UUID: Int] = [:]
+    @Published private(set) var stepFound: [UUID: CGRect] = [:]
+    /// Screens where the idle tap had to step in, per macro (newest first).
+    @Published private(set) var stuckScreens: [UUID: [URL]] = [:]
     /// Smart recording, while a recording is in progress.
     private var clickReader: ClickReader?
     @Published private(set) var hasAccessibility = false
@@ -480,8 +485,8 @@ final class AppModel: ObservableObject {
         )
         // Smart recording reads what's under each click, inside the chosen app's window.
         clickReader = nil
-        if prefs.smartRecording, let t = prefs.recordTarget, hasScreenRecording || ScreenReader.hasPermission {
-            clickReader = ClickReader(target: t)
+        if prefs.smartRecording, hasScreenRecording || ScreenReader.hasPermission {
+            clickReader = ClickReader(target: prefs.recordTarget)
         }
         if let reader = clickReader { opts.onPress = { id, p in reader.notePress(id, at: p) } }
         if let t = prefs.recordTarget, WindowFinder.find(t) == nil {
@@ -508,9 +513,10 @@ final class AppModel: ObservableObject {
         guard isRecording else { return }
         var steps = recorder.stop(trimTrailingClick: fromUI)
         isRecording = false
-        var smart = 0
+        var smart = ClickReader.Result(steps: steps)
         if let reader = clickReader {
-            (steps, smart) = ClickReader.convert(steps, labels: reader.finish())
+            smart = reader.finish(steps)
+            steps = smart.steps
             clickReader = nil
         }
         sound("Pop")
@@ -521,14 +527,21 @@ final class AppModel: ObservableObject {
         let df = DateFormatter()
         df.dateFormat = "MMM d, HH:mm:ss"
         var m = Macro(name: "Recording \(df.string(from: Date()))", steps: steps)
-        m.target.app = prefs.recordTarget
+        m.target.app = prefs.recordTarget ?? smart.app
         macros.append(m)
         store.save(m)
         if let snap = pendingSnapshot { setSnapshot(snap, for: m.id) }
         pendingSnapshot = nil
         show(m.id)
         flash("Saved “\(m.name)” — \(steps.count) steps, \(formatDuration(m.duration))"
-              + (smart > 0 ? ". \(smart) click\(smart == 1 ? "" : "s") will find \(smart == 1 ? "its" : "their") text wherever it is." : ""))
+              + smartSummary(smart))
+    }
+
+    private func smartSummary(_ r: ClickReader.Result) -> String {
+        let n = r.words + r.pictures
+        guard n > 0 else { return "" }
+        return ". \(n) click\(n == 1 ? "" : "s") will find \(n == 1 ? "its" : "their") target wherever it is"
+            + (r.app.map { " in \($0.name)" } ?? "") + "."
     }
 
     private func runCountdown(_ seconds: Int, then action: @escaping () -> Void) {
@@ -573,12 +586,18 @@ final class AppModel: ObservableObject {
         playLoop = 1
         playPausing = nil
         sound("Tink")
+        resetHits(for: macro)
+        let macroID = macro.id
         player.play(macro, startDelay: prep.startDelay, progress: { [weak self] s, l, p in
             self?.playStep = s
             self?.playLoop = l
             self?.playPausing = p
         }, waiting: { [weak self] color in
             self?.playWaitingColor = color
+        }, clicked: { [weak self] step, found in
+            self?.recordHit(step, found)
+        }, stuck: { [weak self] screen in
+            self?.saveStuck(screen, macro: macroID)
         }, finished: { [weak self] error in
             guard let self, !self.player.isRunning else { return }
             self.playingMacroID = nil
@@ -603,6 +622,68 @@ final class AppModel: ObservableObject {
         stopAutoClick()
         stopPlayback()
         if isRecording { stopRecording(fromUI: false) }
+    }
+
+    /// One tap at a window point, with the target's delivery setting (for Autopilot). Returns an error message.
+    func tapOnce(at p: CGPoint, target: TargetOptions) -> String? {
+        guard requireAccessibility() else { return "Allow Accessibility so Heron can click." }
+        let resolver = target.app.map { TargetResolver(app: $0) }
+        switch RouteBuilder.route(for: target, resolver: resolver) {
+        case .failure(let e): return e.message
+        case .success(let route):
+            let performer = Performer(route: route)
+            performer.perform(.mouseDown(button: .left, x: Double(p.x), y: Double(p.y), clickCount: 1, flags: 0))
+            performer.perform(.mouseUp(button: .left, x: Double(p.x), y: Double(p.y), clickCount: 1, flags: 0))
+            return nil
+        }
+    }
+
+    // MARK: - Run statistics and stuck screens
+
+    private func resetHits(for m: Macro) {
+        for s in m.steps { stepHits[s.id] = nil; stepFound[s.id] = nil }
+    }
+
+    private func recordHit(_ step: UUID, _ found: CGRect?) {
+        stepHits[step, default: 0] += 1
+        if let found { stepFound[step] = stepFound[step].map { $0.union(found) } ?? found }
+    }
+
+    /// The search area suggested for a step from where it was found last run (with some room around it).
+    func suggestedArea(for step: UUID) -> CGRect? {
+        guard let r = stepFound[step], (stepHits[step] ?? 0) >= 2 else { return nil }
+        return r.insetBy(dx: -max(24, r.width * 0.25), dy: -max(24, r.height * 0.25)).integral
+    }
+
+    private static func stuckFolder(_ macro: UUID) -> URL {
+        AppFolder.url.appendingPathComponent("Stuck/\(macro.uuidString)", isDirectory: true)
+    }
+
+    func loadStuck(for macro: UUID) {
+        let dir = Self.stuckFolder(macro)
+        let files = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.creationDateKey])) ?? []
+        stuckScreens[macro] = files.filter { $0.pathExtension == "png" }.sorted { $0.lastPathComponent > $1.lastPathComponent }
+    }
+
+    private func saveStuck(_ screen: ScreenReader.WindowPixels, macro: UUID) {
+        let dir = Self.stuckFolder(macro)
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            guard let cg = screen.cgImage,
+                  let png = NSBitmapImageRep(cgImage: cg).representation(using: .png, properties: [:]) else { return }
+            let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
+            try? png.write(to: dir.appendingPathComponent("\(stamp).png"))
+            // Keep the newest 24.
+            let all = ((try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? [])
+                .filter { $0.pathExtension == "png" }.sorted { $0.lastPathComponent > $1.lastPathComponent }
+            for old in all.dropFirst(24) { try? FileManager.default.removeItem(at: old) }
+            Task { @MainActor in self?.loadStuck(for: macro) }
+        }
+    }
+
+    func deleteStuck(_ url: URL, macro: UUID) {
+        try? FileManager.default.removeItem(at: url)
+        loadStuck(for: macro)
     }
 
     // MARK: - Background macros
@@ -638,8 +719,12 @@ final class AppModel: ObservableObject {
         backgroundRunning.insert(id)
         backgroundClicks[id] = 0
         if !quietly { sound("Tink") }
-        player.play(m, progress: { _, _, _ in }, clicked: { [weak self] in
+        resetHits(for: m)
+        player.play(m, progress: { _, _, _ in }, clicked: { [weak self] step, found in
             self?.backgroundClicks[id, default: 0] += 1
+            self?.recordHit(step, found)
+        }, stuck: { [weak self] screen in
+            self?.saveStuck(screen, macro: id)
         }, finished: { [weak self, weak player] error in
             guard let self, player?.isRunning != true, self.backgroundPlayers[id] === player else { return }
             self.backgroundPlayers[id] = nil

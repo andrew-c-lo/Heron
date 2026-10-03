@@ -188,7 +188,8 @@ final class Recorder {
         let step = MacroStep(delay: delay, action: action)
         steps.append(step)
         onChange?(steps.count)
-        if case .mouseDown(_, let x, let y, let c, _) = action, c <= 1, resolver != nil {
+        if case .mouseDown(_, let x, let y, let c, _) = action, c <= 1 {
+            // Window points when recording inside one app, screen points otherwise.
             options.onPress?(step.id, CGPoint(x: x, y: y))
         }
     }

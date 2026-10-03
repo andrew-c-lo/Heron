@@ -144,7 +144,7 @@ let clickSteps = [MacroStep(delay: 0.5, action: .move(x: 10, y: 10)),
                   MacroStep(delay: 0.08, action: .mouseUp(button: .left, x: 80, y: 52, clickCount: 1, flags: 0)),
                   MacroStep(delay: 1.0, action: .mouseDown(button: .left, x: 300, y: 300, clickCount: 1, flags: 0)),
                   MacroStep(delay: 0.08, action: .mouseUp(button: .left, x: 300, y: 300, clickCount: 1, flags: 0))]
-let conv = ClickReader.convert(clickSteps, labels: [clickSteps[1].id: .init(text: "Daily login", area: nil)])
+let conv = ClickReader.convert(clickSteps, labels: [clickSteps[1].id: ClickReader.Label(text: "Daily login", area: nil)])
 if conv.steps.count == 4, case .findImage(let f) = conv.steps[1].action {
     check("a labelled click becomes a text step with the recorded spot as fallback",
           f.text == "Daily login" && f.fallbackX == 80 && f.fallbackY == 52 && f.mode == .click && f.timeout == 5)
@@ -156,6 +156,59 @@ if conv.steps.count == 4, case .findImage(let f) = conv.steps[1].action {
 let fb = try! JSONDecoder().decode(ImageStep.self, from: JSONEncoder().encode({ () -> ImageStep in
     var s = ImageStep(png: Data(), width: 0, height: 0, originX: 0, originY: 0); s.fallbackX = 5; s.fallbackY = 6; return s }()))
 check("the fallback spot saves and loads", fb.fallbackX == 5 && fb.fallbackY == 6)
+
+// All at once: taking turns vs higher steps win.
+var fair = AllAtOnceChooser(rules: [0: .init(settle: 0, repeatUntilGone: true, repeatEvery: 0.1),
+                                    5: .init(settle: 0, repeatUntilGone: true, repeatEvery: 0.1)])
+let f1 = fair.choose(found: [0, 5], now: 1); fair.clicked(f1!, at: 1)
+let f2 = fair.choose(found: [0, 5], now: 2)
+check("taking turns: the other one goes next", f1 != f2, "\(String(describing: f1)) then \(String(describing: f2))")
+var prio = AllAtOnceChooser(rules: [0: .init(settle: 0, repeatUntilGone: true, repeatEvery: 0.1),
+                                    5: .init(settle: 0, repeatUntilGone: true, repeatEvery: 0.1)], prioritized: true)
+let p1 = prio.choose(found: [0, 5], now: 1); prio.clicked(p1!, at: 1)
+let p2 = prio.choose(found: [0, 5], now: 2)
+check("higher steps win: step 1 every time", p1 == 0 && p2 == 0, "\(String(describing: p1)) \(String(describing: p2))")
+var pb = PlaybackOptions(); pb.prioritized = true; pb.idleTapAfter = 4; pb.idleTapX = 195; pb.idleTapY = 700
+let pb2 = try! JSONDecoder().decode(PlaybackOptions.self, from: JSONEncoder().encode(pb))
+check("priority and tap-when-stuck save and load", pb2.prioritized && pb2.idleTapAfter == 4 && pb2.idleTapX == 195 && pb2.idleTapY == 700)
+let oldPB = try! JSONDecoder().decode(PlaybackOptions.self, from: #"{"speed":1}"#.data(using: .utf8)!)
+check("older macros: no priority, no idle tap", !oldPB.prioritized && oldPB.idleTapAfter == 0)
+
+// Describe: the model's reply becomes steps; anything else is ignored.
+let planned = PlannedStep.parse("""
+1. CLICK Claim
+- WAIT 2
+TYPE "hello"
+PRESS Return
+Sure! Here are your steps:
+PRESS F13
+CLICK
+""")
+check("a drafted plan becomes steps", planned == [.click("Claim"), .wait(2), .type("hello"), .press("Return")], "\(planned)")
+
+// Live (informational): what the on-device model suggests on a typical results screen.
+let screenLines = ["K.O.", "Battle Results", "OK", "Link Skill Level"].map { TextFinder.Line(text: $0, rect: .zero, words: []) }
+let sem = DispatchSemaphore(value: 0)
+var suggestion: String?
+Task.detached { suggestion = await Assistant.suggestTap(on: screenLines); sem.signal() }
+sem.wait()
+print("INFO suggestion for [K.O., Battle Results, OK, Link Skill Level]: \(suggestion ?? "none") (model available: \(Assistant.modelAvailable))")
+check("a suggestion is always one of the words on screen", suggestion == nil || screenLines.contains { $0.text == suggestion })
+
+// Smart recording, icons: a detailed spot becomes a picture; a flat one doesn't.
+let (ix, ib) = window([("Claim", CGPoint(x: 600, y: 60))])
+var iconRGBA = ix.rgba
+for y in 300..<340 { for x in 100..<140 where (x / 8 + y / 8) % 2 == 0 { let o = (y * ix.width + x) * 4; iconRGBA[o] = 20; iconRGBA[o+1] = 20; iconRGBA[o+2] = 200 } }
+let icon = ScreenReader.WindowPixels(rgba: iconRGBA, width: ix.width, height: ix.height)
+let iconLabel = ClickReader.picture(in: icon, at: CGPoint(x: 120, y: 320))
+check("a click on a detailed icon keeps a picture of it", iconLabel?.picture != nil && (iconLabel?.area?.contains(CGPoint(x: 120, y: 320)) ?? false))
+check("a click on a flat area keeps nothing", ClickReader.picture(in: icon, at: CGPoint(x: 400, y: 450)) == nil)
+_ = ib
+let picConv = ClickReader.convert(clickSteps, labels: [clickSteps[3].id: iconLabel!])
+if case .findImage(let f) = picConv.steps.last?.action {
+    check("an icon click becomes a picture step with the recorded spot as fallback",
+          f.text == nil && !f.png.isEmpty && f.fallbackX == 300 && f.timeout == 3 && picConv.pictures == 1)
+} else { check("an icon click becomes a picture step", false) }
 
 print(failures == 0 ? "ALL PASSED" : "\(failures) FAILED")
 exit(failures == 0 ? 0 : 1)

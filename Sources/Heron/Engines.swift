@@ -29,7 +29,8 @@ final class Player {
               startDelay: Double = 0,
               progress: @escaping @MainActor (_ step: Int, _ loop: Int, _ pausing: Double?) -> Void,
               waiting: @escaping @MainActor (_ color: String?) -> Void = { _ in },
-              clicked: @escaping @MainActor () -> Void = {},
+              clicked: @escaping @MainActor (_ step: UUID, _ found: CGRect?) -> Void = { _, _ in },
+              stuck: @escaping @MainActor (_ screen: ScreenReader.WindowPixels) -> Void = { _ in },
               finished: @escaping @MainActor (_ error: String?) -> Void) {
         stop()
         let token = CancelToken()
@@ -75,7 +76,7 @@ final class Player {
             if opts.order == .allAtOnce {
                 error = Self.runAllAtOnce(steps, opts: opts, target: target, resolver: resolver, performer: performer,
                                           pauseable: pauseable, token: token, progress: progress, waiting: waiting,
-                                          clicked: clicked)
+                                          clicked: clicked, stuck: stuck)
             } else {
                 outer: while true {
                     if let n = opts.loopCount, loop >= n { break }
@@ -121,7 +122,9 @@ final class Player {
                             }
                             let looking = pic.isText ? "“\(pic.text!.trimmingCharacters(in: .whitespaces))”" : "the picture"
                             Task { @MainActor in waiting(looking) }
-                            let result = Self.runPictureStep(pic, performer: performer, resolver: resolver, token: token)
+                            let stepID = step.id
+                            let result = Self.runPictureStep(pic, performer: performer, resolver: resolver, token: token,
+                                                             onFound: { r in Task { @MainActor in clicked(stepID, r) } })
                             Task { @MainActor in waiting(nil) }
                             switch result {
                             case .cancelled: break outer
@@ -214,7 +217,8 @@ final class Player {
                              pauseable: Bool, token: CancelToken,
                              progress: @escaping @MainActor (Int, Int, Double?) -> Void,
                              waiting: @escaping @MainActor (String?) -> Void,
-                             clicked: @escaping @MainActor () -> Void = {}) -> String? {
+                             clicked: @escaping @MainActor (UUID, CGRect?) -> Void = { _, _ in },
+                             stuck: @escaping @MainActor (ScreenReader.WindowPixels) -> Void = { _ in }) -> String? {
         guard let resolver else { return "Picture steps need a target app. Choose one with the Target button." }
         struct Item { let index: Int; let step: ImageStep; let lookup: Lookup }
         let items: [Item] = steps.enumerated().compactMap { i, s in
@@ -229,7 +233,9 @@ final class Player {
         var chooser = AllAtOnceChooser(rules: Dictionary(uniqueKeysWithValues: items.map {
             ($0.index, AllAtOnceChooser.Rule(settle: $0.step.settle, repeatUntilGone: $0.step.repeatUntilGone,
                                             repeatEvery: $0.step.repeatEvery))
-        }))
+        }), prioritized: opts.prioritized)
+        var lastAction = began
+        var latest: ScreenReader.WindowPixels?
 
         var frameNumber = 0
         var found: [Int: CGRect] = [:]
@@ -249,6 +255,7 @@ final class Player {
             }
             if frame.number != frameNumber {
                 frameNumber = frame.number
+                latest = frame.pixels
                 let scene = TemplateMatcher.Scene(rgba: frame.pixels.rgba, width: frame.pixels.width, height: frame.pixels.height)
                 found = [:]
                 for it in items {
@@ -271,7 +278,22 @@ final class Player {
                 performer.spreadBounds = nil
                 chooser.clicked(index, at: Timing.now())
                 clicks += 1
-                Task { @MainActor in progress(index + 1, 1, nil); clicked() }
+                lastAction = Timing.now()
+                let id = steps[index].id
+                Task { @MainActor in progress(index + 1, 1, nil); clicked(id, rect) }
+            } else if opts.idleTapAfter > 0, let ix = opts.idleTapX, let iy = opts.idleTapY,
+                      Timing.now() - lastAction >= opts.idleTapAfter {
+                // Nothing known on screen for a while (a “tap to continue” screen, or one never seen before):
+                // tap the idle spot, and keep the screen so it can be looked at later.
+                switch RouteBuilder.route(for: target, resolver: resolver) {
+                case .success(let r): performer.route = r
+                case .failure(let e): return e.message
+                }
+                performer.route.origin = win.frame.origin
+                performer.perform(.mouseDown(button: .left, x: ix, y: iy, clickCount: 1, flags: 0))
+                performer.perform(.mouseUp(button: .left, x: ix, y: iy, clickCount: 1, flags: 0))
+                lastAction = Timing.now()
+                if let screen = latest { Task { @MainActor in stuck(screen) } }
             }
             _ = Timing.wait(until: tick + 1.0 / 30, token) // ~30 checks a second at most
         }
@@ -279,7 +301,8 @@ final class Player {
     }
 
     /// Looks for the picture in the target window and acts on it.
-    static func runPictureStep(_ s: ImageStep, performer: Performer, resolver: TargetResolver, token: CancelToken) -> ColorResult {
+    static func runPictureStep(_ s: ImageStep, performer: Performer, resolver: TargetResolver, token: CancelToken,
+                               onFound: (CGRect) -> Void = { _ in }) -> ColorResult {
         guard let lookup = Lookup(step: s) else { return .unreadable }
         let deadline = s.timeout < 0 ? .infinity : Timing.now() + s.timeout
 
@@ -305,6 +328,7 @@ final class Player {
             return cached
         }
         func click(_ r: CGRect, _ win: TargetWindow) {
+            onFound(r)
             performer.route.origin = win.frame.origin // the window may have moved
             let x = Double(r.midX) + s.offsetX, y = Double(r.midY) + s.offsetY
             performer.spreadBounds = r.offsetBy(dx: s.offsetX, dy: s.offsetY)
@@ -499,11 +523,16 @@ struct AllAtOnceChooser {
     struct Rule { var settle: Double; var repeatUntilGone: Bool; var repeatEvery: Double }
 
     let rules: [Int: Rule]
+    /// Higher in the list wins instead of taking turns.
+    let prioritized: Bool
     private var seenSince: [Int: Double] = [:]
     private var lastClick: [Int: Double] = [:]
     private var clickedThisAppearance = Set<Int>()
 
-    init(rules: [Int: Rule]) { self.rules = rules }
+    init(rules: [Int: Rule], prioritized: Bool = false) {
+        self.rules = rules
+        self.prioritized = prioritized
+    }
 
     mutating func choose(found: Set<Int>, now: Double) -> Int? {
         var ready: [Int] = []
@@ -521,6 +550,7 @@ struct AllAtOnceChooser {
             }
             ready.append(index)
         }
+        if prioritized { return ready.min() }
         return ready.min { (lastClick[$0] ?? -1, $0) < (lastClick[$1] ?? -1, $1) }
     }
 

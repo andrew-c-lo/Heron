@@ -388,6 +388,12 @@ struct PlaybackOptions: Codable, Equatable {
     var order: StepOrder = .inOrder
     /// All at once: stop after this many clicks (0 = no limit).
     var maxClicks: Int = 0
+    /// All at once: when several pictures are on screen, the one higher in the list wins (instead of taking turns).
+    var prioritized = false
+    /// All at once: if nothing has been clicked for this many seconds, tap the idle spot (0 = off).
+    var idleTapAfter: Double = 0
+    var idleTapX: Double?
+    var idleTapY: Double?
     var repeatMode: RepeatMode = .once
     /// Used by `.times`.
     var loops: Int = 2
@@ -423,6 +429,10 @@ extension PlaybackOptions {
         loopDelay = try c.decodeIfPresent(Double.self, forKey: .loopDelay) ?? 0
         loopDelayRandom = try c.decodeIfPresent(Double.self, forKey: .loopDelayRandom) ?? 0
         skipMouseMoves = try c.decodeIfPresent(Bool.self, forKey: .skipMouseMoves) ?? false
+        prioritized = try c.decodeIfPresent(Bool.self, forKey: .prioritized) ?? false
+        idleTapAfter = try c.decodeIfPresent(Double.self, forKey: .idleTapAfter) ?? 0
+        idleTapX = try c.decodeIfPresent(Double.self, forKey: .idleTapX)
+        idleTapY = try c.decodeIfPresent(Double.self, forKey: .idleTapY)
         maxClicks = try c.decodeIfPresent(Int.self, forKey: .maxClicks) ?? 0
     }
 }

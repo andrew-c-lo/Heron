@@ -180,12 +180,23 @@ struct ActionEditing {
 
 /// Readable list of a macro: raw events grouped into actions like "Tap", "Swipe up", "Type “hi”".
 struct SimpleStepsList: View {
+    @EnvironmentObject var model: AppModel
     let editing: ActionEditing
     let onShowRaw: (ActionGroup) -> Void
     let onDelete: () -> Void
     let onAddColorCheck: (ActionGroup) -> Void
     let onSampleColor: (ActionGroup) -> Void
     let onEditPicture: (ActionGroup) -> Void
+
+    /// After a run: how often each action fired (nil before any run).
+    private var ran: Bool {
+        editing.macro.wrappedValue.steps.contains { model.stepHits[$0.id] != nil }
+    }
+
+    private func hits(_ g: ActionGroup, ran: Bool) -> Int? {
+        guard ran, let id = editing.actionStepID(g) else { return nil }
+        return model.stepHits[id] ?? 0
+    }
 
     var body: some View {
         let groups = editing.groups
@@ -205,7 +216,8 @@ struct SimpleStepsList: View {
                               onSampleColor: { onSampleColor(g) },
                               onEditPicture: { onEditPicture(g) },
                               detailOverride: editing.allAtOnceDetail(g),
-                              compact: true)
+                              compact: true,
+                              hits: hits(g, ran: ran))
                         .tag(g.id)
                         .contextMenu {
                             ActionMenu(group: g, editing: editing, onShowRaw: onShowRaw, onAddColorCheck: onAddColorCheck,
@@ -261,6 +273,8 @@ struct ActionRow: View {
     var detailOverride: String? = nil
     /// In the macro editor's list the details panel shows the wait, position and settings, so rows stay short.
     var compact = false
+    /// How often it fired last run (nil = no run yet).
+    var hits: Int? = nil
     @StateObject private var hover = HoverState()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -329,6 +343,14 @@ struct ActionRow: View {
                 }
             }
 
+            if let hits {
+                Text("\(hits)×")
+                    .font(.caption.monospacedDigit())
+                    .padding(.horizontal, 6).padding(.vertical, 2)
+                    .background(Capsule().fill(hits == 0 ? Color.orange.opacity(0.18) : Color.secondary.opacity(0.15)))
+                    .foregroundStyle(hits == 0 ? Color.orange : Color.secondary)
+                    .help(hits == 0 ? "Never fired last run" : "Fired \(hits) time\(hits == 1 ? "" : "s") last run")
+            }
             if !compact {
             Text(Self.timestamp(group.start))
                 .font(.caption.monospacedDigit())

@@ -54,6 +54,15 @@ struct MacroDetailView: View {
         }
         .padding(.trailing, 12)
         .padding(.bottom, 10)
+        .onAppear { model.loadStuck(for: macro.id) }
+        .sheet(isPresented: $ui.showingStuck) {
+            StuckScreensView(macroID: macro.id, onAdd: { step in
+                select(insert(.findImage(step), delay: 0.1))
+            }, onDone: { ui.showingStuck = false })
+        }
+        .sheet(isPresented: $ui.showingAutopilot) {
+            AutopilotView(target: macro.target) { ui.showingAutopilot = false }
+        }
         // QA tour: select an action by its position so the details panel can be checked.
         .onReceive(NotificationCenter.default.publisher(for: ScreenshotTour.selectAction)) { note in
             guard let i = note.object as? Int else { ui.selection = []; return }
@@ -75,6 +84,12 @@ struct MacroDetailView: View {
                 Text(stats).font(.caption).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer(minLength: 8)
+            if let n = model.stuckScreens[macro.id]?.count, n > 0 {
+                Button { ui.showingStuck = true } label: {
+                    Label("Stuck \(n)×", systemImage: "exclamationmark.triangle")
+                }
+                .help("Screens where “Tap when stuck” had to step in. Turn them into steps.")
+            }
             Picker("View", selection: Binding(get: { mode.rawValue }, set: { viewMode = $0 })) {
                 Text("Visual").tag("visual")
                 Text("Actions").tag("actions")
@@ -186,6 +201,11 @@ struct MacroDetailView: View {
                                                                set: { macro.playback.repeatDuration = max(0, $0) * 60 }))
                 }
                 IntField(title: "Stop after (0 = never)", value: pb.maxClicks, unit: "clicks", range: 0...10_000_000)
+                Toggle(isOn: pb.prioritized) {
+                    Text("Higher steps win")
+                    Text("When several are on screen at once, click the one higher in the list (for example OK before Cancel) instead of taking turns.")
+                }
+                idleTapControls
                 Text("All at once watches every picture step together and clicks whichever appears. Step order, waits and time limits don't apply.")
                     .font(.caption).foregroundStyle(.secondary)
             } else {
@@ -194,6 +214,95 @@ struct MacroDetailView: View {
         }
         .padding(16)
         .frame(width: 380)
+    }
+
+    /// “If nothing shows up for a while, tap here”: gets past tap-to-continue screens and ones never seen before.
+    private var idleTapControls: some View {
+        let pb = $macro.playback
+        return VStack(alignment: .leading, spacing: 6) {
+            Toggle(isOn: Binding(get: { macro.playback.idleTapAfter > 0 },
+                                 set: { macro.playback.idleTapAfter = $0 ? 4 : 0 })) {
+                Text("Tap when stuck")
+                Text("If nothing in the list shows up for a while, tap a spot you choose, like the middle of a “tap to continue” screen. Each time, the screen is kept under Stuck Screens.")
+            }
+            if macro.playback.idleTapAfter > 0 {
+                HStack(spacing: 6) {
+                    Text("After")
+                    TextField("", value: pb.idleTapAfter, format: .number).frame(width: 44)
+                    Text("s, tap")
+                    if let x = macro.playback.idleTapX, let y = macro.playback.idleTapY {
+                        Text("\(Int(x)), \(Int(y))").monospacedDigit().foregroundStyle(.secondary)
+                    } else {
+                        Text("a spot").foregroundStyle(.orange)
+                    }
+                    Button("Pick Spot…") {
+                        model.captureSpot(in: macro.target.app) { p, _ in
+                            macro.playback.idleTapX = Double(p.x.rounded())
+                            macro.playback.idleTapY = Double(p.y.rounded())
+                        }
+                    }
+                    .help("Hover over the spot; it's taken after a 3 second countdown")
+                }
+                .font(.callout)
+            }
+        }
+    }
+
+    /// “Describe”: a sentence becomes steps (on this Mac, with Apple Intelligence).
+    private var describePopover: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Describe what to do").font(.headline)
+            TextField("", text: $ui.describeText, prompt: Text("Tap Claim, wait 2 seconds, then tap Close"), axis: .vertical)
+                .lineLimit(3...5)
+                .frame(width: 320)
+            if !Assistant.modelAvailable {
+                Text("Needs Apple Intelligence, which isn't available on this Mac.")
+                    .font(.caption).foregroundStyle(.orange)
+            }
+            HStack {
+                Text("Steps are drafted on this Mac. Check them before playing.").font(.caption).foregroundStyle(.secondary)
+                Spacer()
+                Button(ui.describing ? "Drafting…" : "Add Steps") { describe() }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(ui.describing || ui.describeText.trimmingCharacters(in: .whitespaces).isEmpty || !Assistant.modelAvailable)
+            }
+        }
+        .padding(14)
+    }
+
+    private func describe() {
+        ui.describing = true
+        let text = ui.describeText, app = macro.target.app
+        Task { @MainActor in
+            // The words on the target window right now, so clicks use real labels.
+            var labels: [String] = []
+            if let app, let img = await model.windowPicture(for: app), let px = ScreenReader.WindowPixels(image: img) {
+                labels = await Task.detached { TextFinder.read(px).map { $0.text } }.value
+            }
+            let planned = await Assistant.buildSteps(from: text, screenLabels: labels) ?? []
+            ui.describing = false
+            guard !planned.isEmpty else { model.flash("Couldn't turn that into steps. Try simpler wording, one action at a time."); return }
+            var added: [UUID] = []
+            for p in planned {
+                switch p {
+                case .click(let label):
+                    var step = ImageStep(png: Data(), width: 0, height: 0, originX: 0, originY: 0)
+                    step.text = label
+                    step.timeout = 10
+                    step.otherwise = .stopMacro
+                    added.append(insert(.findImage(step), delay: 0.1))
+                case .wait(let s): added.append(insert(.wait, delay: s))
+                case .type(let t): insertText(t)
+                case .press(let k):
+                    let code: UInt16 = switch k.lowercased() { case "tab": 48; case "space": 49; case "esc", "escape": 53; default: 36 }
+                    insertKeyPress(code)
+                }
+            }
+            ui.showingDescribe = false
+            ui.describeText = ""
+            if let first = added.first { ui.selection = [first] }
+            model.flash("Added \(planned.count) step\(planned.count == 1 ? "" : "s"). Check them before playing.")
+        }
     }
 
     private var inOrderPlayback: some View {
@@ -263,6 +372,10 @@ struct MacroDetailView: View {
             addButton("Wait", "clock", "Pause for a second") { select(insert(.wait, delay: 1)) }
             addButton("Find Picture", "viewfinder", "Wait for a picture to appear, then click it") { addPictureStep() }
             addButton("Find Text", "text.viewfinder", "Wait for some words to appear, then click them") { addTextStep() }
+            addButton("Describe", "sparkles", "Describe what to do in words; Apple Intelligence on this Mac drafts the steps") {
+                ui.showingDescribe = true
+            }
+            .popover(isPresented: $ui.showingDescribe, arrowEdge: .bottom) { describePopover }
             Menu {
                 Button("Wait for a Color… (hover the spot, 3 s countdown)") {
                     model.captureSpot(in: macro.target.app) { p, hex in
@@ -301,6 +414,9 @@ struct MacroDetailView: View {
                 Divider()
                 Button("Select All") { selection = Set(macro.steps.map(\.id)) }
                 Button("Delete Selected Steps", role: .destructive) { deleteSelected() }.disabled(selection.isEmpty)
+                Divider()
+                Button("Stuck Screens…") { ui.showingStuck = true }
+                Button("Autopilot (Experimental)…") { ui.showingAutopilot = true }
                 Divider()
                 Button("Duplicate Macro") { model.duplicate(macro) }
                 Button("Export…") { model.export(macro) }
@@ -518,6 +634,11 @@ final class DetailUIState: ObservableObject {
     @Published var bulkDelay: Double = 0.1
     @Published var showingBulkDelay = false
     @Published var showingType = false
+    @Published var showingDescribe = false
+    @Published var describeText = ""
+    @Published var describing = false
+    @Published var showingStuck = false
+    @Published var showingAutopilot = false
     /// Step to scroll to when the detailed list appears.
     var scrollTarget: UUID?
     /// Marker being dragged in the visual view, and how far.
