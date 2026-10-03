@@ -105,7 +105,7 @@ that wait for a button to appear before tapping it. It works with any app or win
 - Optional double-click everywhere: every single click is sent as a double click, while drags and long
   presses stay as they are
 - A notification if something stops on its own while you're in another app, such as a chain that
-  gave up waiting or a watcher that reached its click limit
+  gave up waiting or a background macro that reached its click limit
 
 <p align="center">
   <img src="docs/screenshots/settings.png" width="720" alt="Settings with click spread">
@@ -128,7 +128,7 @@ It asks only for the permissions a feature needs, and works without the optional
 |---|---|
 | Accessibility | Clicking, moving the mouse and typing |
 | Input Monitoring | Recording your mouse and keyboard |
-| Screen Recording *(optional)* | Color checks, picture steps, watchers and the screenshot in the Visual view. Only the target window is read, and nothing is saved except the screenshots and pictures you choose |
+| Screen Recording *(optional)* | Color checks, picture steps and the screenshot in the Visual view. Only the target window is read, and nothing is saved except the screenshots and pictures you choose |
 
 ## What you need
 
