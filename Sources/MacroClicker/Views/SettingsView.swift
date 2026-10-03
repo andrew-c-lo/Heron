@@ -83,7 +83,7 @@ struct PermissionsSettingsView: View {
                 PermissionRow(icon: "keyboard", title: "Input Monitoring", detail: "Required to record your mouse and keyboard.",
                               granted: model.hasInputMonitoring) { Permissions.requestInputMonitoring() }
                 PermissionRow(icon: "eyedropper", title: "Screen Recording",
-                              detail: "Optional. Only for color checks and screenshots in the Visual view. MacroClicker reads single pixels and saves nothing except those screenshots.",
+                              detail: "Optional. For finding pictures and words, color checks and the map view. Only the target window is read, and nothing is saved except the pictures you pick.",
                               granted: model.hasScreenRecording) { ScreenReader.requestPermission() }
             } footer: {
                 Text("If a permission stops working after an update, remove MacroClicker from that list in System Settings and add it again.")
@@ -165,7 +165,7 @@ private struct PermissionRow: View {
                 Text(title)
                 Text(detail)
             } icon: {
-                Image(systemName: icon).foregroundStyle(.tint)
+                Image(systemName: icon).foregroundStyle(.tint).frame(width: 20)
             }
         }
     }
@@ -240,12 +240,14 @@ struct HotkeyField: View {
 
 /// The Settings window (⌘,).
 struct SettingsRoot: View {
+    @AppStorage("settingsTab") private var tab = "general"
+
     var body: some View {
-        TabView {
-            GeneralSettingsView().tabItem { Label("General", systemImage: "gearshape") }
-            HotkeysSettingsView().tabItem { Label("Hotkeys", systemImage: "command") }
-            RecordingSettingsView().tabItem { Label("Recording", systemImage: "waveform") }
-            PermissionsSettingsView().tabItem { Label("Permissions", systemImage: "lock.shield") }
+        TabView(selection: $tab) {
+            GeneralSettingsView().tabItem { Label("General", systemImage: "gearshape") }.tag("general")
+            HotkeysSettingsView().tabItem { Label("Hotkeys", systemImage: "command") }.tag("hotkeys")
+            RecordingSettingsView().tabItem { Label("Recording", systemImage: "waveform") }.tag("recording")
+            PermissionsSettingsView().tabItem { Label("Permissions", systemImage: "lock.shield") }.tag("permissions")
         }
         .frame(width: 640, height: 560)
     }

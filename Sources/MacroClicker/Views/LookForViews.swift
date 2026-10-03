@@ -48,7 +48,8 @@ struct SearchAreaRow: View {
     var body: some View {
         LabeledContent {
             HStack(spacing: 8) {
-                Text(area.map { "\(Int($0.width)) × \(Int($0.height)) at (\(Int($0.minX)), \(Int($0.minY)))" } ?? "Whole window")
+                Text(area.map { "\(Int($0.width)) × \(Int($0.height))" } ?? "Whole window")
+                    .help(area.map { "Starts at \(Int($0.minX)), \(Int($0.minY)) in the window" } ?? "")
                     .monospacedDigit().foregroundStyle(.secondary)
                 Button(area == nil ? "Choose…" : "Change…", action: onChoose)
                 if area != nil {

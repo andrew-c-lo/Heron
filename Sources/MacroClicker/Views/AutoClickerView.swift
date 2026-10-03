@@ -13,7 +13,11 @@ struct AutoClickerView: View {
                 .frame(width: 300)
             Divider()
             settings
+                .frame(maxWidth: 760)
         }
+        // On wide windows the two halves stay side by side instead of drifting apart.
+        .frame(maxWidth: 1060)
+        .frame(maxWidth: .infinity)
     }
 
     // MARK: Speed (the page's one large element)
@@ -191,7 +195,7 @@ struct AutoClickerView: View {
                         Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.yellow)
                         Text("Color checks need Screen Recording permission.").font(.caption)
                         Spacer()
-                        Button("Grant…") { ScreenReader.requestPermission() }
+                        Button("Allow…") { ScreenReader.requestPermission() }
                     }
                 }
             }

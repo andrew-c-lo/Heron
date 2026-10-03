@@ -7,7 +7,13 @@ import SwiftUI
 @MainActor
 enum ScreenshotTour {
 
+    static let selectAction = Notification.Name("MacroClickerQASelectAction")
+
     static func runIfRequested(_ model: AppModel) {
+        if let qa = ProcessInfo.processInfo.environment["MACROCLICKER_QA_DIR"], !qa.isEmpty {
+            runQA(model, into: URL(fileURLWithPath: qa, isDirectory: true))
+            return
+        }
         guard let dir = ProcessInfo.processInfo.environment["MACROCLICKER_SCREENSHOT_DIR"], !dir.isEmpty else { return }
         let out = URL(fileURLWithPath: dir, isDirectory: true)
         try? FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
@@ -76,6 +82,96 @@ enum ScreenshotTour {
                 }
                 model.toggleBackground(w)
             }
+            NSApp.terminate(nil)
+        }
+    }
+
+    /// QA sweep: every page and state at several window sizes, in the current appearance
+    /// (MACROCLICKER_QA_APPEARANCE=light|dark), saved as <size>-<page>.png.
+    private static func runQA(_ model: AppModel, into out: URL) {
+        try? FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
+        let env = ProcessInfo.processInfo.environment
+        if let a = env["MACROCLICKER_QA_APPEARANCE"] {
+            NSApp.appearance = NSAppearance(named: a == "light" ? .aqua : .darkAqua)
+        }
+        let routine = model.macros.first { $0.name == "Morning routine" }?.id
+        let chain = model.macros.first { $0.name == "Collect daily rewards" }?.id
+        let background = model.macros.first { $0.name == "Close pop-ups" }?.id
+        let sizes: [(String, CGFloat, CGFloat)] = [("min", 860, 600), ("default", 1000, 720), ("large", 1440, 900)]
+
+        func mainWindow() -> NSWindow? { NSApp.windows.first { $0.isVisible && $0.canBecomeMain && $0.frame.width > 400 } }
+        func shot(_ name: String, _ win: NSWindow? = nil) async {
+            try? await Task.sleep(for: .seconds(0.9))
+            if let w = win ?? mainWindow(), let png = capture(w.attachedSheet ?? w) {
+                try? png.write(to: out.appendingPathComponent("\(name).png"))
+            }
+        }
+        func select(_ i: Int?) async {
+            try? await Task.sleep(for: .seconds(0.3))
+            NotificationCenter.default.post(name: selectAction, object: i)
+        }
+
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(1.5))
+            NSApp.activate(ignoringOtherApps: true)
+            for (size, w, h) in sizes {
+                if let win = mainWindow() {
+                    win.setFrame(NSRect(x: 60, y: 60, width: w, height: h), display: true)
+                }
+                model.sidebar = .autoClicker
+                await shot("\(size)-clicker")
+                if let routine {
+                    UserDefaults.standard.set("visual", forKey: "stepsViewMode")
+                    model.sidebar = .macro(routine)
+                    await shot("\(size)-macro-map")
+                    await select(4)
+                    await shot("\(size)-macro-map-selected")
+                    UserDefaults.standard.set("raw", forKey: "stepsViewMode")
+                    await shot("\(size)-macro-raw")
+                }
+                if let chain {
+                    UserDefaults.standard.set("actions", forKey: "stepsViewMode")
+                    model.sidebar = .macro(chain)
+                    await shot("\(size)-macro-list")
+                    await select(0)
+                    await shot("\(size)-step-picture")
+                    await select(2)
+                    await shot("\(size)-step-text")
+                }
+                if let routine {
+                    model.sidebar = .macro(routine)
+                    await select(0)
+                    await shot("\(size)-step-click")
+                }
+                if let background {
+                    model.sidebar = .macro(background)
+                    await shot("\(size)-background")
+                }
+            }
+            // Empty macro (then removed again).
+            model.newMacro()
+            await shot("empty-macro")
+            if let m = model.selectedMacro { model.delete(m) }
+            // Settings, every tab.
+            let main = mainWindow()
+            for tab in ["general", "hotkeys", "recording", "permissions"] {
+                UserDefaults.standard.set(tab, forKey: "settingsTab")
+                if !NSApp.windows.contains(where: { $0.isVisible && $0 !== main && $0.frame.width > 300 }),
+                   let appMenu = NSApp.mainMenu?.items.first?.submenu,
+                   let i = appMenu.items.firstIndex(where: { $0.keyEquivalent == "," }) {
+                    appMenu.performActionForItem(at: i)
+                }
+                try? await Task.sleep(for: .seconds(0.6))
+                if let win = NSApp.windows.first(where: { $0.isVisible && $0 !== main && $0.windowNumber > 0 && $0.frame.width > 300 }) {
+                    await shot("settings-\(tab)", win)
+                }
+            }
+            NSApp.windows.first { $0.isVisible && $0 !== main && $0.frame.width > 300 }?.close()
+            // Simple mode, stopped and running.
+            UserDefaults.standard.set(true, forKey: "simpleMode")
+            await shot("simple")
+            UserDefaults.standard.set(false, forKey: "simpleMode")
+            try? await Task.sleep(for: .seconds(0.8))
             NSApp.terminate(nil)
         }
     }

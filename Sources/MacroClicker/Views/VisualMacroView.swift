@@ -21,9 +21,10 @@ struct VisualMacroView: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text(editing.summary(groups)).font(.caption).foregroundStyle(.secondary)
+                    .lineLimit(1).truncationMode(.tail)
                 Spacer()
                 if macro.target.app != nil {
-                    Button(snapshot == nil ? "Capture screenshot" : "Update screenshot") { model.updateSnapshot(for: macro) }
+                    Button(snapshot == nil ? "Capture Screenshot" : "Update Screenshot") { model.updateSnapshot(for: macro) }
                         .controlSize(.small)
                         .help("Takes a picture of the target window to show behind the markers. Needs Screen Recording permission.")
                 }
@@ -45,18 +46,9 @@ struct VisualMacroView: View {
     private func inspector(_ groups: [ActionGroup], selected: [Int]) -> some View {
         Group {
             if selected.count == 1, let i = selected.first {
-                let g = groups[i]
-                ActionRow(group: g, number: i + 1, touch: editing.isTouch,
-                          wait: editing.waitBinding(g),
-                          point: g.editablePoint == nil ? nil : editing.pointBinding(g),
-                          color: editing.colorBinding(g),
-                          onSampleColor: { onSampleColor(g) },
-                          onEditPicture: { onEditPicture(g) },
-                          detailOverride: editing.allAtOnceDetail(g))
-                    .contextMenu {
-                        ActionMenu(group: g, editing: editing, onShowRaw: onShowRaw, onAddColorCheck: onAddColorCheck,
-                                   onEditPicture: onEditPicture)
-                    }
+                // Its settings are in the details panel beside the map.
+                Text("\(i + 1). \(groups[i].title(touch: editing.isTouch))")
+                    .lineLimit(1)
             } else if selected.count > 1 {
                 Text("\(selected.count) actions selected. Delete removes them all.")
                     .foregroundStyle(.secondary)

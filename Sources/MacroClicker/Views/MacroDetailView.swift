@@ -40,7 +40,7 @@ struct MacroDetailView: View {
             HStack(spacing: 0) {
                 stepsList
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                if mode != .raw {
+                if mode != .raw, !macro.steps.isEmpty {
                     Divider()
                     StepInspector(editing: editing, app: macro.target.app, allAtOnce: allAtOnce,
                                   onShowRaw: showRawSteps, onAddColorCheck: addColorCheck,
@@ -54,6 +54,12 @@ struct MacroDetailView: View {
         }
         .padding(.trailing, 12)
         .padding(.bottom, 10)
+        // QA tour: select an action by its position so the details panel can be checked.
+        .onReceive(NotificationCenter.default.publisher(for: ScreenshotTour.selectAction)) { note in
+            guard let i = note.object as? Int else { ui.selection = []; return }
+            let groups = editing.groups
+            if groups.indices.contains(i) { editing.select(groups[i]) }
+        }
     }
 
     // MARK: Header: name (click to rename), stats, view and undo
@@ -428,7 +434,7 @@ struct MacroDetailView: View {
             .onDeleteCommand { deleteSelected() }
             .overlay {
                 if macro.steps.isEmpty {
-                    Text("No steps. Record something, or use Insert.").foregroundStyle(.secondary)
+                    Text("No steps. Record something, or use the buttons above.").foregroundStyle(.secondary)
                 }
             }
             .onAppear {

@@ -182,7 +182,8 @@ It asks only for the permissions a feature needs:
 
 Issues and pull requests are welcome. `Tests/qa/run.sh` runs the tests (the screenshot cropper, click
 spread, double-click, and finding pictures and words), and `scripts/make-demo.sh --screenshots`
-regenerates the screenshots on this page from neutral demo data. `scripts/release.sh` builds the app for
+regenerates the screenshots on this page from neutral demo data. `scripts/qa-sweep.sh` captures every page at three window sizes in light and dark for a visual check, and
+`scripts/release.sh` builds the app for
 both kinds of Mac and publishes a release with the notes in `docs/release-notes/`.
 
 ## License

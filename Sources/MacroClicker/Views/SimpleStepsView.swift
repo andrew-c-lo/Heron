@@ -194,6 +194,7 @@ struct SimpleStepsList: View {
         VStack(alignment: .leading, spacing: 6) {
             Text(editing.summary(groups))
                 .font(.caption).foregroundStyle(.secondary)
+                .padding(.horizontal, 12).padding(.top, 8)
             List(selection: editing.selectionBinding(groups)) {
                 ForEach(Array(groups.enumerated()), id: \.element.id) { i, g in
                     ActionRow(group: g, number: i + 1, touch: touch,
@@ -213,11 +214,11 @@ struct SimpleStepsList: View {
                 }
                 .onMove { editing.move(groups, from: $0, to: $1) }
             }
-            .listStyle(.bordered(alternatesRowBackgrounds: true))
+            .listStyle(.inset(alternatesRowBackgrounds: true))
             .onDeleteCommand(perform: onDelete)
             .overlay {
                 if groups.isEmpty {
-                    Text("No actions yet. Record something, or use Insert.").foregroundStyle(.secondary)
+                    Text("No actions yet. Record something, or use the buttons above.").foregroundStyle(.secondary)
                 }
             }
         }
@@ -234,13 +235,13 @@ struct ActionMenu: View {
 
     var body: some View {
         if case .image(let s) = group.kind {
-            Button(s.isText ? "Edit Text Step…" : "Edit Picture Step…") { onEditPicture(group) }
+            Button("Show Settings") { onEditPicture(group) }
         }
         Toggle("On", isOn: editing.enabledBinding(group))
         if case .click = group.kind, group.editablePoint != nil {
-            Button("Only \(editing.isTouch ? "tap" : "click") if the color matches…") { onAddColorCheck(group) }
+            Button(editing.isTouch ? "Only Tap If the Color Matches…" : "Only Click If the Color Matches…") { onAddColorCheck(group) }
         }
-        Button("Show raw steps") { onShowRaw(group) }
+        Button("Show Raw Steps") { onShowRaw(group) }
         Divider()
         Button("Delete", role: .destructive) { editing.delete(group) }
     }
