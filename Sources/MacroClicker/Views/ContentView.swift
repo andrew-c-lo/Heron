@@ -74,7 +74,8 @@ struct ContentView: View {
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
-                .fixedSize()
+                // An explicit width: with fixedSize the toolbar under-measured it and the buttons beside it overlapped.
+                .frame(width: 180)
             }
             ToolbarItemGroup(placement: .primaryAction) {
                 Button { simple = true } label: { Image(systemName: "arrow.down.right.and.arrow.up.left") }
