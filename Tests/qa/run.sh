@@ -2,7 +2,7 @@
 # QA: cropper logic + real mouse/scroll events into the real cropper view (off-screen window), and click spread.
 # Any build or test failure stops the run with a non-zero exit.
 set -euo pipefail
-cd "$(dirname "$0")/../../Sources/MacroClicker"
+cd "$(dirname "$0")/../../Sources/Heron"
 OUT="$(mktemp -d)"
 run() { # name, test file, sources...
     local name="$1" test="$2"; shift 2

@@ -482,7 +482,7 @@ final class EventEcho: @unchecked Sendable {
 }
 
 /// Keeps a short record of recent jump-and-returns in a text file, for troubleshooting a cursor that
-/// doesn't come back: ~/Library/Application Support/MacroClicker/jump-log.txt
+/// doesn't come back: ~/Library/Application Support/Heron/jump-log.txt
 final class JumpLog: @unchecked Sendable {
     static let shared = JumpLog()
 

@@ -152,9 +152,9 @@ try! JSONEncoder().encode([watcher, gifts]).write(to: home.appendingPathComponen
 
 // MARK: Preferences for the demo copy (its own bundle id, so its own settings)
 
-let defaults = UserDefaults(suiteName: "local.macroclicker.demo")!
-defaults.removePersistentDomain(forName: "local.macroclicker.demo")
-// Default hotkeys are shown; MACROCLICKER_SCREENSHOTS stops the demo copy from registering them.
+let defaults = UserDefaults(suiteName: "local.heron.demo")!
+defaults.removePersistentDomain(forName: "local.heron.demo")
+// Default hotkeys are shown; HERON_SCREENSHOTS stops the demo copy from registering them.
 defaults.set(2, forKey: "hotkeysVersion")
 var ac = AutoClickSettings()
 ac.intervalMs = 80

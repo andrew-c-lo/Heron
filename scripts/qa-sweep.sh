@@ -8,7 +8,7 @@ rm -rf "$OUT"
 for appearance in light dark; do
     # Fresh demo data each pass (the sweep adds and removes a macro).
     scripts/make-demo.sh --build-only >/dev/null
-    MACROCLICKER_HOME="$PWD/.demo/home" MACROCLICKER_SCREENSHOTS=1 MACROCLICKER_QA_DIR="$OUT/$appearance" \
-        MACROCLICKER_QA_APPEARANCE="$appearance" .demo/MacroClicker.app/Contents/MacOS/MacroClicker >/dev/null 2>&1
+    HERON_HOME="$PWD/.demo/home" HERON_SCREENSHOTS=1 HERON_QA_DIR="$OUT/$appearance" \
+        HERON_QA_APPEARANCE="$appearance" .demo/Heron.app/Contents/MacOS/Heron >/dev/null 2>&1
 done
 find "$OUT" -name '*.png' | wc -l | xargs echo "pictures in $OUT:"

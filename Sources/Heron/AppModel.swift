@@ -156,7 +156,7 @@ final class AppModel: ObservableObject {
 
     private func registerHotkeys() {
         // Screenshot copies show the hotkeys but never register them, so they can't take them from the real app.
-        guard ProcessInfo.processInfo.environment["MACROCLICKER_SCREENSHOTS"] == nil else { return }
+        guard ProcessInfo.processInfo.environment["HERON_SCREENSHOTS"] == nil else { return }
         let bindings: [(Hotkey, () -> Void)] = HotkeyAction.allCases.compactMap { action in
             // Never take over standard Mac shortcuts like ⌘Q, even if one was saved.
             guard let hk = hotkeys[action], !hk.isReserved else { return nil }
@@ -605,7 +605,7 @@ final class AppModel: ObservableObject {
         let pictures = m.steps.contains { if case .findImage = $0.action { true } else { false } }
         if pictures, m.target.app == nil { return "Choose the app for “\(m.name)” to watch (Target)." }
         // Screenshot copies have no permissions on purpose.
-        if ProcessInfo.processInfo.environment["MACROCLICKER_SCREENSHOTS"] != nil { return nil }
+        if ProcessInfo.processInfo.environment["HERON_SCREENSHOTS"] != nil { return nil }
         if pictures, !(hasScreenRecording || ScreenReader.hasPermission) {
             return "Allow Screen Recording in Settings › Permissions so the window can be seen."
         }

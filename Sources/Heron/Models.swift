@@ -490,7 +490,7 @@ struct Preferences: Codable, Equatable {
     /// Every click lands at a random spot within `clickSpreadRadius` points of its target.
     var clickSpread = true
     var clickSpreadRadius: Double = 15
-    /// A notification when something stops on its own while MacroClicker is in the background.
+    /// A notification when something stops on its own while Heron is in the background.
     var notifyWhenStopped = true
     /// Every single click is sent as a double click (everywhere: auto clicker, macros, chains, watchers).
     var doubleClickEverywhere = false

@@ -14,7 +14,7 @@ final class WindowStream: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked
     private var number = 0
     private(set) var failed = false
     var lastUsed = Timing.now()
-    private let queue = DispatchQueue(label: "MacroClicker.windowStream", qos: .userInteractive)
+    private let queue = DispatchQueue(label: "Heron.windowStream", qos: .userInteractive)
 
     init(windowNumber: Int, size: CGSize) {
         self.windowNumber = windowNumber

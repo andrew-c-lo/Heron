@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="docs/icon.png" width="128" height="128" alt="MacroClicker icon">
+  <img src="docs/icon.png" width="128" height="128" alt="Heron icon">
 </p>
 
-<h1 align="center">MacroClicker</h1>
+<h1 align="center">Heron</h1>
 
 <p align="center">
   <b>The free Mac auto clicker that can see your screen.</b><br>
@@ -25,7 +25,7 @@
   <img src="docs/screenshots/chain.png" width="880" alt="A macro that finds pictures and the word “Claim” in a window and clicks them, with each step's settings beside the list">
 </p>
 
-## Why MacroClicker
+## Why Heron
 
 **It sees the screen.** Point it at a picture or a word in any window, like a Close button or “Claim”, and it
 clicks it the moment it appears, wherever it appears. Words are read on your Mac with Apple's built-in text
@@ -64,11 +64,11 @@ your Mac.
 
 ## Install
 
-**[Download the latest release](https://github.com/andrew-c-lo/MacroClicker/releases/latest)**, unzip it and drag
-MacroClicker to Applications. It runs on Apple silicon and Intel Macs with macOS 14 or later.
+**[Download the latest release](https://github.com/andrew-c-lo/Heron/releases/latest)**, unzip it and drag
+Heron to Applications. It runs on Apple silicon and Intel Macs with macOS 14 or later.
 
-MacroClicker isn't notarized by Apple, so the first time you open it macOS asks first: open it once, then
-go to **System Settings › Privacy & Security** and click **Open Anyway** next to “MacroClicker was blocked”.
+Heron isn't notarized by Apple, so the first time you open it macOS asks first: open it once, then
+go to **System Settings › Privacy & Security** and click **Open Anyway** next to “Heron was blocked”.
 After that, allow the permissions it asks for. A banner links to the right place in System Settings.
 
 <details>
@@ -78,10 +78,10 @@ It takes about a minute with Apple's free command line tools:
 
 ```bash
 xcode-select --install     # once, if you don't have the command line tools
-git clone https://github.com/andrew-c-lo/MacroClicker.git
-cd MacroClicker
+git clone https://github.com/andrew-c-lo/Heron.git
+cd Heron
 scripts/setup-signing.sh   # once: a personal signing certificate, so permissions survive rebuilds
-./build.sh install         # builds MacroClicker.app and copies it to /Applications
+./build.sh install         # builds Heron.app and copies it to /Applications
 ```
 
 </details>
@@ -157,9 +157,9 @@ scripts/setup-signing.sh   # once: a personal signing certificate, so permission
 
 ## Private by default
 
-MacroClicker runs entirely on your Mac. It has no accounts, no analytics and no network code at all, and
+Heron runs entirely on your Mac. It has no accounts, no analytics and no network code at all, and
 text recognition happens on-device. Macros are readable `.json` files in
-`~/Library/Application Support/MacroClicker` that you can back up, edit or share.
+`~/Library/Application Support/Heron` that you can back up, edit or share.
 
 It asks only for the permissions a feature needs:
 
@@ -171,10 +171,10 @@ It asks only for the permissions a feature needs:
 
 ## When something misbehaves
 
-- **A permission stopped working after an update**: remove MacroClicker from that list in System Settings
+- **A permission stopped working after an update**: remove Heron from that list in System Settings
   › Privacy & Security and add it again
 - **The cursor didn't come back after a click**: every jump and return is logged in
-  `~/Library/Application Support/MacroClicker/jump-log.txt`
+  `~/Library/Application Support/Heron/jump-log.txt`
 - **A picture isn't found**: use **Test Now** to see how close the match is, crop the picture more tightly,
   or lower the match strictness a little
 

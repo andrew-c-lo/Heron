@@ -1,15 +1,22 @@
 import AppKit
 import ApplicationServices
 
-/// Where MacroClicker keeps its files: ~/Library/Application Support/MacroClicker, or the folder in the
-/// MACROCLICKER_HOME environment variable (used for demo/test copies so they never touch real data).
+/// Where Heron keeps its files: ~/Library/Application Support/Heron, or the folder in the
+/// HERON_HOME environment variable (used for demo/test copies so they never touch real data).
 enum AppFolder {
     static var url: URL {
-        if let custom = ProcessInfo.processInfo.environment["MACROCLICKER_HOME"], !custom.isEmpty {
+        if let custom = ProcessInfo.processInfo.environment["HERON_HOME"], !custom.isEmpty {
             return URL(fileURLWithPath: custom, isDirectory: true)
         }
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        return base.appendingPathComponent("MacroClicker", isDirectory: true)
+        let folder = base.appendingPathComponent("Heron", isDirectory: true)
+        // The app used to be called MacroClicker: bring its folder (macros, pictures, logs) along once.
+        let old = base.appendingPathComponent("MacroClicker", isDirectory: true)
+        let fm = FileManager.default
+        if !fm.fileExists(atPath: folder.path), fm.fileExists(atPath: old.path) {
+            try? fm.moveItem(at: old, to: folder)
+        }
+        return folder
     }
 }
 

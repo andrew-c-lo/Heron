@@ -3,7 +3,7 @@
 # keychain. build.sh signs with it automatically, so macOS privacy permissions survive rebuilds.
 # Safe to re-run: does nothing if the identity already exists.
 set -euo pipefail
-NAME="MacroClicker Local Signing"
+NAME="MacroClicker Local Signing" # original name, kept so existing permissions stay valid
 KEYCHAIN="$HOME/Library/Keychains/login.keychain-db"
 
 if security find-identity -p codesigning "$KEYCHAIN" | grep -q "\"$NAME\""; then

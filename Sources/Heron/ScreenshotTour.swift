@@ -1,20 +1,20 @@
 import AppKit
 import SwiftUI
 
-/// README screenshots: when MACROCLICKER_SCREENSHOT_DIR is set (by scripts/make-demo.sh), the app steps through a
+/// README screenshots: when HERON_SCREENSHOT_DIR is set (by scripts/make-demo.sh), the app steps through a
 /// few pages on its own, saves a picture of its own window for each, and quits. Capturing your own window needs
 /// no Screen Recording permission, and there's no mouse pointer in the pictures.
 @MainActor
 enum ScreenshotTour {
 
-    static let selectAction = Notification.Name("MacroClickerQASelectAction")
+    static let selectAction = Notification.Name("HeronQASelectAction")
 
     static func runIfRequested(_ model: AppModel) {
-        if let qa = ProcessInfo.processInfo.environment["MACROCLICKER_QA_DIR"], !qa.isEmpty {
+        if let qa = ProcessInfo.processInfo.environment["HERON_QA_DIR"], !qa.isEmpty {
             runQA(model, into: URL(fileURLWithPath: qa, isDirectory: true))
             return
         }
-        guard let dir = ProcessInfo.processInfo.environment["MACROCLICKER_SCREENSHOT_DIR"], !dir.isEmpty else { return }
+        guard let dir = ProcessInfo.processInfo.environment["HERON_SCREENSHOT_DIR"], !dir.isEmpty else { return }
         let out = URL(fileURLWithPath: dir, isDirectory: true)
         try? FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
 
@@ -32,8 +32,8 @@ enum ScreenshotTour {
         Task { @MainActor in
             try? await Task.sleep(for: .seconds(1.5))
             NSApp.activate(ignoringOtherApps: true)
-            // MACROCLICKER_SCREENSHOT_WIDTH: capture at this window width (e.g. the 820-point minimum).
-            if let w = ProcessInfo.processInfo.environment["MACROCLICKER_SCREENSHOT_WIDTH"].flatMap(Double.init),
+            // HERON_SCREENSHOT_WIDTH: capture at this window width (e.g. the 820-point minimum).
+            if let w = ProcessInfo.processInfo.environment["HERON_SCREENSHOT_WIDTH"].flatMap(Double.init),
                let win = NSApp.windows.first(where: { $0.isVisible && $0.canBecomeMain }) {
                 var f = win.frame
                 f.size.width = w
@@ -72,7 +72,7 @@ enum ScreenshotTour {
             }
             UserDefaults.standard.set(false, forKey: "simpleMode")
             // Narrow-window check: the toolbar while something runs (status grows a Stop button).
-            if ProcessInfo.processInfo.environment["MACROCLICKER_SCREENSHOT_WIDTH"] != nil,
+            if ProcessInfo.processInfo.environment["HERON_SCREENSHOT_WIDTH"] != nil,
                let w = background, let c = chain {
                 model.sidebar = .macro(c)
                 model.toggleBackground(w)
@@ -87,11 +87,11 @@ enum ScreenshotTour {
     }
 
     /// QA sweep: every page and state at several window sizes, in the current appearance
-    /// (MACROCLICKER_QA_APPEARANCE=light|dark), saved as <size>-<page>.png.
+    /// (HERON_QA_APPEARANCE=light|dark), saved as <size>-<page>.png.
     private static func runQA(_ model: AppModel, into out: URL) {
         try? FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
         let env = ProcessInfo.processInfo.environment
-        if let a = env["MACROCLICKER_QA_APPEARANCE"] {
+        if let a = env["HERON_QA_APPEARANCE"] {
             NSApp.appearance = NSAppearance(named: a == "light" ? .aqua : .darkAqua)
         }
         let routine = model.macros.first { $0.name == "Morning routine" }?.id

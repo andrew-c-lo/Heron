@@ -14,13 +14,13 @@ GH="$(command -v gh || echo "$HOME/.local/bin/gh")"
 
 UNIVERSAL=1 ./build.sh
 mkdir -p dist
-ZIP="dist/MacroClicker-$VERSION.zip"
+ZIP="dist/Heron-$VERSION.zip"
 rm -f "$ZIP"
-ditto -c -k --sequesterRsrc --keepParent MacroClicker.app "$ZIP"
+ditto -c -k --sequesterRsrc --keepParent Heron.app "$ZIP"
 echo "$(shasum -a 256 "$ZIP")"
-lipo -info MacroClicker.app/Contents/MacOS/MacroClicker
+lipo -info Heron.app/Contents/MacOS/Heron
 
 if [[ "${1:-}" == "--dry-run" ]]; then echo "Dry run: $ZIP is ready, nothing published."; exit 0; fi
-git tag -a "$TAG" -m "MacroClicker $VERSION" 2>/dev/null || echo "Tag $TAG already exists"
+git tag -a "$TAG" -m "Heron $VERSION" 2>/dev/null || echo "Tag $TAG already exists"
 git push origin "$TAG"
-"$GH" release create "$TAG" "$ZIP" --title "MacroClicker $VERSION" --notes-file "$NOTES"
+"$GH" release create "$TAG" "$ZIP" --title "Heron $VERSION" --notes-file "$NOTES"

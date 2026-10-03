@@ -1,11 +1,11 @@
 import SwiftUI
 
 @main
-struct MacroClickerApp: App {
+struct HeronApp: App {
     @StateObject private var model = AppModel()
 
     var body: some Scene {
-        Window("MacroClicker", id: "main") {
+        Window("Heron", id: "main") {
             ContentView()
                 .environmentObject(model)
         }
@@ -24,9 +24,23 @@ struct MacroClickerApp: App {
             MenuBarContent()
                 .environmentObject(model)
         } label: {
-            Image(systemName: model.menuBarIcon)
+            // The heron while idle; a symbol for what's happening otherwise (recording, playing…).
+            if model.menuBarIcon == "cursorarrow.click", let heron = MenuBarIcon.image {
+                Image(nsImage: heron)
+            } else {
+                Image(systemName: model.menuBarIcon)
+            }
         }
     }
+}
+
+enum MenuBarIcon {
+    static let image: NSImage? = {
+        guard let img = Bundle.main.image(forResource: "MenuBarIcon") else { return nil }
+        img.size = NSSize(width: 18, height: 18)
+        img.isTemplate = true // follows the menu bar's light/dark tint
+        return img
+    }()
 }
 
 struct MenuBarContent: View {
@@ -68,7 +82,7 @@ struct MenuBarContent: View {
         Button("Stop Everything") { model.stopAll() }
             .shortcutHint(model, .stopAll)
         Divider()
-        Button("Open MacroClicker…") {
+        Button("Open Heron…") {
             openWindow(id: "main")
             NSApp.activate(ignoringOtherApps: true)
         }

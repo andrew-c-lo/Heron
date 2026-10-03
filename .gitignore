@@ -1,6 +1,6 @@
 .build/
 .demo/
-MacroClicker.app/
+Heron.app/
 *.iconset/
 .DS_Store
 dist/

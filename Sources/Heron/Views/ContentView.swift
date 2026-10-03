@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// The three things MacroClicker does, as tabs in the window toolbar.
+/// The three things Heron does, as tabs in the window toolbar.
 enum MainTab: String, CaseIterable, Identifiable {
     case clicker = "Clicker", macros = "Macros"
     var id: String { rawValue }
@@ -46,7 +46,7 @@ struct ContentView: View {
         VStack(spacing: 0) {
             // (Screenshot copies run without permissions on purpose; don't show the banner there.)
             if !model.hasAccessibility || !model.hasInputMonitoring,
-               ProcessInfo.processInfo.environment["MACROCLICKER_SCREENSHOTS"] == nil {
+               ProcessInfo.processInfo.environment["HERON_SCREENSHOTS"] == nil {
                 PermissionBanner()
             }
             Group {
@@ -279,7 +279,7 @@ struct PermissionBanner: View {
             Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.yellow)
             VStack(alignment: .leading, spacing: 2) {
                 Text("Permissions needed").bold()
-                Text("Accessibility lets MacroClicker click and type. Input Monitoring lets it record. Enable MacroClicker in System Settings, then come back — this banner disappears on its own.")
+                Text("Accessibility lets Heron click and type. Input Monitoring lets it record. Enable Heron in System Settings, then come back — this banner disappears on its own.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Spacer()

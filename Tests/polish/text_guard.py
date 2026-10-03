@@ -8,7 +8,7 @@ Moving a string to another place is fine (it's a set); changing or dropping it i
 """
 import json, re, sys, pathlib
 
-ROOT = pathlib.Path(__file__).resolve().parents[2] / "Sources" / "MacroClicker"
+ROOT = pathlib.Path(__file__).resolve().parents[2] / "Sources" / "Heron"
 LIT = re.compile(r'"((?:[^"\\\n]|\\.)*)"')
 
 def strings():

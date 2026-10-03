@@ -31,7 +31,7 @@ struct RecordingSettingsView: View {
                 }
                 Toggle(isOn: $model.prefs.recordKeyboard) {
                     Text("Keyboard")
-                    Text("Typing and shortcuts. Your own MacroClicker hotkeys are never recorded.")
+                    Text("Typing and shortcuts. Your own Heron hotkeys are never recorded.")
                 }
                 LabeledContent {
                     TargetAppMenu(selection: model.prefs.recordTarget, noneLabel: "Any app (whole screen)") {
@@ -86,7 +86,7 @@ struct PermissionsSettingsView: View {
                               detail: "Optional. For finding pictures and words, color checks and the map view. Only the target window is read, and nothing is saved except the pictures you pick.",
                               granted: model.hasScreenRecording) { ScreenReader.requestPermission() }
             } footer: {
-                Text("If a permission stops working after an update, remove MacroClicker from that list in System Settings and add it again.")
+                Text("If a permission stops working after an update, remove Heron from that list in System Settings and add it again.")
                     .font(.caption).foregroundStyle(.secondary)
             }
         }

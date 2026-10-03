@@ -2,9 +2,9 @@
 import PackageDescription
 
 let package = Package(
-    name: "MacroClicker",
+    name: "Heron",
     platforms: [.macOS(.v14)],
     targets: [
-        .executableTarget(name: "MacroClicker", path: "Sources/MacroClicker")
+        .executableTarget(name: "Heron", path: "Sources/Heron")
     ]
 )
