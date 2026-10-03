@@ -64,8 +64,17 @@ your Mac.
 
 ## Install
 
-MacroClicker is built from source for now. It takes about a minute with Apple's free command line tools
-on macOS 14 or later:
+**[Download the latest release](https://github.com/andrew-c-lo/MacroClicker/releases/latest)**, unzip it and drag
+MacroClicker to Applications. It runs on Apple silicon and Intel Macs with macOS 14 or later.
+
+MacroClicker isn't notarized by Apple, so the first time you open it macOS asks first: open it once, then
+go to **System Settings › Privacy & Security** and click **Open Anyway** next to “MacroClicker was blocked”.
+After that, allow the permissions it asks for. A banner links to the right place in System Settings.
+
+<details>
+<summary>Build it yourself instead</summary>
+
+It takes about a minute with Apple's free command line tools:
 
 ```bash
 xcode-select --install     # once, if you don't have the command line tools
@@ -75,8 +84,7 @@ scripts/setup-signing.sh   # once: a personal signing certificate, so permission
 ./build.sh install         # builds MacroClicker.app and copies it to /Applications
 ```
 
-Then open MacroClicker and allow the permissions it asks for. A banner links to the right place in
-System Settings.
+</details>
 
 ## Everything it does
 
@@ -174,7 +182,8 @@ It asks only for the permissions a feature needs:
 
 Issues and pull requests are welcome. `Tests/qa/run.sh` runs the tests (the screenshot cropper, click
 spread, double-click, and finding pictures and words), and `scripts/make-demo.sh --screenshots`
-regenerates the screenshots on this page from neutral demo data.
+regenerates the screenshots on this page from neutral demo data. `scripts/release.sh` builds the app for
+both kinds of Mac and publishes a release with the notes in `docs/release-notes/`.
 
 ## License
 

@@ -2,11 +2,16 @@
 # Builds MacroClicker.app (release) and optionally installs it to /Applications.
 #   ./build.sh            -> build ./MacroClicker.app
 #   ./build.sh install    -> build and copy to /Applications
+#   UNIVERSAL=1 ./build.sh -> one app for both Apple silicon and Intel Macs (used for releases)
 set -euo pipefail
 cd "$(dirname "$0")"
 
-swift build -c release
-BIN="$(swift build -c release --show-bin-path)/MacroClicker"
+VERSION="$(cat VERSION)"
+BUILD_NUMBER="$(git rev-list --count HEAD 2>/dev/null || echo 1)"
+ARCHS=()
+if [[ "${UNIVERSAL:-}" == "1" ]]; then ARCHS=(--arch arm64 --arch x86_64); fi
+swift build -c release ${ARCHS[@]+"${ARCHS[@]}"}
+BIN="$(swift build -c release ${ARCHS[@]+"${ARCHS[@]}"} --show-bin-path)/MacroClicker"
 
 APP="MacroClicker.app"
 rm -rf "$APP"
@@ -24,8 +29,8 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>CFBundleIdentifier</key><string>local.macroclicker.app</string>
     <key>CFBundleExecutable</key><string>MacroClicker</string>
     <key>CFBundlePackageType</key><string>APPL</string>
-    <key>CFBundleShortVersionString</key><string>1.0</string>
-    <key>CFBundleVersion</key><string>1</string>
+    <key>CFBundleShortVersionString</key><string>$VERSION</string>
+    <key>CFBundleVersion</key><string>$BUILD_NUMBER</string>
     <key>LSMinimumSystemVersion</key><string>14.0</string>
     <key>NSHighResolutionCapable</key><true/>
     <key>NSPrincipalClass</key><string>NSApplication</string>

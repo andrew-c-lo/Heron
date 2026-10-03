@@ -3,3 +3,4 @@
 MacroClicker.app/
 *.iconset/
 .DS_Store
+dist/
