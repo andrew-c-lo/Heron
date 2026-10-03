@@ -115,7 +115,6 @@ struct WindowLevel: NSViewRepresentable {
             guard let window else { return }
             let level: NSWindow.Level = floating ? .floating : .normal
             if window.level != level { window.level = level }
-            if window.titleVisibility != .hidden { window.titleVisibility = .hidden }
         }
     }
 

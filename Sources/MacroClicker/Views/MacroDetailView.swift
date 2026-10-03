@@ -36,13 +36,24 @@ struct MacroDetailView: View {
         VStack(alignment: .leading, spacing: 10) {
             header
             settingsBar
-            toolbar
-            if hasPictureSteps { orderBar }
-            stepsList
-                .frame(maxHeight: .infinity)
+            addBar
+            HStack(spacing: 0) {
+                stepsList
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                if mode != .raw {
+                    Divider()
+                    StepInspector(editing: editing, app: macro.target.app, allAtOnce: allAtOnce,
+                                  onShowRaw: showRawSteps, onAddColorCheck: addColorCheck,
+                                  onSampleColor: sampleColor, onDelete: deleteSelected)
+                        .frame(width: 300)
+                }
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.separator))
+            .frame(maxHeight: .infinity)
         }
-        .padding(.leading, 10)
-        .padding(.bottom, 8)
+        .padding(.trailing, 12)
+        .padding(.bottom, 10)
     }
 
     // MARK: Header: name (click to rename), stats, view and undo
@@ -111,24 +122,6 @@ struct MacroDetailView: View {
     }
 
     private var allAtOnce: Bool { macro.playback.order == .allAtOnce }
-
-    /// In order vs. all at once, right above the steps it affects.
-    private var orderBar: some View {
-        HStack(spacing: 10) {
-            Text("Steps run").foregroundStyle(.secondary)
-            Picker("Steps run", selection: $macro.playback.order) {
-                ForEach(PlaybackOptions.StepOrder.allCases) { Text($0.label).tag($0) }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .fixedSize()
-            // The explanation is one hover away instead of always on screen.
-            .help(allAtOnce
-                  ? "Every picture is watched at the same time; whichever appears gets \(editing.isTouch ? "tapped" : "clicked"). Runs until stopped."
-                  : "One after another, top to bottom.")
-            Spacer(minLength: 0)
-        }
-    }
 
     private var playbackSummary: String {
         let pb = macro.playback
@@ -248,71 +241,72 @@ struct MacroDetailView: View {
 
     // MARK: Editing toolbar
 
-    private var toolbar: some View {
-        HStack {
+    /// The main way to build a macro: one click per kind of step. The new step is selected so its
+    /// settings show in the details panel.
+    private var addBar: some View {
+        HStack(spacing: 6) {
+            addButton("Click", "cursorarrow.click", "Hover over the spot; it's added after a 3 second countdown") {
+                model.captureSpot(in: macro.target.app) { p, _ in
+                    select(insert(.click(button: .left, x: Double(p.x.rounded()), y: Double(p.y.rounded()), count: 1)))
+                }
+            }
+            addButton("Type", "keyboard", "Type some text") { ui.showingType = true }
+                .popover(isPresented: $ui.showingType, arrowEdge: .bottom) {
+                    TypeTextPopover { text in insertText(text); ui.showingType = false }
+                }
+            addButton("Wait", "clock", "Pause for a second") { select(insert(.wait, delay: 1)) }
+            addButton("Find Picture", "viewfinder", "Wait for a picture to appear, then click it") { addPictureStep() }
+            addButton("Find Text", "text.viewfinder", "Wait for some words to appear, then click them") { addTextStep() }
             Menu {
-                Button("Picture step… (wait for a picture, then click it)") { addPictureStep() }
-                Button("Text step… (wait for some text, then click it)") { addTextStep() }
-                Divider()
-                Button("Wait (1s)") { insert(.wait, delay: 1) }
-                Button("Wait for a color… (hover the spot, 3s countdown)") {
+                Button("Wait for a Color… (hover the spot, 3 s countdown)") {
                     model.captureSpot(in: macro.target.app) { p, hex in
-                        insert(.waitForColor(at: p, .detect(hex ?? "#FFFFFF")), delay: 0.1)
+                        select(insert(.waitForColor(at: p, .detect(hex ?? "#FFFFFF")), delay: 0.1))
                     }
                 }
                 Divider()
-                Button("Left click at cursor (wherever it is)") { insert(.click(button: .left, x: nil, y: nil, count: 1)) }
-                Button("Left click at current mouse position") {
-                    if let p = model.currentPoint(relativeTo: macro.target.app) {
-                        insert(.click(button: .left, x: Double(p.x.rounded()), y: Double(p.y.rounded()), count: 1))
-                    }
-                }
-                Button("Double click at cursor") { insert(.click(button: .left, x: nil, y: nil, count: 2)) }
-                Button("Right click at cursor") { insert(.click(button: .right, x: nil, y: nil, count: 1)) }
+                Button("Click Wherever the Pointer Is") { select(insert(.click(button: .left, x: nil, y: nil, count: 1))) }
+                Button("Double-Click Wherever the Pointer Is") { select(insert(.click(button: .left, x: nil, y: nil, count: 2))) }
+                Button("Right-Click Wherever the Pointer Is") { select(insert(.click(button: .right, x: nil, y: nil, count: 1))) }
                 Divider()
-                Button("Scroll down") { insert(.scroll(dx: 0, dy: -100)) }
-                Button("Scroll up") { insert(.scroll(dx: 0, dy: 100)) }
+                Button("Scroll Down") { select(insert(.scroll(dx: 0, dy: -100))) }
+                Button("Scroll Up") { select(insert(.scroll(dx: 0, dy: 100))) }
                 Divider()
                 Button("Press Return") { insertKeyPress(36) }
                 Button("Press Space") { insertKeyPress(49) }
                 Button("Press Tab") { insertKeyPress(48) }
                 Button("Press Esc") { insertKeyPress(53) }
             } label: {
-                Label("Insert", systemImage: "plus")
+                Text("More")
             }
             .fixedSize()
-            .help("Inserts after the selection (or at the end)")
+            .help("Other kinds of steps")
 
-            Button(role: .destructive) { deleteSelected() } label: {
-                Label("Delete", systemImage: "trash")
-            }
-            .disabled(selection.isEmpty)
-
+            Spacer(minLength: 4)
             Menu {
-                Button("Remove all mouse moves") {
+                Button("Remove All Mouse Moves") {
                     macro.steps = Player.removingMoves(macro.steps)
                     selection.removeAll()
                 }
                 Divider()
-                Button("Halve all delays (2× faster)") { scaleDelays(0.5) }
-                Button("Double all delays (2× slower)") { scaleDelays(2) }
-                Button("Cap delays at 1 second") { capDelays(1) }
-                Button("Set delay of \(selection.isEmpty ? "all" : "selected") steps…") { ui.showingBulkDelay = true }
+                Button("Halve All Delays (2× faster)") { scaleDelays(0.5) }
+                Button("Double All Delays (2× slower)") { scaleDelays(2) }
+                Button("Cap Delays at 1 Second") { capDelays(1) }
+                Button("Set Delay of \(selection.isEmpty ? "All" : "Selected") Steps…") { ui.showingBulkDelay = true }
                 Divider()
-                Button("Select all") { selection = Set(macro.steps.map(\.id)) }
-                Button("Duplicate macro") { model.duplicate(macro) }
+                Button("Select All") { selection = Set(macro.steps.map(\.id)) }
+                Button("Delete Selected Steps", role: .destructive) { deleteSelected() }.disabled(selection.isEmpty)
+                Divider()
+                Button("Duplicate Macro") { model.duplicate(macro) }
                 Button("Export…") { model.export(macro) }
+                Button("Show Macro Files in Finder") { model.revealMacroFolder() }
                 Divider()
-                Button("Delete macro", role: .destructive) { model.delete(macro) }
+                Button("Delete Macro", role: .destructive) { model.delete(macro) }
             } label: {
-                Label("Tools", systemImage: "wand.and.stars")
+                Image(systemName: "ellipsis.circle")
             }
+            .menuIndicator(.hidden)
             .fixedSize()
-
-            Spacer(minLength: 4)
-            if !selection.isEmpty {
-                Text(selectionLabel).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-            }
+            .help("More actions")
         }
         .popover(isPresented: $ui.showingBulkDelay) {
             HStack {
@@ -359,17 +353,9 @@ struct MacroDetailView: View {
                 guard let c = PictureCrop.crop(rect, from: item.image) else { return }
                 let pic = ImageStep(png: c.png, width: c.width, height: c.height,
                                     originX: Double(rect.minX), originY: Double(rect.minY))
-                let id = insert(.findImage(pic), delay: macro.steps.isEmpty ? 0 : 0.1)
-                ui.editingPicture = id
+                select(insert(.findImage(pic), delay: macro.steps.isEmpty ? 0 : 0.1))
             } onCancel: {
                 ui.pictureSource = nil
-            }
-        }
-        // Editing a picture step.
-        .sheet(item: Binding(get: { ui.editingPicture.map(StepSheetItem.init) }, set: { ui.editingPicture = $0?.id })) { item in
-            if let binding = editing.imageBinding(stepID: item.id) {
-                PictureStepEditor(step: binding, app: macro.target.app, touch: editing.isTouch,
-                                  allAtOnce: allAtOnce) { ui.editingPicture = nil }
             }
         }
     }
@@ -390,11 +376,42 @@ struct MacroDetailView: View {
     private func addTextStep() {
         var step = ImageStep(png: Data(), width: 0, height: 0, originX: 0, originY: 0)
         step.text = ""
-        ui.editingPicture = insert(.findImage(step), delay: macro.steps.isEmpty ? 0 : 0.1)
+        select(insert(.findImage(step), delay: macro.steps.isEmpty ? 0 : 0.1))
     }
 
+    /// Picture steps are edited in the details panel: selecting one shows it there.
     private func editPicture(_ g: ActionGroup) {
-        ui.editingPicture = editing.actionStepID(g)
+        editing.select(g)
+    }
+
+    private func select(_ id: UUID) {
+        ui.selection = [id]
+        ui.scrollTarget = id
+    }
+
+    private func addButton(_ title: String, _ icon: String, _ help: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: icon)
+        }
+        .fixedSize()
+        .help(help)
+    }
+
+    /// "Type": each character becomes a key press (with Shift where needed).
+    private func insertText(_ text: String) {
+        var new: [MacroStep] = []
+        var skipped = 0
+        for ch in text {
+            guard let k = KeyText.key(for: ch) else { skipped += 1; continue }
+            let flags: UInt64 = k.shift ? CGEventFlags.maskShift.rawValue : 0
+            new.append(MacroStep(delay: new.isEmpty ? 0.1 : 0.05, action: .key(keyCode: k.code, down: true, flags: flags)))
+            new.append(MacroStep(delay: 0.03, action: .key(keyCode: k.code, down: false, flags: flags)))
+        }
+        guard !new.isEmpty else { model.flash("Those characters can't be typed with this keyboard layout."); return }
+        let idx = macro.steps.lastIndex { selection.contains($0.id) }.map { $0 + 1 } ?? macro.steps.count
+        macro.steps.insert(contentsOf: new, at: idx)
+        ui.selection = Set(new.map(\.id))
+        if skipped > 0 { model.flash("\(skipped) character\(skipped == 1 ? "" : "s") can't be typed with this keyboard layout and were left out.") }
     }
 
     private var detailedList: some View {
@@ -494,6 +511,7 @@ final class DetailUIState: ObservableObject {
     @Published var selection = Set<UUID>()
     @Published var bulkDelay: Double = 0.1
     @Published var showingBulkDelay = false
+    @Published var showingType = false
     /// Step to scroll to when the detailed list appears.
     var scrollTarget: UUID?
     /// Marker being dragged in the visual view, and how far.

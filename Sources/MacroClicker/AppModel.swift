@@ -805,7 +805,10 @@ final class AppModel: ObservableObject {
     }
 
     func newMacro() {
-        let m = Macro(name: "New Macro", steps: [])
+        var m = Macro(name: "New Macro", steps: [])
+        // Same app as the macro you're looking at, so picture and text steps work right away.
+        m.target.app = selectedMacro?.target.app ?? macros.last?.target.app ?? autoClick.target.app ?? prefs.recordTarget
+        m.target.delivery = selectedMacro?.target.delivery ?? .jumpReturn
         macros.append(m)
         store.save(m)
         show(m.id)

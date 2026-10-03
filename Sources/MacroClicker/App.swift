@@ -10,6 +10,8 @@ struct MacroClickerApp: App {
                 .environmentObject(model)
         }
         .defaultSize(width: 1000, height: 720)
+        // The standard Mac toolbar (window buttons sit where they do in every other app); the tabs say where you are.
+        .windowToolbarStyle(.unified(showsTitle: false))
         // Lets the window shrink to the simple strip and grow back.
         .windowResizability(.contentSize)
 

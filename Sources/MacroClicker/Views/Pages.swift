@@ -75,34 +75,31 @@ private struct MacroList: View {
         }
         .listStyle(.sidebar)
         .safeAreaInset(edge: .bottom) {
-            HStack(spacing: 6) {
+            // Record is the main way to start, so it keeps its label; the rest are small icon buttons.
+            HStack(spacing: 4) {
                 Button {
                     model.toggleRecording(fromUI: true)
                 } label: {
                     Label(model.isRecording ? "Stop" : "Record", systemImage: model.isRecording ? "stop.fill" : "record.circle")
                         .frame(maxWidth: .infinity)
                 }
-                .tint(.red)
+                .controlSize(.large)
                 .help(model.hotkeys[.toggleRecording].map { "Record what you do (\($0.display) from anywhere)" } ?? "Record what you do")
-                Menu {
-                    Button("New Empty Macro") { model.newMacro() }
-                    Button("New Chain") { model.newChain() }
-                        .help("A macro built from picture steps: wait for something to appear, click it, then the next")
-                    Button("Watch for Something…") { model.newBackgroundChain() }
-                        .help("Runs in the background and clicks a picture or some words whenever they show up")
-                    Divider()
-                    Button("Import Macros (.json)…") { model.importMacros() }
-                    Button("Show Macro Files in Finder") { model.revealMacroFolder() }
-                } label: {
-                    Image(systemName: "plus")
+                iconButton("plus", "New macro: build it step by step") { model.newMacro() }
+                iconButton("eye", "Watch for something: runs in the background and clicks a picture or some words whenever they show up") {
+                    model.newBackgroundChain()
                 }
-                .menuIndicator(.hidden)
-                .fixedSize()
-                .help("New macro")
+                iconButton("square.and.arrow.down", "Import macros (.json)") { model.importMacros() }
             }
-            .controlSize(.large)
             .padding(10)
         }
+    }
+
+    private func iconButton(_ icon: String, _ help: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) { Image(systemName: icon).frame(width: 18, height: 18) }
+            .buttonStyle(.borderless)
+            .help(help)
+            .accessibilityLabel(help)
     }
 
     private func subtitle(_ m: Macro) -> String {

@@ -58,8 +58,8 @@ struct ActionGroup: Identifiable {
         case .colorWait(_, let c):
             return "Wait for \(c.hex)"
         case .image(let s):
-            if s.isText {
-                let t = "“\(s.text!.trimmingCharacters(in: .whitespaces))”"
+            if s.text != nil {
+                let t = s.isText ? "“\(s.text!.trimmingCharacters(in: .whitespaces))”" : "some words"
                 switch s.mode {
                 case .click: return (touch ? "Tap " : "Click ") + t + (s.repeatUntilGone ? " until it's gone" : "")
                 case .appear: return "Wait for " + t
@@ -82,7 +82,7 @@ struct ActionGroup: Identifiable {
         case .image(let s):
             (s.untilAppears ? (s.mode == .gone ? "no time limit" : "whenever it appears")
                             : "up to \(s.timeout.formatted())s, else \(s.otherwise.label.lowercased())")
-                + (s.isText ? "" : " · \(Int((s.strictness * 100).rounded()))% match")
+                + (s.text != nil ? "" : " · \(Int((s.strictness * 100).rounded()))% match")
                 + (s.area == nil ? "" : " · in an area")
         case .colorWait(let at, let c):
             "at \(Self.fmt(at))"
@@ -280,6 +280,15 @@ enum KeyText {
         let result = translate(code, shift: shift)
         cache[key] = result
         return result
+    }
+
+    /// The key (and whether Shift is needed) that types `ch` on the current layout, if any.
+    static func key(for ch: Character) -> (code: UInt16, shift: Bool)? {
+        let target = String(ch)
+        for shift in [false, true] {
+            for code in UInt16(0)..<128 where character(for: code, shift: shift) == target { return (code, shift) }
+        }
+        return nil
     }
 
     private static func translate(_ code: UInt16, shift: Bool) -> String? {

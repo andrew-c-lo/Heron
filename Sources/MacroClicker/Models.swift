@@ -250,9 +250,9 @@ struct ImageStep: Codable, Equatable {
         }
         var menuLabel: String {
             switch self {
-            case .click: "Click it when it appears"
-            case .appear: "Just wait for it to appear"
-            case .gone: "Wait until it disappears"
+            case .click: "Click it"
+            case .appear: "Just wait for it"
+            case .gone: "Wait until it's gone"
             }
         }
         var icon: String {

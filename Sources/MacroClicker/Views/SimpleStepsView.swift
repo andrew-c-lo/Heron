@@ -87,7 +87,7 @@ struct ActionEditing {
         guard macro.wrappedValue.playback.order == .allAtOnce, case .image(let s) = g.kind else { return nil }
         guard s.mode == .click else { return "Skipped in All at once (only steps that click are used)" }
         let how = s.repeatUntilGone ? "every \(s.repeatEvery.formatted())s while it's showing" : "once each time it appears"
-        return "Whenever it appears, \(how)" + (s.isText ? "" : " · \(Int((s.strictness * 100).rounded()))% match")
+        return "Whenever it appears, \(how)" + (s.text != nil ? "" : " · \(Int((s.strictness * 100).rounded()))% match")
     }
 
     /// The id of the step that holds a group's main action (e.g. the picture step itself).
@@ -199,11 +199,12 @@ struct SimpleStepsList: View {
                     ActionRow(group: g, number: i + 1, touch: touch,
                               enabled: editing.enabledBinding(g),
                               wait: editing.waitBinding(g),
-                              point: g.editablePoint == nil ? nil : editing.pointBinding(g),
-                              color: editing.colorBinding(g),
+                              point: nil,
+                              color: nil,
                               onSampleColor: { onSampleColor(g) },
                               onEditPicture: { onEditPicture(g) },
-                              detailOverride: editing.allAtOnceDetail(g))
+                              detailOverride: editing.allAtOnceDetail(g),
+                              compact: true)
                         .tag(g.id)
                         .contextMenu {
                             ActionMenu(group: g, editing: editing, onShowRaw: onShowRaw, onAddColorCheck: onAddColorCheck,
@@ -257,6 +258,8 @@ struct ActionRow: View {
     var onEditPicture: () -> Void = {}
     /// Replaces the generated detail line (e.g. for picture steps in an All at once chain).
     var detailOverride: String? = nil
+    /// In the macro editor's list the details panel shows the wait, position and settings, so rows stay short.
+    var compact = false
     @StateObject private var hover = HoverState()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -274,6 +277,7 @@ struct ActionRow: View {
                 .foregroundStyle(.tertiary)
                 .frame(width: 30, alignment: .trailing)
 
+            if !compact {
             HStack(spacing: 3) {
                 Image(systemName: "clock").font(.caption2).foregroundStyle(.tertiary)
                 TextField("", value: wait, format: .number.precision(.fractionLength(0...2)))
@@ -282,6 +286,7 @@ struct ActionRow: View {
                 Text("s").foregroundStyle(.secondary)
             }
             .help(isPause ? "How long to pause" : "How long to wait before this action")
+            }
 
             Image(systemName: group.icon(touch: touch))
                 .font(.title3)
@@ -297,13 +302,15 @@ struct ActionRow: View {
                     ColorWaitControls(wait: color, onSampleColor: onSampleColor)
                 } else if case .image(let pic) = group.kind {
                     HStack(spacing: 8) {
-                        if !pic.isText { PictureThumbnail(png: pic.png, maxWidth: 110, maxHeight: 26) }
+                        if pic.text == nil { PictureThumbnail(png: pic.png, maxWidth: 110, maxHeight: 26) }
                         if let d = detailOverride ?? group.detail { Text(d).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
+                        if !compact {
                         // Shown on the row under the pointer only (double-click or right-click also edits).
                         Button("Edit…", action: onEditPicture)
                             .controlSize(.small)
                             .opacity(hover.hovering ? 1 : 0)
                             .allowsHitTesting(hover.hovering)
+                        }
                     }
                 } else if let d = group.detail {
                     Text(d).font(.caption).foregroundStyle(.secondary)
@@ -321,11 +328,13 @@ struct ActionRow: View {
                 }
             }
 
+            if !compact {
             Text(Self.timestamp(group.start))
                 .font(.caption.monospacedDigit())
                 .foregroundStyle(.tertiary)
                 .frame(width: 52, alignment: .trailing)
                 .help("When this happens, counted from the start of the macro at 1× speed")
+            }
         }
         .padding(.vertical, 3)
         .opacity(group.enabled ? 1 : 0.45)

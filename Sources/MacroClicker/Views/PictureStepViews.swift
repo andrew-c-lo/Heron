@@ -16,40 +16,29 @@ struct PictureStepEditor: View {
     let app: TargetApp?
     let touch: Bool
     var allAtOnce = false
-    let onDone: () -> Void
     @StateObject private var ui = WatcherUIState()
 
+    /// Shown in the macro editor's details panel; the screenshot cropper opens as a sheet.
     var body: some View {
-        if let screenshot = ui.picker {
-            RegionPickerSheet(image: screenshot) { rect in
-                if ui.pickingArea {
-                    step.wrappedValue.area = rect.integral
-                    ui.testResult = nil
-                } else if let c = PictureCrop.crop(rect, from: screenshot) {
-                    step.wrappedValue.png = c.png
-                    step.wrappedValue.width = c.width
-                    step.wrappedValue.height = c.height
-                    step.wrappedValue.originX = Double(rect.minX)
-                    step.wrappedValue.originY = Double(rect.minY)
-                    ui.testResult = nil
+        form
+            .sheet(item: Binding(get: { ui.picker.map(ImageSheetItem.init) }, set: { ui.picker = $0?.image })) { item in
+                RegionPickerSheet(image: item.image) { rect in
+                    if ui.pickingArea {
+                        step.wrappedValue.area = rect.integral
+                        ui.testResult = nil
+                    } else if let c = PictureCrop.crop(rect, from: item.image) {
+                        step.wrappedValue.png = c.png
+                        step.wrappedValue.width = c.width
+                        step.wrappedValue.height = c.height
+                        step.wrappedValue.originX = Double(rect.minX)
+                        step.wrappedValue.originY = Double(rect.minY)
+                        ui.testResult = nil
+                    }
+                    ui.picker = nil
+                } onCancel: {
+                    ui.picker = nil
                 }
-                ui.picker = nil
-            } onCancel: {
-                ui.picker = nil
             }
-        } else {
-            VStack(spacing: 0) {
-                form
-                Divider()
-                HStack {
-                    Text("Changes apply right away.").font(.caption).foregroundStyle(.secondary)
-                    Spacer()
-                    Button("Done", action: onDone).keyboardShortcut(.defaultAction)
-                }
-                .padding(12)
-            }
-            .frame(width: 540, height: 640)
-        }
     }
 
     private var s: ImageStep { step.wrappedValue }
@@ -65,24 +54,24 @@ struct PictureStepEditor: View {
                         Spacer()
                     }
                 } else {
-                HStack(alignment: .center, spacing: 16) {
+                VStack(alignment: .leading, spacing: 8) {
                     if s.png.isEmpty {
-                        Text("No picture yet").font(.caption).foregroundStyle(.secondary).frame(width: 160, height: 70)
+                        Text("No picture yet").font(.caption).foregroundStyle(.secondary)
                     } else {
-                        PictureThumbnail(png: s.png, maxWidth: 220, maxHeight: 90)
+                        PictureThumbnail(png: s.png, maxWidth: 240, maxHeight: 70)
                     }
-                    VStack(alignment: .leading, spacing: 8) {
-                        Button(s.png.isEmpty ? "Pick from Screenshot…" : "Pick Again from Screenshot…") { pick(area: false) }
+                    HStack {
+                        Button(s.png.isEmpty ? "Pick…" : "Pick Again…") { pick(area: false) }
+                            .help("Box the picture on a screenshot of the window")
                         testButton
                     }
-                    Spacer(minLength: 0)
                 }
                 }
                 SearchAreaRow(area: step.area) { pick(area: true) }
                 if s.text == nil {
                 LabeledContent {
                     HStack {
-                        Slider(value: step.strictness, in: 0.6...0.98).frame(width: 170)
+                        Slider(value: step.strictness, in: 0.6...0.98).frame(width: 100)
                         Text("\(Int((s.strictness * 100).rounded()))%")
                             .monospacedDigit().foregroundStyle(.secondary).frame(width: 40, alignment: .trailing)
                     }
@@ -196,20 +185,16 @@ struct EmptyMacroPrompt: View {
 
     var body: some View {
         VStack(spacing: 12) {
-            Image(systemName: "link.circle").font(.system(size: 44)).foregroundStyle(.tint)
-            Text("Build a chain").font(.title3.bold())
-            Text("Add picture steps: each one waits for something to appear\(appName.map { " in \($0)" } ?? ""), then clicks it, one after another. You can also record your clicks and add picture steps in between.")
+            Image(systemName: "plus.circle").font(.system(size: 40)).foregroundStyle(.tint)
+            Text("Add the first step").font(.title3.bold())
+            Text("Use the buttons above: Click, Type, Wait, Find Picture or Find Text. Each one is added right away and its settings appear on the right. Or record what you do\(appName.map { " in \($0)" } ?? "").")
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)
-                .frame(maxWidth: 420)
-            HStack {
-                Button("Add Picture Step…", action: onAddPicture).buttonStyle(.borderedProminent)
-                Button("Record", action: onRecord)
-            }
-            .controlSize(.large)
+                .frame(maxWidth: 360)
+            Button("Record", action: onRecord)
+                .controlSize(.large)
         }
         .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(RoundedRectangle(cornerRadius: 10).fill(.quaternary.opacity(0.35)))
     }
 }
