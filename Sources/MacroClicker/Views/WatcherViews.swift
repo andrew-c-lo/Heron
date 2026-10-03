@@ -72,6 +72,17 @@ struct WatcherDetailView: View {
     var body: some View {
         Form {
             Section {
+                HStack {
+                    TextField("", text: $watcher.name, prompt: Text("Name"))
+                        .labelsHidden()
+                        .textFieldStyle(.plain)
+                        .font(.title3.weight(.semibold))
+                    Button {
+                        model.toggleWatcher(watcher.id)
+                    } label: {
+                        Label(running ? "Stop" : "Start", systemImage: running ? "stop.fill" : "play.fill")
+                    }
+                }
                 HStack(spacing: 12) {
                     Image(systemName: running ? "eye.fill" : "eye")
                         .font(.title2)
@@ -168,18 +179,6 @@ struct WatcherDetailView: View {
             }
         }
         .formStyle(.grouped)
-        // Name in the window title (click to rename) and Start/Stop in the toolbar, like the other pages.
-        .navigationTitle($watcher.name)
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    model.toggleWatcher(watcher.id)
-                } label: {
-                    Label(running ? "Stop" : "Start", systemImage: running ? "stop.fill" : "play.fill")
-                        .labelStyle(.titleAndIcon)
-                }
-            }
-        }
         .sheet(item: Binding(get: { ui.picker.map(PickerImage.init) }, set: { ui.picker = $0?.image })) { item in
             RegionPickerSheet(image: item.image) { rect in
                 if ui.pickingArea { watcher.area = rect.integral } else { useRegion(rect, of: item.image) }

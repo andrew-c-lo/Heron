@@ -9,7 +9,14 @@ struct MacroClickerApp: App {
             ContentView()
                 .environmentObject(model)
         }
-        .defaultSize(width: 1100, height: 820)
+        .defaultSize(width: 1000, height: 720)
+        // Lets the window shrink to the simple strip and grow back.
+        .windowResizability(.contentSize)
+
+        Settings {
+            SettingsRoot()
+                .environmentObject(model)
+        }
 
         MenuBarExtra {
             MenuBarContent()

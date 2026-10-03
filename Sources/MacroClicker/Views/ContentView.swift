@@ -1,203 +1,261 @@
 import SwiftUI
 
+/// The three things MacroClicker does, as tabs in the window toolbar.
+enum MainTab: String, CaseIterable, Identifiable {
+    case clicker = "Clicker", macros = "Macros", watchers = "Watchers"
+    var id: String { rawValue }
+}
+
+extension AppModel {
+    var tab: MainTab {
+        get {
+            switch sidebar ?? .autoClicker {
+            case .macro, .macros: .macros
+            case .watcher, .watchers: .watchers
+            default: .clicker
+            }
+        }
+        set {
+            guard newValue != tab else { return }
+            switch newValue {
+            case .clicker: sidebar = .autoClicker
+            case .macros: sidebar = (selectedMacroID ?? macros.first?.id).map { .macro($0) } ?? .macros
+            case .watchers: sidebar = .watchers
+            }
+        }
+    }
+}
+
 struct ContentView: View {
     @EnvironmentObject var model: AppModel
-
+    @AppStorage("simpleMode") private var simple = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        NavigationSplitView(columnVisibility: $model.columnVisibility) {
-            Sidebar()
-                .navigationSplitViewColumnWidth(min: 200, ideal: 220, max: 280)
-        } detail: {
-            VStack(spacing: 0) {
-                // (Screenshot copies run without permissions on purpose; don't show the banner there.)
-                if !model.hasAccessibility || !model.hasInputMonitoring,
-                   ProcessInfo.processInfo.environment["MACROCLICKER_SCREENSHOTS"] == nil {
-                    PermissionBanner()
-                }
-                DetailView()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-            .background(GeometryReader { g in
-                Color.clear
-                    .onAppear { model.updateCompactToolbar(g.size.width) }
-                    .onChange(of: g.size.width) { _, w in model.updateCompactToolbar(w) }
-            })
-            // Messages appear briefly over the content instead of in a permanent bar.
-            .overlay(alignment: .bottom) {
-                if let msg = model.statusMessage {
-                    MessageToast(text: msg)
-                        .padding(.bottom, 16)
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
-                }
-            }
-            .animation(Motion.reveal(reduceMotion), value: model.statusMessage)
-            .toolbar {
-                ToolbarItem(placement: .status) { ActivityStatus() }
-            }
-        }
-        .frame(minWidth: 820, minHeight: 600)
-    }
-}
-
-/// The main area for whatever is picked in the sidebar.
-private struct DetailView: View {
-    @EnvironmentObject var model: AppModel
-    @Environment(\.undoManager) private var undoManager
-
-    var body: some View {
-        switch model.sidebar ?? .autoClicker {
-        case .autoClicker:
-            AutoClickerView().navigationTitle("Auto Clicker")
-        case .watcher(let id):
-            if let binding = model.watcherBinding(for: id) {
-                WatcherDetailView(watcher: binding)
-                    .id(id)
+        Group {
+            if simple {
+                SimpleStrip { simple = false }
             } else {
-                ContentUnavailableView("No watcher selected", systemImage: "eye",
-                                       description: Text("Add a watcher in the sidebar."))
-            }
-        case .macro(let id):
-            if let binding = model.binding(for: id, undoManager: undoManager),
-               let plain = model.binding(for: id) {
-                MacroDetailView(macro: binding, name: plain.name)
-                    .padding([.horizontal, .top], 12)
-                    .id(id)
-            } else {
-                ContentUnavailableView("No macro selected", systemImage: "record.circle",
-                                       description: Text("Record a macro or pick one in the sidebar."))
-            }
-        case .hotkeys:
-            HotkeysSettingsView().navigationTitle("Hotkeys")
-        case .recording:
-            RecordingSettingsView().navigationTitle("Recording")
-        case .permissions:
-            PermissionsSettingsView().navigationTitle("Permissions")
-        case .general:
-            GeneralSettingsView().navigationTitle("General")
-        }
-    }
-}
-
-struct Sidebar: View {
-    @EnvironmentObject var model: AppModel
-
-    var body: some View {
-        List(selection: $model.sidebar) {
-            Section("Tools") {
-                Label("Auto Clicker", systemImage: "cursorarrow.click.2")
-                    .tag(SidebarItem.autoClicker)
-            }
-
-            Section("Watchers") {
-                ForEach(model.watchers) { w in
-                    let running = model.runningWatchers.contains(w.id)
-                    let visible = model.watcherStatus[w.id]?.visible == true
-                    HStack {
-                    Label {
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(w.name).lineLimit(1)
-                            Text(running ? (visible ? "On screen, clicking" : "Watching…") : "Off")
-                                .font(.caption).foregroundStyle(.secondary)
-                        }
-                    } icon: {
-                        Image(systemName: running ? "eye.fill" : "eye")
-                            .foregroundStyle(running ? (visible ? Color.orange : Color.green) : Color.accentColor)
-                    }
-                    Spacer(minLength: 4)
-                    Toggle("", isOn: Binding(get: { running }, set: { if $0 != running { model.toggleWatcher(w.id) } }))
-                        .toggleStyle(.switch)
-                        .controlSize(.mini)
-                        .labelsHidden()
-                        .help(running ? "Stop watching" : "Start watching")
-                    }
-                    .tag(SidebarItem.watcher(w.id))
-                    .contextMenu {
-                        Button(running ? "Stop" : "Start") { model.toggleWatcher(w.id) }
-                        Divider()
-                        Button("Delete", role: .destructive) { model.deleteWatcher(w) }
-                    }
-                }
-            }
-
-            Section("Macros") {
-                ForEach(model.macros) { m in
-                    Label {
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(m.name).lineLimit(1)
-                            Text("\(ActionGrouper.groups(for: m.steps).count) actions · \(formatDuration(m.duration))")
-                                .font(.caption).foregroundStyle(.secondary)
-                        }
-                    } icon: {
-                        Image(systemName: model.playingMacroID == m.id ? "play.fill" : "record.circle")
-                            .foregroundStyle(model.playingMacroID == m.id ? Color.green : Color.accentColor)
-                    }
-                    .tag(SidebarItem.macro(m.id))
-                    .contextMenu {
-                        Button("Play") { model.play(m) }
-                        Button("Duplicate") { model.duplicate(m) }
-                        Button("Export…") { model.export(m) }
-                        Divider()
-                        Button("Delete", role: .destructive) { model.delete(m) }
-                    }
-                }
-            }
-
-            Section("Settings") {
-                Label("Hotkeys", systemImage: "command").tag(SidebarItem.hotkeys)
-                Label("Recording", systemImage: "waveform").tag(SidebarItem.recording)
-                Label("Permissions", systemImage: "lock.shield").tag(SidebarItem.permissions)
-                Label("General", systemImage: "gearshape").tag(SidebarItem.general)
+                full
             }
         }
-        .listStyle(.sidebar)
-        .safeAreaInset(edge: .bottom) { recordArea }
+        .toolbar(simple ? .hidden : .visible, for: .windowToolbar)
+        // The small strip stays above other windows, like a remote control.
+        .background(WindowLevel(floating: simple))
     }
 
-    private var recordArea: some View {
-        VStack(spacing: 6) {
-            Button {
-                model.toggleRecording(fromUI: true)
-            } label: {
-                Label(recordTitle, systemImage: model.isRecording ? "stop.fill" : "record.circle")
-                    .frame(maxWidth: .infinity)
+    private var full: some View {
+        VStack(spacing: 0) {
+            // (Screenshot copies run without permissions on purpose; don't show the banner there.)
+            if !model.hasAccessibility || !model.hasInputMonitoring,
+               ProcessInfo.processInfo.environment["MACROCLICKER_SCREENSHOTS"] == nil {
+                PermissionBanner()
             }
-            .buttonStyle(.borderedProminent)
-            .tint(model.isRecording || model.countdown != nil ? .red : .accentColor)
-            .controlSize(.large)
-
-            Text(model.hotkeys[.toggleRecording].map { "or press \($0.display) from anywhere" }
-                 ?? "Tip: set a recording hotkey in Hotkeys")
-                .font(.caption).foregroundStyle(.secondary)
-
-            HStack {
-                // Everything you can add, in one place.
-                Menu {
-                    Button { model.newWatcher() } label: { Label("New Watcher", systemImage: "eye") }
-                    Button { model.newChain() } label: { Label("New Chain", systemImage: "link") }
-                        .help("A macro built from picture steps: wait for something to appear, click it, then the next")
-                    Button { model.newMacro() } label: { Label("New empty macro", systemImage: "record.circle") }
-                    Divider()
-                    Button { model.importMacros() } label: { Label("Import macros (.json)", systemImage: "square.and.arrow.down") }
-                } label: {
-                    Image(systemName: "plus")
+            Group {
+                switch model.tab {
+                case .clicker: AutoClickerView()
+                case .macros: MacrosPage()
+                case .watchers: WatchersPage()
                 }
-                .menuStyle(.borderlessButton)
-                .menuIndicator(.hidden)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            StatusBar()
+        }
+        // Messages appear briefly over the content instead of in a permanent bar.
+        .overlay(alignment: .bottom) {
+            if let msg = model.statusMessage {
+                MessageToast(text: msg)
+                    .padding(.bottom, 72)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .animation(Motion.reveal(reduceMotion), value: model.statusMessage)
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                Picker("Show", selection: Binding(get: { model.tab }, set: { model.tab = $0 })) {
+                    ForEach(MainTab.allCases) { Text($0.rawValue).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
                 .fixedSize()
-                Spacer()
-                Button { model.revealMacroFolder() } label: { Image(systemName: "folder") }
-                    .help("Show macro files in Finder")
             }
-            .buttonStyle(.borderless)
+            ToolbarItemGroup(placement: .primaryAction) {
+                Button { simple = true } label: { Image(systemName: "arrow.down.right.and.arrow.up.left") }
+                    .accessibilityLabel("Simple mode")
+                    .help("Simple mode: a small strip that stays on top")
+                SettingsLink { Image(systemName: "gearshape") }
+                    .accessibilityLabel("Settings")
+                    .help("Settings (⌘,)")
+            }
         }
-        .padding(10)
+        .frame(minWidth: 860, idealWidth: 1000, maxWidth: .infinity, minHeight: 600, idealHeight: 720, maxHeight: .infinity)
+    }
+}
+
+/// Keeps the window above others while `floating` (the simple strip), and hides the window title: the tabs
+/// say where you are.
+struct WindowLevel: NSViewRepresentable {
+    let floating: Bool
+
+    final class Probe: NSView {
+        var floating = false { didSet { apply() } }
+        override func viewDidMoveToWindow() { apply() }
+        // SwiftUI sets the title back up as the toolbar changes, so keep it hidden.
+        override func layout() { super.layout(); apply() }
+        func apply() {
+            guard let window else { return }
+            let level: NSWindow.Level = floating ? .floating : .normal
+            if window.level != level { window.level = level }
+            if window.titleVisibility != .hidden { window.titleVisibility = .hidden }
+        }
     }
 
-    private var recordTitle: String {
-        if let c = model.countdown { return "Starting in \(c)…" }
-        return model.isRecording ? "Stop (\(model.recordedSteps) steps)" : "Record Macro"
+    func makeNSView(context: Context) -> Probe { Probe() }
+    func updateNSView(_ view: Probe, context: Context) { view.floating = floating }
+}
+
+// MARK: - Status bar
+
+/// The bottom bar: what this page is doing, and its main button with the hotkey that does the same.
+struct StatusBar: View {
+    @EnvironmentObject var model: AppModel
+
+    private struct Content {
+        var dot: Color, title: String, detail: String
+        var button: String, hotkey: HotkeyAction?, tint: Color = .primary, enabled = true
+        var action: () -> Void
+    }
+
+    var body: some View {
+        let c = content
+        HStack(spacing: 12) {
+            Circle().fill(c.dot).frame(width: 9, height: 9)
+            Text(c.title).font(.callout.weight(.semibold))
+            Text(c.detail).font(.callout).foregroundStyle(.secondary).lineLimit(1).truncationMode(.tail)
+            Spacer(minLength: 12)
+            Button(action: c.action) {
+                HStack(spacing: 10) {
+                    Text(c.button)
+                    if let hk = c.hotkey, let display = model.hotkeys[hk]?.display { KeyCaps(display, onDark: true) }
+                }
+            }
+            .buttonStyle(PrimaryActionStyle(tint: c.tint))
+            .fixedSize()
+            .disabled(!c.enabled)
+        }
+        .padding(.horizontal, 16)
+        .frame(height: 56)
+        .background(.bar)
+        .overlay(alignment: .top) { Divider() }
+    }
+
+    private var content: Content {
+        if let n = model.countdown {
+            return Content(dot: .orange, title: "Starting in \(n)…", detail: "Press the hotkey again to cancel",
+                           button: "Cancel", hotkey: nil, action: { model.stopAll() })
+        }
+        if model.isRecording {
+            return Content(dot: .red, title: "Recording", detail: "\(model.recordedSteps) steps so far",
+                           button: "Stop Recording", hotkey: .toggleRecording, tint: .red,
+                           action: { model.toggleRecording(fromUI: true) })
+        }
+        switch model.tab {
+        case .clicker:
+            if model.isAutoClicking {
+                var detail = "\(model.autoClickCount) click\(model.autoClickCount == 1 ? "" : "s")"
+                if model.autoClickSkipped > 0 { detail += ", \(model.autoClickSkipped) skipped" }
+                return Content(dot: .green, title: "Running", detail: detail, button: "Stop", hotkey: .toggleAutoClick,
+                               tint: .green, action: { model.toggleAutoClick() })
+            }
+            return Content(dot: .secondary.opacity(0.5), title: "Stopped", detail: clickerSummary, button: "Start",
+                           hotkey: .toggleAutoClick, action: { model.toggleAutoClick() })
+        case .macros:
+            if let id = model.playingMacroID {
+                let name = model.macros.first { $0.id == id }?.name ?? ""
+                return Content(dot: .green, title: "Playing", detail: "\(name), \(model.playStatus)", button: "Stop",
+                               hotkey: .togglePlayback, tint: .green, action: { model.stopPlayback() })
+            }
+            let m = model.selectedMacro
+            let detail = m.map { m in
+                let n = ActionGrouper.groups(for: m.steps).count
+                return "\(n) action\(n == 1 ? "" : "s")" + (m.target.app.map { " in \($0.name)" } ?? "")
+            } ?? "Record or create a macro"
+            return Content(dot: .secondary.opacity(0.5), title: "Ready", detail: detail, button: "Play",
+                           hotkey: .togglePlayback, enabled: m != nil, action: { if let m { model.play(m) } })
+        case .watchers:
+            let on = model.runningWatchers.count
+            if on > 0 {
+                let clicks = model.watcherStatus.values.reduce(0) { $0 + $1.clicks }
+                return Content(dot: .green, title: "\(on) watching", detail: "\(clicks) click\(clicks == 1 ? "" : "s") so far",
+                               button: "Stop All", hotkey: .toggleWatchers, tint: .green, action: { model.toggleAllWatchers() })
+            }
+            return Content(dot: .secondary.opacity(0.5), title: "Off",
+                           detail: model.watchers.isEmpty ? "Add a watcher to get started" : "Switch watchers on in the list",
+                           button: "Start All", hotkey: .toggleWatchers, enabled: !model.watchers.isEmpty,
+                           action: { model.toggleAllWatchers() })
+        }
+    }
+
+    private var clickerSummary: String {
+        let s = model.autoClick
+        let type = ["", "", "Double-", "Triple-"][min(3, max(1, s.clicksPerEvent))]
+        let what = type.isEmpty ? "\(s.button.label) click" : type + s.button.label.lowercased() + " click"
+        let where_ = s.location == .cursor ? "wherever the pointer is"
+            : "\(s.points.count) spot\(s.points.count == 1 ? "" : "s")"
+        return "\(what), \(where_)" + (s.target.app.map { " in \($0.name)" } ?? "")
+    }
+}
+
+/// The page's main button: filled, with the hotkey drawn as keycaps inside.
+struct PrimaryActionStyle: ButtonStyle {
+    var tint: Color = .primary
+    @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.colorScheme) private var scheme
+
+    func makeBody(configuration: Configuration) -> some View {
+        let fill: Color = tint == .primary ? (scheme == .dark ? Color(white: 0.92) : Color(white: 0.14)) : tint
+        let ink: Color = tint == .primary && scheme == .dark ? .black : .white
+        configuration.label
+            .font(.system(size: 13.5, weight: .semibold))
+            .foregroundStyle(ink)
+            .padding(.leading, 16).padding(.trailing, 8)
+            .frame(height: 34)
+            .background(RoundedRectangle(cornerRadius: 9).fill(fill))
+            .opacity(isEnabled ? (configuration.isPressed ? 0.8 : 1) : 0.4)
+    }
+}
+
+/// A hotkey like "⌃⌥C" drawn as keycaps.
+struct KeyCaps: View {
+    let keys: [String]
+    var onDark = false
+
+    init(_ display: String, onDark: Bool = false) {
+        let modifiers: Set<Character> = ["⌃", "⌥", "⇧", "⌘"]
+        var caps: [String] = [], rest = ""
+        for ch in display where ch != " " {
+            if modifiers.contains(ch) { caps.append(String(ch)) } else { rest.append(ch) }
+        }
+        if !rest.isEmpty { caps.append(rest) }
+        keys = caps
+        self.onDark = onDark
+    }
+
+    var body: some View {
+        HStack(spacing: 3) {
+            ForEach(Array(keys.enumerated()), id: \.offset) { _, k in
+                Text(k)
+                    .font(.system(size: 11.5, weight: .semibold))
+                    .frame(minWidth: 20, minHeight: 20)
+                    .padding(.horizontal, k.count > 1 ? 5 : 0)
+                    .background(RoundedRectangle(cornerRadius: 5)
+                        .fill(onDark ? AnyShapeStyle(.foreground.opacity(0.16)) : AnyShapeStyle(Color(nsColor: .controlBackgroundColor))))
+                    .overlay(RoundedRectangle(cornerRadius: 5)
+                        .strokeBorder(onDark ? AnyShapeStyle(.foreground.opacity(0.25)) : AnyShapeStyle(Color.secondary.opacity(0.35))))
+            }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(keys.joined())
     }
 }
 
@@ -222,59 +280,6 @@ struct PermissionBanner: View {
         }
         .padding(10)
         .background(.yellow.opacity(0.12))
-    }
-}
-
-/// What's running right now, shown in the window toolbar. A Stop button appears while anything runs.
-struct ActivityStatus: View {
-    @EnvironmentObject var model: AppModel
-
-    var body: some View {
-        HStack(spacing: 8) {
-            Group {
-                if let c = model.countdown {
-                    dot(.orange)
-                    Text("Starting in \(c)… (press the hotkey again to cancel)")
-                } else if model.isRecording {
-                    dot(.red)
-                    Text("Recording — \(model.recordedSteps) steps")
-                } else if let id = model.playingMacroID {
-                    dot(.green)
-                    Text("Playing “\(model.macros.first { $0.id == id }?.name ?? "")” — \(model.playStatus)")
-                } else if model.isAutoClicking {
-                    dot(.blue)
-                    Text("Auto clicking: \(model.autoClickCount) clicks")
-                } else if !model.runningWatchers.isEmpty {
-                    dot(.green)
-                    Text("\(model.runningWatchers.count) watcher\(model.runningWatchers.count == 1 ? "" : "s") running")
-                } else {
-                    dot(.secondary)
-                    Text("Idle").foregroundStyle(.secondary)
-                }
-            }
-            .font(.callout)
-            .lineLimit(1)
-            .truncationMode(.tail)
-            // Never let a long status push the page's own toolbar buttons (Play, Stop…) into the overflow menu.
-            .frame(minWidth: 72, maxWidth: model.compactToolbar ? 72 : 280, alignment: .leading)
-            .fixedSize(horizontal: false, vertical: true)
-            if model.isBusy {
-                let hotkey = model.hotkeys[.stopAll]?.display
-                if model.compactToolbar {
-                    Button { model.stopAll() } label: { Image(systemName: "stop.fill") }
-                        .controlSize(.small)
-                        .help(hotkey.map { "Stop  \($0)" } ?? "Stop")
-                } else {
-                    Button(hotkey.map { "Stop  \($0)" } ?? "Stop") { model.stopAll() }
-                        .controlSize(.small)
-                }
-            }
-        }
-        .padding(.horizontal, 6)
-    }
-
-    private func dot(_ c: Color) -> some View {
-        Circle().fill(c).frame(width: 7, height: 7)
     }
 }
 

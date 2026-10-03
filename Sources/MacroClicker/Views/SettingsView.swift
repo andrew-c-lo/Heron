@@ -237,3 +237,16 @@ struct HotkeyField: View {
         model.resumeHotkeys()
     }
 }
+
+/// The Settings window (⌘,).
+struct SettingsRoot: View {
+    var body: some View {
+        TabView {
+            GeneralSettingsView().tabItem { Label("General", systemImage: "gearshape") }
+            HotkeysSettingsView().tabItem { Label("Hotkeys", systemImage: "command") }
+            RecordingSettingsView().tabItem { Label("Recording", systemImage: "waveform") }
+            PermissionsSettingsView().tabItem { Label("Permissions", systemImage: "lock.shield") }
+        }
+        .frame(width: 640, height: 560)
+    }
+}

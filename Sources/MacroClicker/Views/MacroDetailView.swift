@@ -34,6 +34,7 @@ struct MacroDetailView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
+            header
             settingsBar
             toolbar
             if hasPictureSteps { orderBar }
@@ -42,50 +43,37 @@ struct MacroDetailView: View {
         }
         .padding(.leading, 10)
         .padding(.bottom, 8)
-        // The name lives in the window title (click it to rename), the stats under it, and the main actions
-        // in the toolbar, like other Mac apps.
-        .navigationTitle($name)
-        .navigationSubtitle(stats)
-        .toolbar { windowToolbar }
     }
 
-    // MARK: Window toolbar
+    // MARK: Header: name (click to rename), stats, view and undo
 
-    @ToolbarContentBuilder
-    private var windowToolbar: some ToolbarContent {
-        ToolbarItemGroup(placement: .primaryAction) {
+    private var header: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                TextField("", text: $name, prompt: Text("Name"))
+                    .labelsHidden()
+                    .textFieldStyle(.plain)
+                    .font(.title3.weight(.semibold))
+                    .help("Click to rename")
+                Text(stats).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            }
+            Spacer(minLength: 8)
             Picker("View", selection: Binding(get: { mode.rawValue }, set: { viewMode = $0 })) {
-                if model.compactToolbar {
-                    // Like Finder's view buttons when the window is narrow.
-                    Label("Visual", systemImage: "map").labelStyle(.iconOnly).tag("visual")
-                    Label("Actions", systemImage: "list.bullet").labelStyle(.iconOnly).tag("actions")
-                    Label("Raw", systemImage: "list.number").labelStyle(.iconOnly).tag("raw")
-                } else {
-                    Text("Visual").tag("visual")
-                    Text("Actions").tag("actions")
-                    Text("Raw").tag("raw")
-                }
+                Text("Visual").tag("visual")
+                Text("Actions").tag("actions")
+                Text("Raw").tag("raw")
             }
             .pickerStyle(.segmented)
+            .labelsHidden()
+            .fixedSize()
             .help("Visual: where and when things happen. Actions: a readable list. Raw: every recorded event.")
-
-            // Narrow window: Undo/Redo stay in the Edit menu (⌘Z, ⇧⌘Z) so Play keeps its place.
-            if !model.compactToolbar {
-                ControlGroup {
-                    Button { undoManager?.undo() } label: { Image(systemName: "arrow.uturn.backward") }
-                        .help("Undo (⌘Z)")
-                    Button { undoManager?.redo() } label: { Image(systemName: "arrow.uturn.forward") }
-                        .help("Redo (⇧⌘Z)")
-                }
+            ControlGroup {
+                Button { undoManager?.undo() } label: { Image(systemName: "arrow.uturn.backward") }
+                    .help("Undo (⌘Z)")
+                Button { undoManager?.redo() } label: { Image(systemName: "arrow.uturn.forward") }
+                    .help("Redo (⇧⌘Z)")
             }
-
-            Button {
-                isPlaying ? model.stopPlayback() : model.play(macro)
-            } label: {
-                Label(isPlaying ? "Stop" : "Play", systemImage: isPlaying ? "stop.fill" : "play.fill")
-                    .labelStyle(.titleAndIcon)
-            }
-            .help("Hotkey: \(model.hotkeyDisplay(.togglePlayback))")
+            .fixedSize()
         }
     }
 

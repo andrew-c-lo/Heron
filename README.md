@@ -41,6 +41,7 @@ that wait for a button to appear before tapping it. It works with any app or win
 - Left, right or middle button; single, double or triple clicks
 - Follow the cursor, or cycle through fixed points you add by hovering and pressing a hotkey
 - Stop after a number of clicks, after a duration, or never
+- Simple mode: a small strip with just the speed and Start that stays above other windows
 - Only click when the color under a point matches, picked with the eyedropper or typed as a hex code
 
 <p align="center">
@@ -87,10 +88,10 @@ that wait for a button to appear before tapping it. It works with any app or win
 - Matching looks at both the overall shape and the middle of the picture, so a button with the same
   frame but different text isn't mistaken for it
 - Watch for text instead of a picture, optionally only in part of the window
-- Start and stop each watcher with its switch in the sidebar
+- Start and stop each watcher with its switch in the Watchers list
 
 <p align="center">
-  <img src="docs/screenshots/watcher.png" width="720" alt="A watcher that clicks a Skip button whenever it appears">
+  <img src="docs/screenshots/watchers.png" width="720" alt="The Watchers list, each watcher with its own switch">
 </p>
 
 ### Clicking that stays out of your way

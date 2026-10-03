@@ -20,7 +20,7 @@ cp -R MacroClicker.app "$DEMO/MacroClicker.app"
 codesign --force --deep --sign - --identifier local.macroclicker.demo "$DEMO/MacroClicker.app" 2>/dev/null
 if [[ "${1:-}" == "--screenshots" ]]; then
     # Steps through the pages, saves docs/screenshots/*.png and quits by itself.
-    MACROCLICKER_HOME="$DEMO/home" MACROCLICKER_SCREENSHOTS=1 MACROCLICKER_SCREENSHOT_DIR="$PWD/docs/screenshots" \
+    MACROCLICKER_HOME="$DEMO/home" MACROCLICKER_SCREENSHOTS=1 MACROCLICKER_SCREENSHOT_DIR="${SHOTS_DIR:-$PWD/docs/screenshots}" \
         "$DEMO/MacroClicker.app/Contents/MacOS/MacroClicker" >/dev/null 2>&1
     ls -1 docs/screenshots
 else

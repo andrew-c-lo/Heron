@@ -20,9 +20,8 @@ enum ScreenshotTour {
             ("visual", routine.map { .macro($0) }, "visual"),
             ("chain", chain.map { .macro($0) }, "actions"),
             ("auto-clicker", .autoClicker, nil),
-            ("watcher", watcher.map { .watcher($0) }, nil),
+            ("watchers", .watchers, nil),
             ("watcher-text", textWatcher.map { .watcher($0) }, nil),
-            ("settings", .general, nil),
         ]
         shots.removeAll { $0.1 == nil }
 
@@ -34,7 +33,7 @@ enum ScreenshotTour {
                let win = NSApp.windows.first(where: { $0.isVisible && $0.canBecomeMain }) {
                 var f = win.frame
                 f.size.width = w
-                f.size.height = 652
+                f.size.height = 620
                 win.setFrame(f, display: true)
             }
             for (name, page, viewMode) in shots {
@@ -43,11 +42,31 @@ enum ScreenshotTour {
                 try? await Task.sleep(for: .seconds(1.2))
                 NSApp.activate(ignoringOtherApps: true)
                 try? await Task.sleep(for: .seconds(0.4))
+                // An open sheet (a watcher's settings) is its own window.
                 if let win = NSApp.windows.first(where: { $0.isVisible && $0.canBecomeMain }),
-                   let png = capture(win) {
+                   let png = capture(win.attachedSheet ?? win) {
                     try? png.write(to: out.appendingPathComponent("\(name).png"))
                 }
             }
+            model.sidebar = .autoClicker
+            // Settings live in their own window.
+            let main = NSApp.windows.first { $0.isVisible && $0.canBecomeMain }
+            if let appMenu = NSApp.mainMenu?.items.first?.submenu,
+               let i = appMenu.items.firstIndex(where: { $0.keyEquivalent == "," }) {
+                appMenu.performActionForItem(at: i)
+            }
+            try? await Task.sleep(for: .seconds(1.2))
+            if let win = NSApp.windows.first(where: { $0.isVisible && $0 !== main && $0.windowNumber > 0 && $0.frame.width > 300 }) {
+                if let png = capture(win) { try? png.write(to: out.appendingPathComponent("settings.png")) }
+                win.close()
+            }
+            // Simple mode strip.
+            UserDefaults.standard.set(true, forKey: "simpleMode")
+            try? await Task.sleep(for: .seconds(1.2))
+            if let win = NSApp.windows.first(where: { $0.isVisible && $0.canBecomeMain }), let png = capture(win) {
+                try? png.write(to: out.appendingPathComponent("simple.png"))
+            }
+            UserDefaults.standard.set(false, forKey: "simpleMode")
             // Narrow-window check: the toolbar while something runs (status grows a Stop button).
             if ProcessInfo.processInfo.environment["MACROCLICKER_SCREENSHOT_WIDTH"] != nil,
                let w = watcher, let c = chain {
@@ -65,6 +84,7 @@ enum ScreenshotTour {
 
     /// The window as it appears on screen (title bar, toolbar, shadow-free), at full resolution.
     private static func capture(_ win: NSWindow) -> Data? {
+        guard win.windowNumber > 0 else { return nil } // not on screen (yet)
         typealias Fn = @convention(c) (CGRect, UInt32, UInt32, UInt32) -> Unmanaged<CGImage>?
         // Removed from the SDK headers but still present at runtime; fine for capturing our own window.
         if let sym = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "CGWindowListCreateImage") {

@@ -442,7 +442,8 @@ struct HexField: View {
     let hex: Binding<String>
 
     var body: some View {
-        TextField("#RRGGBB", value: hex, formatter: HexFormatter.shared)
+        TextField("", value: hex, formatter: HexFormatter.shared, prompt: Text("#RRGGBB"))
+            .labelsHidden()
             .font(.caption.monospaced())
             .frame(width: 70)
     }

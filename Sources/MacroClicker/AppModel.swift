@@ -629,7 +629,7 @@ final class AppModel: ObservableObject {
         stopWatcher(w.id)
         watchers.removeAll { $0.id == w.id }
         saveWatchers()
-        if sidebar == .watcher(w.id) { sidebar = .autoClicker }
+        if sidebar == .watcher(w.id) { sidebar = .watchers }
         flash("Deleted “\(w.name)”.")
     }
 
@@ -684,7 +684,7 @@ final class AppModel: ObservableObject {
         if !runningWatchers.isEmpty { stopAllWatchers(); return }
         let ready = watchers.filter { watcherProblem($0) == nil }
         guard !ready.isEmpty else {
-            flash(watchers.isEmpty ? "No watchers yet. Add one in the sidebar." : "No watcher is ready to run yet.")
+            flash(watchers.isEmpty ? "No watchers yet. Add one in the Watchers tab." : "No watcher is ready to run yet.")
             sound("Basso")
             return
         }
@@ -818,7 +818,7 @@ final class AppModel: ObservableObject {
         store.deleteSnapshot(m.id)
         macros.removeAll { $0.id == m.id }
         if selectedMacroID == m.id { selectedMacroID = macros.last?.id }
-        if sidebar == .macro(m.id) { sidebar = macros.last.map { .macro($0.id) } ?? .autoClicker }
+        if sidebar == .macro(m.id) { sidebar = macros.last.map { .macro($0.id) } ?? .macros }
         flash("Moved “\(m.name)” to the Trash.")
     }
 
@@ -857,5 +857,7 @@ enum SidebarItem: Hashable {
     case autoClicker
     case watcher(UUID)
     case macro(UUID)
+    /// The Macros or Watchers tab with nothing selected.
+    case macros, watchers
     case hotkeys, recording, permissions, general
 }
