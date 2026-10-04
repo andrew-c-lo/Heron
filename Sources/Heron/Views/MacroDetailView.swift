@@ -126,7 +126,7 @@ struct MacroDetailView: View {
             }
             if let n = model.stuckScreens[macro.id]?.count, n > 0 {
                 Button { ui.showingStuck = true } label: {
-                    Label("Stuck \(n)×", systemImage: "exclamationmark.triangle")
+                    Label("\(n) Stuck Screen\(n == 1 ? "" : "s")", systemImage: "exclamationmark.triangle")
                 }
                 .help("Screens where “Tap when stuck” had to step in. Turn them into steps.")
             }
@@ -234,40 +234,47 @@ struct MacroDetailView: View {
 
     // MARK: Toolbar: settings on the left (summaries; full controls in popovers), building on the right
 
+    /// The four settings chips collapse together (summaries, then names, then icons), so they always read as one set.
     private var toolbarRow: some View {
+        ViewThatFits(in: .horizontal) {
+            toolbarRow(.full)
+            toolbarRow(.title)
+            toolbarRow(.icon)
+        }
+    }
+
+    private func toolbarRow(_ style: SettingsChip.Style) -> some View {
         HStack(spacing: 8) {
             Button { ui.showingTarget = true } label: {
-                SettingsChip(icon: "scope", title: "Target", value: macro.target.app?.name ?? "Whole screen", isSet: macro.target.app != nil)
+                SettingsChip(icon: "scope", title: "Target", value: macro.target.app?.name ?? "Whole screen",
+                             isSet: macro.target.app != nil, style: style)
             }
             .buttonStyle(.plain)
             .help("Which app it works in, and how clicks reach it (⌘1): \(targetSummary)")
             .popover(isPresented: $ui.showingTarget, arrowEdge: .bottom) { targetPanel }
-            .layoutPriority(3)
 
             Button { ui.showingPlayback = true } label: {
                 SettingsChip(icon: "repeat", title: "Playback", value: playbackShort,
-                             isSet: macro.runsInBackground || allAtOnce || macro.playback.repeatMode != .once)
+                             isSet: macro.runsInBackground || allAtOnce || macro.playback.repeatMode != .once, style: style)
             }
             .buttonStyle(.plain)
             .help("How it runs (⌘2): \(playbackSummary)")
             .popover(isPresented: $ui.showingPlayback, arrowEdge: .bottom) { playbackPanel }
-            .layoutPriority(2)
 
             Button { ui.showingStops = true } label: {
-                SettingsChip(icon: "stop.circle", title: "Stops", value: stopsSummary, isSet: hasAutoStop)
+                SettingsChip(icon: "stop.circle", title: "Stops", value: stopsSummary, isSet: hasAutoStop, style: style)
             }
             .buttonStyle(.plain)
             .help("When a run ends on its own (after a number of rounds, when something appears, after a set time, or if nothing happens) (⌘3): \(stopsSummary.lowercased())")
             .popover(isPresented: $ui.showingStops, arrowEdge: .bottom) { stopsPanel }
-            .layoutPriority(1)
 
             Button { ui.showingSchedule = true } label: {
-                SettingsChip(icon: "calendar.badge.clock", title: "Schedule", value: scheduleShort, isSet: macro.schedule?.enabled == true)
+                SettingsChip(icon: "calendar.badge.clock", title: "Schedule", value: scheduleShort,
+                             isSet: macro.schedule?.enabled == true, style: style)
             }
             .buttonStyle(.plain)
             .help("Start it on its own (at set times, every so often, or when its app opens) (⌘4): \(scheduleSummary)")
             .popover(isPresented: $ui.showingSchedule, arrowEdge: .bottom) { schedulePanel }
-            .layoutPriority(0)
 
             Spacer(minLength: 8)
             buildControls
@@ -1283,38 +1290,32 @@ struct StepRow: View {
 
 /// Compact button face: icon, title and a one-line summary.
 struct SettingsChip: View {
+    enum Style { case full, title, icon }
     let icon: String
     let title: String
     let value: String
     /// Changed from the default: the icon takes the accent colour, so chips read apart even as icons alone.
     var isSet = false
+    /// With the summary when it fits; just the name, or just the icon, when space is short (the details are one click away).
+    var style: Style = .full
 
-    /// With the summary when it fits; just the name when space is short (the details are one click away).
     var body: some View {
-        ViewThatFits(in: .horizontal) {
-            chip(showTitle: true, showValue: true)
-            chip(showTitle: true, showValue: false)
-            chip(showTitle: false, showValue: false)
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(title): \(value)")
-    }
-
-    private func chip(showTitle: Bool, showValue: Bool) -> some View {
         HStack(spacing: 6) {
             Image(systemName: icon).foregroundStyle(isSet ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
-                .symbolVariant(isSet && !showTitle ? .fill : .none)
-            if showTitle { Text(title).fontWeight(.medium) }
-            if showValue { Text(value).foregroundStyle(.secondary) }
-            Image(systemName: "chevron.down").font(.caption2).foregroundStyle(.secondary)
+                .symbolVariant(isSet && style == .icon ? .fill : .none)
+            if style != .icon { Text(title).fontWeight(.medium) }
+            if style == .full { Text(value).foregroundStyle(.secondary) }
+            if style == .full { Image(systemName: "chevron.down").font(.caption2).foregroundStyle(.secondary) }
         }
         .lineLimit(1)
         .fixedSize()
         .font(.callout)
-        .padding(.horizontal, 10)
+        .padding(.horizontal, style == .full ? 10 : 8)
         .padding(.vertical, 5)
         .background(RoundedRectangle(cornerRadius: 7).fill(.quaternary.opacity(0.6)))
         .contentShape(Rectangle())
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(title): \(value)")
     }
 }
 

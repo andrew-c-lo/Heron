@@ -14,6 +14,10 @@ struct StepInspector: View {
     @FocusState private var nameFocused: Bool
     final class Naming: ObservableObject { @Published var active = false }
 
+    private func hint(_ icon: String, _ text: String) -> some View {
+        Label { Text(text).fixedSize(horizontal: false, vertical: true) } icon: { Image(systemName: icon).frame(width: 18) }
+    }
+
     var body: some View {
         let selected = editing.groups.filter(editing.isSelected)
         Group {
@@ -28,11 +32,21 @@ struct StepInspector: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                Text("Select a step to see its settings.")
+                // Nothing selected: what to do here, and the shortcuts that make it quicker.
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Select a step to edit it").font(.headline)
+                    VStack(alignment: .leading, spacing: 6) {
+                        hint("arrow.up.arrow.down", "Drag steps to reorder them, or press ⌥⌘↑ and ⌥⌘↓.")
+                        hint("pencil", "Name a step to tell look-alikes apart.")
+                        hint("slider.horizontal.3", "⌘1–⌘4 open Target, Playback, Stops and Schedule.")
+                        hint("stop.circle", "⌘. stops a run at any time.")
+                    }
+                    .font(.callout)
                     .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .padding()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+                .frame(maxWidth: 260, alignment: .leading)
+                .padding()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
         .background(Color(nsColor: .controlBackgroundColor).opacity(0.4))
