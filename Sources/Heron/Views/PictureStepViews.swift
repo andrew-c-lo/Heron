@@ -291,7 +291,7 @@ struct EmptyMacroPrompt: View {
         VStack(spacing: 12) {
             Image(systemName: "plus.circle").font(.system(size: 40)).foregroundStyle(.tint)
             Text("Add the first step").font(.title3.bold())
-            Text("Use the buttons above: Click, Type, Wait, Find Picture or Find Text. Each one is added right away and its settings appear on the right. Or record what you do\(appName.map { " in \($0)" } ?? "").")
+            Text("Add steps with Find Picture and Add above. Each one is added right away and its settings appear on the right. Or record what you do\(appName.map { " in \($0)" } ?? "").")
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: 360)

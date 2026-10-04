@@ -59,6 +59,9 @@ struct MacroDetailView: View {
                 .onChange(of: g.size.width) { _, w in updateCompact(w) }
         })
         .onAppear { model.loadStuck(for: macro.id); model.loadFoundHistory(for: macro) }
+        .onChange(of: model.recordedInto) { _, _ in finishTemplate() }
+        .onChange(of: macro.steps.isEmpty) { _, empty in if empty { ui.blankChosen = false } }
+        .onChange(of: macro.id) { _, _ in ui.blankChosen = false; ui.templateFollowUp = nil }
         .background {
             // Keyboard shortcuts for moving the selected steps.
             Group {
@@ -701,9 +704,13 @@ struct MacroDetailView: View {
 
     private var stepsList: some View {
         Group {
-            if macro.steps.isEmpty {
+            if macro.steps.isEmpty && !ui.blankChosen {
+                TemplateChooser(app: macro.target.app, selected: $ui.template, isRecording: model.isRecording,
+                                onSelectApp: { model.setMacroTarget(macro.id, $0) },
+                                onStart: startTemplate)
+            } else if macro.steps.isEmpty {
                 EmptyMacroPrompt(appName: macro.target.app?.name, onAddPicture: { addPictureStep() },
-                                 onRecord: { model.toggleRecording(fromUI: true) })
+                                 onRecord: { model.record(into: macro.id, app: macro.target.app) })
             } else {
                 switch mode {
                 case .visual:
@@ -728,6 +735,12 @@ struct MacroDetailView: View {
                 switch ui.picking {
                 case .step:
                     select(insert(.findImage(pic), delay: macro.steps.isEmpty ? 0 : 0.1))
+                case .appearTemplate:
+                    // “Click it whenever it appears”: watched all the time, clicked each time it shows up.
+                    macro.playback.order = .allAtOnce
+                    macro.playback.repeatMode = .untilStopped
+                    select(insert(.findImage(pic), delay: 0))
+                    model.flash("Ready. Press Play, and Heron clicks it whenever it shows up.")
                 case .killswitch:
                     pic.mode = .stop
                     pic.area = macro.playback.stopWhen?.area
@@ -740,9 +753,40 @@ struct MacroDetailView: View {
                 ui.picking = .step
             } onCancel: {
                 ui.pictureSource = nil
-                if ui.picking != .step { ui.showingPlayback = true }
+                if ui.picking == .killswitch || ui.picking == .killswitchArea { ui.showingPlayback = true }
                 ui.picking = .step
             }
+        }
+    }
+
+    /// Starts a template: box a picture, or record into this macro (the rest follows when recording ends).
+    private func startTemplate(_ t: MacroTemplate) {
+        switch t {
+        case .blank:
+            ui.blankChosen = true
+        case .whenItAppears:
+            addPictureStep(for: .appearTemplate)
+        case .inOrder, .onSchedule, .untilDone:
+            ui.templateFollowUp = t
+            model.record(into: macro.id, app: macro.target.app)
+        }
+    }
+
+    /// After a template's recording: set up what the template promised.
+    private func finishTemplate() {
+        guard let t = ui.templateFollowUp, model.recordedInto == macro.id, !macro.steps.isEmpty else { return }
+        ui.templateFollowUp = nil
+        switch t {
+        case .onSchedule:
+            macro.schedule = MacroSchedule()
+            Notifier.requestPermission()
+            ui.showingSchedule = true
+        case .untilDone:
+            macro.playback.repeatMode = .untilStopped
+            ui.showingPlayback = true
+            model.flash("Now choose what it shows when it's finished: Stop when it appears, at the bottom of Playback.")
+        default:
+            break
         }
     }
 
@@ -934,7 +978,11 @@ final class DetailUIState: ObservableObject {
     /// Screenshot to pick a new picture step from.
     @Published var pictureSource: NSImage?
     /// What the picture being boxed is for.
-    enum Picking { case step, killswitch, killswitchArea }
+    enum Picking { case step, appearTemplate, killswitch, killswitchArea }
+    /// Template picked in an empty macro, “Blank” chosen, and the template waiting for its recording to end.
+    @Published var template = MacroTemplate.whenItAppears
+    @Published var blankChosen = false
+    var templateFollowUp: MacroTemplate?
     var picking = Picking.step
     /// Picture step whose editor is open.
     @Published var editingPicture: UUID?

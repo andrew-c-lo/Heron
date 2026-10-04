@@ -597,6 +597,20 @@ final class AppModel: ObservableObject {
         isRecording ? stopRecording(fromUI: fromUI) : beginRecording()
     }
 
+    /// Recording for a template: the steps go into this macro, recorded inside this app.
+    private var recordingInto: (id: UUID, app: TargetApp?)?
+    /// Set when a recording into a macro has finished (the editor uses it to continue the template).
+    @Published private(set) var recordedInto: UUID?
+
+    func record(into id: UUID, app: TargetApp?) {
+        guard !isRecording else { return }
+        recordingInto = (id, app)
+        recordedInto = nil
+        beginRecording()
+    }
+
+    private var recordTargetNow: TargetApp? { recordingInto.map { $0.app } ?? prefs.recordTarget }
+
     private func beginRecording() {
         guard requireAccessibility() else { return }
         stopAutoClick()
@@ -615,15 +629,15 @@ final class AppModel: ObservableObject {
             recordKeyboard: prefs.recordKeyboard,
             coalesceInterval: prefs.moveCoalesceMs / 1000,
             ignoreKey: { code, flags in keys.contains { $0.matches(keyCode: code, flags: flags) } },
-            target: prefs.recordTarget
+            target: recordTargetNow
         )
         // Smart recording reads what's under each click, inside the chosen app's window.
         clickReader = nil
         if prefs.smartRecording, hasScreenRecording || ScreenReader.hasPermission {
-            clickReader = ClickReader(target: prefs.recordTarget)
+            clickReader = ClickReader(target: recordTargetNow)
         }
         if let reader = clickReader { opts.onPress = { id, p in reader.notePress(id, at: p) } }
-        if let t = prefs.recordTarget, WindowFinder.find(t) == nil {
+        if let t = recordTargetNow, WindowFinder.find(t) == nil {
             flash("Can't find a window for \(t.name). Open it first, or turn off “Record only in”.")
             sound("Basso")
             return
@@ -638,7 +652,7 @@ final class AppModel: ObservableObject {
         sound("Tink")
         // Picture of the target as it looked when recording began, for the visual view.
         pendingSnapshot = nil
-        if let t = prefs.recordTarget, ScreenReader.hasPermission {
+        if let t = recordTargetNow, ScreenReader.hasPermission {
             Task { @MainActor in self.pendingSnapshot = await ScreenReader.snapshot(of: t) }
         }
     }
@@ -654,8 +668,22 @@ final class AppModel: ObservableObject {
             clickReader = nil
         }
         sound("Pop")
+        let into = recordingInto
+        recordingInto = nil
         guard !steps.isEmpty else {
             flash("Nothing was recorded.")
+            return
+        }
+        if let into, var m = macros.first(where: { $0.id == into.id }) {
+            m.steps = steps
+            m.target.app = into.app ?? smart.app ?? m.target.app
+            update(m)
+            if let snap = pendingSnapshot { setSnapshot(snap, for: m.id) }
+            pendingSnapshot = nil
+            show(m.id)
+            recordedInto = m.id
+            let n = ActionGrouper.groups(for: steps).count
+            flash("Recorded \(n) action\(n == 1 ? "" : "s")" + smartSummary(smart))
             return
         }
         let df = DateFormatter()
