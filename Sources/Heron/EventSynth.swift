@@ -229,6 +229,14 @@ enum EventSynth {
         post(e, route, keyboard: true)
     }
 
+    /// Types `text` directly (any character, including ones with no key on the current layout, like é or 😀).
+    static func text(_ text: String, down: Bool, route: Route = .screen) {
+        guard let e = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: down) else { return }
+        let units = Array(text.utf16)
+        e.keyboardSetUnicodeString(stringLength: units.count, unicodeString: units)
+        post(e, route, keyboard: true)
+    }
+
     static func flagsChanged(_ code: UInt16, flags: UInt64, route: Route = .screen) {
         guard let e = CGEvent(keyboardEventSource: source, virtualKey: code, keyDown: true) else { return }
         e.type = .flagsChanged

@@ -327,7 +327,13 @@ final class AppModel: ObservableObject {
         SystemState.wakeDisplay()
         scheduledRuns.insert(id)
         if m.runsInBackground { startBackground(id, quietly: true) } else { play(m) }
-        guard playingMacroID == id || backgroundRunning.contains(id) else { scheduledRuns.remove(id); return }
+        guard playingMacroID == id || backgroundRunning.contains(id) else {
+            scheduledRuns.remove(id)
+            // Likely nobody is watching: say why in a notification, not only in a message that fades.
+            let why = statusMessage ?? "it couldn't start."
+            Notifier.post(m.name, "Didn't start on its schedule: " + why.prefix(1).lowercased() + why.dropFirst(), enabled: true)
+            return
+        }
         flash("“\(m.name)” started on its schedule.")
     }
 
@@ -807,7 +813,8 @@ final class AppModel: ObservableObject {
             return
         }
         if let into, var m = macros.first(where: { $0.id == into.id }) {
-            m.steps = steps
+            // Added after anything already there (say, a step added while recording), never replacing it.
+            m.steps += steps
             m.target.app = into.app ?? smart.app ?? m.target.app
             m.target.windowSize = m.target.app.flatMap { WindowFinder.find($0)?.frame.size }
             update(m)

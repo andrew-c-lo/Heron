@@ -585,6 +585,9 @@ func playList(_ l: TypeList, loops: Int) -> (keys: String, next: [Int], end: Str
     EventSynth.testSink = { e in
         guard e.type == .keyDown else { return }
         let code = UInt16(e.getIntegerValueField(.keyboardEventKeycode))
+        var len = 0; var units = [UniChar](repeating: 0, count: 8)
+        e.keyboardGetUnicodeString(maxStringLength: 8, actualStringLength: &len, unicodeString: &units)
+        if code == 0, len > 0 { typed += String(utf16CodeUnits: units, count: len); return } // typed as a character
         typed += code == 36 ? "⏎" : (KeyText.character(for: code, shift: e.flags.contains(.maskShift)) ?? "?")
     }
     var m = Macro(name: "list", steps: [MacroStep(delay: 0, action: .typeList(l))])
@@ -602,6 +605,9 @@ func playList(_ l: TypeList, loops: Int) -> (keys: String, next: [Int], end: Str
 var codes = TypeList(); codes.items = ["ab", "", "c"]
 let listRun = playList(codes, loops: 3)
 check("each run types the next item and presses Return (blank lines skipped)", listRun.keys == "ab⏎c⏎", listRun.keys)
+var accents = TypeList(); accents.items = ["café 😀 你"]; accents.pressReturn = false
+let accentRun = playList(accents, loops: 1)
+check("characters with no key on the layout are typed too, not dropped", accentRun.keys == "café 😀 你", accentRun.keys)
 check("…saving where it's up to", listRun.next == [1, 2], "\(listRun.next)")
 check("…and stops as done when the list runs out", listRun.end.map(Player.isDone) == true, listRun.end ?? "nil")
 var again = codes; again.whenDone = .startOver; again.pressReturn = false

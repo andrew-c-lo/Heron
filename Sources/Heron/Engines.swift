@@ -70,10 +70,11 @@ final class Player {
         }()
 
         // “Type from a list”: each item as key presses, worked out here (the keyboard layout is read on the main thread).
-        var listKeys: [UUID: [[(code: UInt16, shift: Bool)]]] = [:]
+        // A key on the current layout where there is one; otherwise the character itself (é, 😀, 你).
+        var listKeys: [UUID: [[ListKey]]] = [:]
         for st in steps {
             if case .typeList(let l) = st.action {
-                listKeys[st.id] = l.entries.map { $0.compactMap { KeyText.key(for: $0) } }
+                listKeys[st.id] = l.entries.map { $0.map { ch in KeyText.key(for: ch).map { .key($0.code, shift: $0.shift) } ?? .text(String(ch)) } }
             }
         }
         let typingKeys = listKeys
@@ -289,10 +290,17 @@ final class Player {
                                 n = 0
                             }
                             for k in items[n] {
-                                let flags: UInt64 = k.shift ? CGEventFlags.maskShift.rawValue : 0
-                                performer.perform(.key(keyCode: k.code, down: true, flags: flags))
-                                guard Timing.wait(until: Timing.now() + 0.03, token) else { break outer }
-                                performer.perform(.key(keyCode: k.code, down: false, flags: flags))
+                                switch k {
+                                case .key(let code, let shift):
+                                    let flags: UInt64 = shift ? CGEventFlags.maskShift.rawValue : 0
+                                    performer.perform(.key(keyCode: code, down: true, flags: flags))
+                                    guard Timing.wait(until: Timing.now() + 0.03, token) else { break outer }
+                                    performer.perform(.key(keyCode: code, down: false, flags: flags))
+                                case .text(let ch):
+                                    EventSynth.text(ch, down: true, route: performer.route)
+                                    guard Timing.wait(until: Timing.now() + 0.03, token) else { break outer }
+                                    EventSynth.text(ch, down: false, route: performer.route)
+                                }
                                 guard Timing.wait(until: Timing.now() + 0.03, token) else { break outer }
                             }
                             if l.pressReturn {
@@ -858,6 +866,9 @@ final class AutoClicker {
 /// Decides which picture to click in "All at once" mode. No priority: whichever has waited longest since its
 /// last click goes first, one click per scan (a click usually changes the screen). Each picture is clicked once
 /// per appearance, or every `repeatEvery` seconds while showing if it should be clicked until gone.
+/// One character of a “Type from a list” item: a key press, or the character itself when no key types it.
+enum ListKey { case key(UInt16, shift: Bool), text(String) }
+
 struct AllAtOnceChooser {
     struct Rule {
         var settle: Double; var repeatUntilGone: Bool; var repeatEvery: Double
