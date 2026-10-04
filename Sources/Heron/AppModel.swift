@@ -46,6 +46,8 @@ final class AppModel: ObservableObject {
     /// Last run: how often each step fired, and the area its picture or text was found in.
     @Published private(set) var stepHits: [UUID: Int] = [:]
     @Published private(set) var stepFound: [UUID: CGRect] = [:]
+    /// The biggest single thing each step found last run (to tell one spot from matches all over the window).
+    private var stepFoundSize: [UUID: CGSize] = [:]
     /// Screens where the idle tap had to step in, per macro (newest first).
     @Published private(set) var stuckScreens: [UUID: [URL]] = [:]
     /// Things you pressed yourself while a macro played, per macro (most pressed first).
@@ -655,7 +657,7 @@ final class AppModel: ObservableObject {
     // MARK: - Run statistics and stuck screens
 
     private func resetHits(for m: Macro) {
-        for s in m.steps { stepHits[s.id] = nil; stepFound[s.id] = nil }
+        for s in m.steps { stepHits[s.id] = nil; stepFound[s.id] = nil; stepFoundSize[s.id] = nil }
         runs[m.id] = RunLog(started: Date())
         _ = pressWatchers.removeValue(forKey: m.id)?.finish()
         if prefs.suggestFromMyPresses, hasInputMonitoring, let app = m.target.app {
@@ -696,11 +698,15 @@ final class AppModel: ObservableObject {
             runs[macro]!.events.append((Date().timeIntervalSince(runs[macro]!.started), step))
         }
         stepHits[step, default: 0] += 1
-        if let found { stepFound[step] = stepFound[step].map { $0.union(found) } ?? found }
+        if let found {
+            stepFound[step] = stepFound[step].map { $0.union(found) } ?? found
+            let old = stepFoundSize[step] ?? .zero
+            stepFoundSize[step] = CGSize(width: max(old.width, found.width), height: max(old.height, found.height))
+        }
     }
 
     /// Where each step was found in earlier runs (from the saved reports): the spot and how many runs saw it.
-    @Published private(set) var foundHistory: [UUID: (rect: CGRect, runs: Int)] = [:]
+    @Published private(set) var foundHistory: [UUID: (rect: CGRect, runs: Int, size: CGSize)] = [:]
 
     /// Reads where this macro's steps were found in its saved run reports.
     func loadFoundHistory(for m: Macro) {
@@ -722,8 +728,11 @@ final class AppModel: ObservableObject {
                 let id = (d["id"] as? String).flatMap(UUID.init(uuidString:)) ?? m.steps[i].id
                 guard ids.contains(id) else { continue }
                 let r = CGRect(x: f[0], y: f[1], width: f[2], height: f[3])
+                var size = CGSize.zero
+                if let s = d["foundSize"] as? [Double], s.count == 2 { size = CGSize(width: s[0], height: s[1]) }
                 let old = foundHistory[id]
-                foundHistory[id] = (old.map { $0.rect.union(r) } ?? r, (old?.runs ?? 0) + 1)
+                foundHistory[id] = (old.map { $0.rect.union(r) } ?? r, (old?.runs ?? 0) + 1,
+                                    CGSize(width: max(size.width, old?.size.width ?? 0), height: max(size.height, old?.size.height ?? 0)))
             }
         }
     }
@@ -737,6 +746,14 @@ final class AppModel: ObservableObject {
         let rects = [past?.rect, now].compactMap { $0 }
         guard seen >= 2 || (stepHits[step] ?? 0) >= 3, var r = rects.first else { return nil }
         for x in rects.dropFirst() { r = r.union(x) }
+        // Only when it keeps showing up in one part of the window: matches scattered all over (say “1” found in
+        // several different numbers) would make the “area” the whole window.
+        var one = stepFoundSize[step] ?? .zero
+        if let p = past?.size { one = CGSize(width: max(one.width, p.width), height: max(one.height, p.height)) }
+        if let s = macros.lazy.flatMap(\.steps).first(where: { $0.id == step }), case .findImage(let p) = s.action, p.usesPicture {
+            one = CGSize(width: max(one.width, p.width), height: max(one.height, p.height))
+        }
+        guard one.width > 0, one.height > 0, r.width * r.height <= 16 * one.width * one.height else { return nil }
         return r.insetBy(dx: -max(24, r.width * 0.25), dy: -max(24, r.height * 0.25)).integral
     }
 
@@ -771,6 +788,7 @@ final class AppModel: ObservableObject {
                 d["looksFor"] = p.text.map { "text: \($0)" } ?? "picture \(Int(p.width))×\(Int(p.height))"
             }
             if let r = stepFound[s.id] { d["foundIn"] = [r.minX, r.minY, r.width, r.height].map { Int($0) } }
+            if let z = stepFoundSize[s.id] { d["foundSize"] = [Int(z.width), Int(z.height)] }
             return d
         }
         let report: [String: Any] = [

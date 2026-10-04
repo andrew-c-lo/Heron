@@ -349,5 +349,28 @@ do {
     pw.orderOut(nil)
 }
 
+// A single character only matches on its own, never inside a longer number.
+let (nx, nb) = window([("HP 759981", CGPoint(x: 40, y: 40)), ("Turn 1", CGPoint(x: 400, y: 40)), ("4", CGPoint(x: 120, y: 300))])
+let nlines = TextFinder.read(nx)
+let oneHit = TextFinder.find("1", in: nlines, area: nil)
+check("“1” matches the 1 in “Turn 1”, not the one inside 759981", oneHit.map { $0.minX >= nb["Turn 1"]!.minX } ?? false, "\(String(describing: oneHit))")
+check("“1” in an area with only a number containing 1 isn't found",
+      TextFinder.find("1", in: nlines, area: CGRect(x: 0, y: 0, width: 380, height: 120)) == nil)
+check("“4” matches the 4 standing on its own", near(TextFinder.find("4", in: nlines, area: nil), nb["4"]!))
+check("longer words still match inside a line", TextFinder.find("Turn", in: nlines, area: nil) != nil)
+
+// Big pictures: found where they are, without taking seconds.
+let bigScene = window([("Battle Results", CGPoint(x: 60, y: 60)), ("Link Skill Level", CGPoint(x: 60, y: 120)),
+                       ("Claim", CGPoint(x: 500, y: 300)), ("Close", CGPoint(x: 300, y: 420))])
+let bigRect = CGRect(x: 40, y: 40, width: 520, height: 330)
+let bigPic = pngOf(bigScene.0, bigRect)
+let bigStep = ImageStep(png: bigPic.0, width: bigPic.1, height: bigPic.2, originX: 0, originY: 0)
+let bigT0 = Date()
+let bigFound = Lookup(step: bigStep)!.matchPicture(in: bigScene.0)
+let bigMs = Date().timeIntervalSince(bigT0) * 1000
+check("a big picture is found exactly", bigFound.map { abs($0.rect.minX - 40) <= 1 && abs($0.rect.minY - 40) <= 1 && $0.score > 0.95 } ?? false,
+      "\(String(describing: bigFound))")
+check("…in well under a second", bigMs < 300, String(format: "%.0f ms", bigMs))
+
 print(failures == 0 ? "ALL PASSED" : "\(failures) FAILED")
 exit(failures == 0 ? 0 : 1)

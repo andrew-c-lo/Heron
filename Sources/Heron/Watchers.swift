@@ -79,6 +79,9 @@ enum TemplateMatcher {
         /// The middle of the picture (where text and icons usually are), checked separately so look-alikes
         /// sharing the same frame (e.g. "Confirm" vs "Cancel") don't count.
         let inner: (img: GrayImage, x: Int, y: Int)?
+        /// Ever finer copies between `coarse` and `full` (factors halving down to 1), so a match is pinned down a
+        /// little at a time instead of searching a big area at full size (which made large pictures take seconds).
+        var levels: [(factor: Int, img: GrayImage)] = []
     }
 
     struct Match {
@@ -211,8 +214,12 @@ enum TemplateMatcher {
             for j in 0..<ih { for i in 0..<iw { img.pixels.append(full.pixels[(iy + j) * tw + ix + i]) } }
             inner = (img, ix, iy)
         }
+        var levels: [(factor: Int, img: GrayImage)] = []
+        var k = factor / 2
+        while k >= 2 { levels.append((k, downscale(full, by: k))); k /= 2 }
+        levels.append((1, full))
         return Prepared(full: full, coarse: downscale(full, by: factor), factor: factor,
-                        meanColor: meanColor(px, width: tw, rect: (0, 0, tw, th)), inner: inner)
+                        meanColor: meanColor(px, width: tw, rect: (0, 0, tw, th)), inner: inner, levels: levels)
     }
 
     /// Finds the best match of `t` in a window image captured at 1 pixel per point.
@@ -270,22 +277,35 @@ enum TemplateMatcher {
             }
         }
 
-        // 2. Refine each candidate at full resolution.
-        let ii = scene.integral
-        let tz = zeroMean(t.full)
+        // 2. Refine each candidate, one finer level at a time, down to full resolution: at each level only a few
+        //    positions around the previous best are checked.
+        let levels = t.levels.isEmpty ? [(factor: 1, img: t.full)] : t.levels
+        let zms = levels.map { zeroMean($0.img) }
         var best: (x: Int, y: Int, s: Double) = (0, 0, -1)
         for c in candidates {
-            let x0 = max(0, c.x * f - f - 1), x1 = min(W - tw, c.x * f + f + 1)
-            let y0 = max(0, c.y * f - f - 1), y1 = min(H - th, c.y * f + f + 1)
-            guard x0 <= x1, y0 <= y1 else { continue }
+            var pos = (x: c.x, y: c.y), level = f
             var spot: (x: Int, y: Int, s: Float) = (0, 0, -1)
-            for y in y0...y1 {
-                for x in x0...x1 {
-                    let s = zncc(image, tz.pixels, tw, th, tz.norm, tz.mean, ii, x, y)
-                    if s > spot.s { spot = (x, y, s) }
+            for (n, l) in levels.enumerated() {
+                let (img, lii) = l.factor == 1 ? (image, scene.integral) : scene.coarse(l.factor)
+                let lw = l.img.width, lh = l.img.height
+                let ratio = Double(level) / Double(l.factor)
+                let r = Int(ratio.rounded(.up)) + 1
+                let cx = Int((Double(pos.x) * ratio).rounded()), cy = Int((Double(pos.y) * ratio).rounded())
+                let x0 = max(0, cx - r), x1 = min(img.width - lw, cx + r)
+                let y0 = max(0, cy - r), y1 = min(img.height - lh, cy + r)
+                guard x0 <= x1, y0 <= y1 else { spot.s = -1; break }
+                spot = (0, 0, -1)
+                let zm = zms[n]
+                for y in y0...y1 {
+                    for x in x0...x1 {
+                        let s = zncc(img, zm.pixels, lw, lh, zm.norm, zm.mean, lii, x, y)
+                        if s > spot.s { spot = (x, y, s) }
+                    }
                 }
+                pos = (spot.x, spot.y)
+                level = l.factor
             }
-            guard spot.s > -1 else { continue }
+            guard spot.s > -1, level == 1 else { continue }
             // 3. The middle must match too, not just the overall shape.
             var combined = Double(spot.s)
             if let inner = t.inner {

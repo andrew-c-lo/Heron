@@ -133,6 +133,9 @@ enum TextFinder {
         for l in lines {
             if let w = l.words.first(where: { $0.text.compare(q, options: opts) == .orderedSame && inArea($0.rect) }) { return w.rect }
         }
+        // Part of a longer line, for phrases only: a single character like “1” would otherwise match any number
+        // containing it (a score, a counter, “Turn 1”…).
+        guard q.count >= 3 else { return nil }
         return lines.first { $0.text.range(of: q, options: opts) != nil && inArea($0.rect) }?.rect
     }
 
