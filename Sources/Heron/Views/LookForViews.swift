@@ -24,6 +24,14 @@ struct LookForPicker: View {
 
     private enum Choice { case picture, text, both, spot }
 
+    /// What each choice means, for the switch's tooltip (shown before choosing).
+    private var choiceHelp: String {
+        var lines = ["Picture: finds a picture you box, wherever it appears.", "Text: finds words, read on this Mac."]
+        if alsoPicture != nil { lines.append("Both: either the picture or the words.") }
+        if spotOnly != nil { lines.append("Spot: clicks fixed coordinates without looking.") }
+        return lines.joined(separator: "\n")
+    }
+
     var body: some View {
         Picker("Look for", selection: Binding<Choice>(
             get: { spotOnly == true ? .spot : text == nil ? .picture : (alsoPicture == true ? .both : .text) },
@@ -33,10 +41,19 @@ struct LookForPicker: View {
                 if let set { set(t, c == .both, false) } else { text = t }
             })) {
             Text("Picture").tag(Choice.picture)
+                .help("Picture: finds a picture you box, wherever it appears in the window")
             Text("Text").tag(Choice.text)
-            if alsoPicture != nil { Text("Both").tag(Choice.both) }
-            if spotOnly != nil { Text("Spot").tag(Choice.spot) }
+                .help("Text: finds words, read on this Mac, wherever they appear")
+            if alsoPicture != nil {
+                Text("Both").tag(Choice.both)
+                    .help("Both: found when either the picture or the words show up")
+            }
+            if spotOnly != nil {
+                Text("Spot").tag(Choice.spot)
+                    .help("Spot: clicks fixed coordinates without looking; the picture and words are kept")
+            }
         }
+        .help(choiceHelp)
         .pickerStyle(.segmented)
         .labelsHidden() // the section is already titled "Look for"
     }

@@ -230,12 +230,21 @@ struct MacroDetailView: View {
 
     private var toolbarRow: some View {
         HStack(spacing: 8) {
+            Button { ui.showingTarget = true } label: {
+                SettingsChip(icon: "scope", title: "Target", value: macro.target.app?.name ?? "Whole screen")
+            }
+            .buttonStyle(.plain)
+            .help("Which app it works in, and how clicks reach it: \(targetSummary)")
+            .popover(isPresented: $ui.showingTarget, arrowEdge: .bottom) { targetPanel }
+            .layoutPriority(3)
+
             Button { ui.showingPlayback = true } label: {
                 SettingsChip(icon: "repeat", title: "Playback", value: playbackShort)
             }
             .buttonStyle(.plain)
             .help("How it runs: \(playbackSummary)")
             .popover(isPresented: $ui.showingPlayback, arrowEdge: .bottom) { playbackPanel }
+            .layoutPriority(2)
 
             Button { ui.showingStops = true } label: {
                 SettingsChip(icon: "stop.circle", title: "Stops", value: stopsSummary)
@@ -243,13 +252,7 @@ struct MacroDetailView: View {
             .buttonStyle(.plain)
             .help("When a run ends on its own (after a number of rounds, when something appears, or if nothing happens): \(stopsSummary.lowercased())")
             .popover(isPresented: $ui.showingStops, arrowEdge: .bottom) { stopsPanel }
-
-            Button { ui.showingTarget = true } label: {
-                SettingsChip(icon: "scope", title: "Target", value: macro.target.app?.name ?? "Whole screen")
-            }
-            .buttonStyle(.plain)
-            .help("Which app it works in, and how clicks reach it: \(targetSummary)")
-            .popover(isPresented: $ui.showingTarget, arrowEdge: .bottom) { targetPanel }
+            .layoutPriority(1)
 
             Button { ui.showingSchedule = true } label: {
                 SettingsChip(icon: "calendar.badge.clock", title: "Schedule", value: scheduleShort)
@@ -257,6 +260,7 @@ struct MacroDetailView: View {
             .buttonStyle(.plain)
             .help("Start it on its own (at set times, every so often, or when its app opens): \(scheduleSummary)")
             .popover(isPresented: $ui.showingSchedule, arrowEdge: .bottom) { schedulePanel }
+            .layoutPriority(0)
 
             Spacer(minLength: 8)
             buildControls

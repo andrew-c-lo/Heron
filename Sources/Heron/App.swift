@@ -14,6 +14,13 @@ struct HeronApp: App {
         .windowToolbarStyle(.unified(showsTitle: false))
         // Lets the window shrink to the simple strip and grow back.
         .windowResizability(.contentSize)
+        .commands {
+            CommandGroup(replacing: .help) {
+                Button("Heron Help") {
+                    if let url = URL(string: "https://github.com/andrew-c-lo/Heron#everything-it-does") { NSWorkspace.shared.open(url) }
+                }
+            }
+        }
 
         Settings {
             SettingsRoot()
@@ -29,6 +36,10 @@ struct HeronApp: App {
                 Image(nsImage: heron)
             } else {
                 Image(systemName: model.menuBarIcon)
+            }
+            // Round progress while a macro with a round goal runs (“3/5”).
+            if let p = model.menuBarProgress {
+                Text(p).monospacedDigit()
             }
         }
     }
@@ -52,10 +63,20 @@ struct MenuBarContent: View {
             Text("Starting in \(c)…")
         } else if model.isRecording {
             Text("● Recording — \(model.recordedSteps) steps")
-        } else if model.playingMacroID != nil {
-            Text("▶ Playing — \(model.playStatus)")
         } else if model.isAutoClicking {
             Text("Auto clicking — \(model.autoClickCount) clicks")
+        }
+
+        // What each running macro is doing, with a way to stop it.
+        let lines = model.liveLines()
+        if !lines.isEmpty {
+            ForEach(lines, id: \.id) { l in
+                Text("\(l.name): \(l.line)")
+                Button("Stop “\(l.name)”") {
+                    if model.isRunningInBackground(l.id) { model.stopBackground(l.id) } else { model.stopPlayback() }
+                }
+            }
+            Divider()
         }
 
         Button(model.isAutoClicking ? "Stop Auto Clicker" : "Start Auto Clicker") { model.toggleAutoClick() }

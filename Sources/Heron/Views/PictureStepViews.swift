@@ -103,7 +103,7 @@ struct PictureStepEditor: View {
                     ForEach(ImageStep.Mode.allCases) { Text($0.menuLabel).tag($0) }
                 }
                 if s.mode == .stop {
-                    Text("When it shows up, the macro has done its job and stops, with a notification. Use it for a goal, like a “Finished” message.")
+                    Text("When it shows up, the macro has done its job and stops, with a notification. Use it for a goal, like a “Finished” message. To watch for something during the whole run, use Stops instead.")
                         .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }
                 if allAtOnce && s.mode != .click && s.mode != .stop {

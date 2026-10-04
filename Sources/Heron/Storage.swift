@@ -137,14 +137,18 @@ enum Permissions {
     static var accessibility: Bool { AXIsProcessTrusted() }
     static var inputMonitoring: Bool { CGPreflightListenEventAccess() }
 
+    // The system's permission checks can take a long time to answer; asking from a background thread keeps
+    // Heron's window responsive meanwhile (asking on the main thread froze it).
     static func requestAccessibility() {
-        let opts = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
-        _ = AXIsProcessTrustedWithOptions(opts)
+        DispatchQueue.global(qos: .userInitiated).async {
+            let opts = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
+            _ = AXIsProcessTrustedWithOptions(opts)
+        }
         open("Privacy_Accessibility")
     }
 
     static func requestInputMonitoring() {
-        _ = CGRequestListenEventAccess()
+        DispatchQueue.global(qos: .userInitiated).async { _ = CGRequestListenEventAccess() }
         open("Privacy_ListenEvent")
     }
 

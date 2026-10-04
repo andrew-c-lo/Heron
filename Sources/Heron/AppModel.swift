@@ -54,6 +54,36 @@ final class AppModel: ObservableObject {
         var rounds = 0
     }
     @Published private(set) var live: [UUID: LiveRun] = [:]
+
+    /// Running macros, in a line each, for the menu bar: “Round 3 of 5 · quiet 0:42 · 4:12”.
+    func liveLines(now: Date = Date()) -> [(id: UUID, name: String, line: String)] {
+        live.compactMap { id, run in
+            guard let m = macros.first(where: { $0.id == id }) else { return nil }
+            var parts: [String] = []
+            if m.playback.stopAfterStep != nil {
+                parts.append("Round \(min(run.rounds + 1, m.playback.stopAfterCount)) of \(m.playback.stopAfterCount)")
+            }
+            let quiet = now.timeIntervalSince(run.lastActivity)
+            if m.playback.stopIfIdleMinutes > 0 || quiet >= 15 { parts.append("quiet \(Self.clock(quiet))") }
+            parts.append("running \(Self.clock(now.timeIntervalSince(run.started)))")
+            return (id, m.name, parts.joined(separator: " · "))
+        }
+        .sorted { $0.name < $1.name }
+    }
+
+    /// Beside the menu bar icon while a macro with a round goal runs: “3/5”.
+    var menuBarProgress: String? {
+        let runs = live.compactMap { id, run -> String? in
+            guard let m = macros.first(where: { $0.id == id }), m.playback.stopAfterStep != nil else { return nil }
+            return "\(min(run.rounds + 1, m.playback.stopAfterCount))/\(m.playback.stopAfterCount)"
+        }
+        return runs.count == 1 ? runs[0] : nil
+    }
+
+    nonisolated static func clock(_ seconds: Double) -> String {
+        let s = Int(max(0, seconds))
+        return s >= 3600 ? String(format: "%d:%02d:%02d", s / 3600, s / 60 % 60, s % 60) : String(format: "%d:%02d", s / 60, s % 60)
+    }
     @Published private(set) var stepFound: [UUID: CGRect] = [:]
     /// The biggest single thing each step found last run (to tell one spot from matches all over the window).
     private var stepFoundSize: [UUID: CGSize] = [:]
@@ -134,17 +164,25 @@ final class AppModel: ObservableObject {
         }
         for (id, png) in todo {
             readingWords.insert(id)
-            Task { @MainActor in
-                let words = await Task.detached(priority: .utility) { Self.words(inPicture: png) }.value
-                self.readingWords.remove(id)
-                guard var m = self.macros.first(where: { $0.steps.contains { $0.id == id } }),
-                      let i = m.steps.firstIndex(where: { $0.id == id }),
-                      case .findImage(var p) = m.steps[i].action, p.png == png else { return }
-                p.pictureWords = words
-                m.steps[i].action = .findImage(p)
-                self.update(m, bookkeeping: true)
+            // One picture at a time on its own queue: text recognition blocks its thread, and many at once tied up
+            // the threads everything else shares.
+            Self.wordQueue.async {
+                let words = Self.words(inPicture: png)
+                Task { @MainActor in self.storePictureWords(words, step: id, png: png) }
             }
         }
+    }
+
+    private nonisolated static let wordQueue = DispatchQueue(label: "heron.picture-words", qos: .utility)
+
+    private func storePictureWords(_ words: String, step id: UUID, png: Data) {
+        readingWords.remove(id)
+        guard var m = macros.first(where: { $0.steps.contains { $0.id == id } }),
+              let i = m.steps.firstIndex(where: { $0.id == id }),
+              case .findImage(var p) = m.steps[i].action, p.png == png else { return }
+        p.pictureWords = words
+        m.steps[i].action = .findImage(p)
+        update(m, bookkeeping: true)
     }
 
     /// The most prominent short label in a picture (a few words at most), or "" if there isn't one.

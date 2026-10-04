@@ -80,6 +80,8 @@ final class PressWatcher: @unchecked Sendable {
     private var presses: [PressSuggestion] = []
     private var tap: CFMachPort?
     private var runLoop: CFRunLoop?
+    /// Finished before the listener was ready: it shuts itself down instead of starting.
+    private var finished = false
     /// Every press of yours that was noticed, before looking at it (for tests).
     var onPress: ((CGPoint) -> Void)?
 
@@ -91,11 +93,10 @@ final class PressWatcher: @unchecked Sendable {
         }
     }
 
-    /// Starts listening. Returns false without Input Monitoring permission.
+    /// Starts listening, on its own thread (creating the listener waits on a system permission check, which can
+    /// be slow; nothing waits for it). Without Input Monitoring it simply notices nothing.
     @discardableResult
     func start() -> Bool {
-        let ready = DispatchSemaphore(value: 0)
-        var ok = false
         Thread.detachNewThread { [self] in
             let mask = CGEventMask(1) << CGEventMask(CGEventType.leftMouseDown.rawValue)
             let refcon = Unmanaged.passUnretained(self).toOpaque()
@@ -106,22 +107,24 @@ final class PressWatcher: @unchecked Sendable {
                                             }
                                             return Unmanaged.passUnretained(event)
                                         }, userInfo: refcon)
-            guard let tap else { ready.signal(); return }
+            guard let tap else { return }
             let src = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
             CFRunLoopAddSource(CFRunLoopGetCurrent(), src, .commonModes)
             CGEvent.tapEnable(tap: tap, enable: true)
-            lock.withLock { self.tap = tap; self.runLoop = CFRunLoopGetCurrent() }
-            ok = true
-            ready.signal()
+            let stopped = lock.withLock { () -> Bool in
+                if self.finished { return true }
+                self.tap = tap; self.runLoop = CFRunLoopGetCurrent()
+                return false
+            }
+            if stopped { CFMachPortInvalidate(tap); return }
             CFRunLoopRun()
         }
-        _ = ready.wait(timeout: .now() + 1)
-        return ok
+        return true
     }
 
     /// Stops listening and returns what you pressed, once pending reads are done.
     func finish() -> [PressSuggestion] {
-        let (tap, loop) = lock.withLock { (self.tap, self.runLoop) }
+        let (tap, loop) = lock.withLock { () -> (CFMachPort?, CFRunLoop?) in self.finished = true; return (self.tap, self.runLoop) }
         if let tap { CGEvent.tapEnable(tap: tap, enable: false); CFMachPortInvalidate(tap) }
         if let loop { CFRunLoopStop(loop) }
         lock.withLock { self.tap = nil; self.runLoop = nil }

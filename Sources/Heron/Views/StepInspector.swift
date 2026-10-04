@@ -11,6 +11,7 @@ struct StepInspector: View {
     let onSampleColor: (ActionGroup) -> Void
     let onDelete: () -> Void
     @StateObject private var naming = Naming()
+    @FocusState private var nameFocused: Bool
     final class Naming: ObservableObject { @Published var active = false }
 
     var body: some View {
@@ -46,6 +47,8 @@ struct StepInspector: View {
                 if naming.active {
                     TextField("", text: editing.nameBinding(g), prompt: Text(g.actionTitle(touch: touch)))
                         .textFieldStyle(.roundedBorder)
+                        .focused($nameFocused)
+                        .onAppear { nameFocused = true }
                         .font(.headline)
                         .onSubmit { naming.active = false }
                         .onExitCommand { naming.active = false }
