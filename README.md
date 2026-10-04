@@ -5,9 +5,9 @@
 <h1 align="center">Heron</h1>
 
 <p align="center">
-  <b>The free Mac auto clicker that can see your screen.</b><br>
-  Click on a timer, replay what you did, or click a button or a word the moment it shows up.<br>
-  Run it on a schedule, and let it stop by itself when the job is done.
+  <b>Free, easy automation for your Mac. It sees your screen.</b><br>
+  Start from a template or record what you do. Heron finds buttons and words wherever they appear,<br>
+  runs on a schedule, and stops by itself when the job is done. A fast auto clicker is built in.
 </p>
 
 <p align="center">
@@ -23,7 +23,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/chain.png" width="880" alt="A macro that finds pictures and the word “Claim” in a window and clicks them, with each step's settings beside the list">
+  <img src="docs/screenshots/chain.png" width="880" alt="A macro that finds pictures and the word “Claim” in a window and clicks them, with the selected step's settings beside the list">
 </p>
 
 ## Why Heron
@@ -45,7 +45,7 @@ when a “finished” screen appears. Heron keeps the screen awake while it work
 **Runs in the background.** Switch on a macro that clicks pop-ups whenever they show up, while another
 macro plays or you keep working.
 
-**A proper auto clicker too.** Set the speed, press a hotkey, done. Simple mode shrinks it to a small strip
+**And a proper auto clicker.** For plain fast clicking: set the speed, press a hotkey, done. Simple mode shrinks it to a small strip
 that stays on top.
 
 **Free, private and made for the Mac.** No account, no subscription, no network code. Everything stays on
