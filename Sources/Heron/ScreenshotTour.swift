@@ -10,6 +10,18 @@ enum ScreenshotTour {
     static let selectAction = Notification.Name("HeronQASelectAction")
 
     static func runIfRequested(_ model: AppModel) {
+        // The README demo GIF (scripts/record-demo.sh): open this macro and play it, with no clicks needed.
+        if let name = ProcessInfo.processInfo.environment["HERON_DEMO_PLAY"], !name.isEmpty {
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(1))
+                guard let m = model.macros.first(where: { $0.name == name }) else { return }
+                model.sidebar = .macro(m.id)
+                let delay = ProcessInfo.processInfo.environment["HERON_DEMO_DELAY"].flatMap(Double.init) ?? 2
+                try? await Task.sleep(for: .seconds(delay))
+                if let current = model.macros.first(where: { $0.id == m.id }) { model.play(current) }
+            }
+            return
+        }
         if let qa = ProcessInfo.processInfo.environment["HERON_QA_DIR"], !qa.isEmpty {
             runQA(model, into: URL(fileURLWithPath: qa, isDirectory: true))
             return

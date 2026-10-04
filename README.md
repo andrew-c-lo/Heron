@@ -11,6 +11,10 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/andrew-c-lo/Heron/releases/latest/download/Heron.zip"><img alt="Download Heron for Mac" src="https://img.shields.io/badge/Download_for_Mac-free-0A84FF?style=for-the-badge&logo=apple&logoColor=white"></a>
+</p>
+
+<p align="center">
   <a href="#install">Install</a> ·
   <a href="#everything-it-does">Everything it does</a> ·
   <a href="#private-by-default">Privacy</a>
@@ -23,7 +27,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/chain.png" width="880" alt="A macro that finds pictures and the word “Claim” in a window and clicks them, with the selected step's settings beside the list">
+  <img src="docs/demo.gif" width="880" alt="Heron watching a rewards window: each time a Claim button lights up on a different card, Heron clicks it, counting rounds until it has claimed all six and stops by itself">
 </p>
 
 ## Why Heron
@@ -80,12 +84,19 @@ your Mac.
 
 ## Install
 
-**[Download the latest release](https://github.com/andrew-c-lo/Heron/releases/latest)**, unzip it and drag
-Heron to Applications. It runs on Apple silicon and Intel Macs with macOS 14 or later.
+**[Download Heron](https://github.com/andrew-c-lo/Heron/releases/latest/download/Heron.zip)** (free, about 4 MB),
+unzip it and drag Heron to Applications. It runs on Apple silicon and Intel Macs with macOS 14 or later.
 
-Heron isn't notarized by Apple, so the first time you open it macOS asks first: open it once, then
-go to **System Settings › Privacy & Security** and click **Open Anyway** next to “Heron was blocked”.
-After that, allow the permissions it asks for. A banner links to the right place in System Settings.
+**The first time you open it, macOS blocks it.** That's expected: Heron isn't notarized by Apple, because
+notarizing costs $99 a year and Heron is free. It's open source, so you can read every line or build it
+yourself (below). To open it:
+
+1. Open Heron once. macOS says it can't be checked for malicious software; click **Done**.
+2. Go to **System Settings › Privacy & Security**, scroll down, and click **Open Anyway** next to “Heron was blocked”.
+3. Confirm with **Open Anyway** and your password. From then on it opens normally.
+
+Then allow the two permissions it asks for: **Accessibility**, so it can click and type, and **Screen
+Recording**, so it can see pictures and words. A banner in Heron links to the right place in System Settings.
 
 <details>
 <summary>Build it yourself instead</summary>

@@ -463,7 +463,13 @@ final class Player {
         var lastTextRead = -Double.infinity
         var textFound: [Int: CGRect?] = [:]
 
-        Task { @MainActor in waiting("any of the pictures") }
+        // What it's watching for, in the live strip: “Claim”, the red picture, or any of 3 steps.
+        let watching: String = {
+            guard items.count == 1, let only = items.first?.step else { return "any of the \(items.count) steps" }
+            if let t = only.text?.trimmingCharacters(in: .whitespaces), !t.isEmpty, !only.usesPicture { return "“\(t)”" }
+            return "the " + ActionGroup.pictureNoun(only)
+        }()
+        Task { @MainActor in waiting(watching) }
         defer { Task { @MainActor in waiting(nil) } }
         let began = Timing.now()
         var chooser = AllAtOnceChooser(rules: Dictionary(uniqueKeysWithValues: items.map {
@@ -534,7 +540,7 @@ final class Player {
                 // Nothing changed on screen since the last look: whatever was found is standing still.
                 still = Set(found.keys)
             }
-            if let index = chooser.choose(found: opts.waitForStill ? still : Set(found.keys), now: tick),
+            if let index = chooser.choose(found: found, clickable: opts.waitForStill ? still : nil, now: tick),
                let rect = found[index], let item = items.first(where: { $0.index == index }) {
                 let s = item.step
                 // Use the chain's delivery setting (e.g. Jump & return) and the window's current position.
@@ -554,6 +560,11 @@ final class Player {
                 let firstThisTime = chooser.isFirstClick(index)
                 chooser.clicked(index, at: Timing.now())
                 idle.touch()
+                clicks += 1
+                lastAction = Timing.now()
+                let id = steps[index].id
+                // Reported before the stop check, so the click that reaches the goal is counted too.
+                Task { @MainActor in progress(index + 1, 1, nil); clicked(id, rect) }
                 if firstThisTime, steps[index].id == opts.stopAfterStep {
                     timesHappened += 1
                     let n = timesHappened
@@ -562,10 +573,6 @@ final class Player {
                         return Self.done("\(Self.stepName(steps[index], index)) happened \(opts.stopAfterCount) time\(opts.stopAfterCount == 1 ? "" : "s")")
                     }
                 }
-                clicks += 1
-                lastAction = Timing.now()
-                let id = steps[index].id
-                Task { @MainActor in progress(index + 1, 1, nil); clicked(id, rect) }
             } else if opts.idleTapAfter > 0, let ix = opts.idleTapX, let iy = opts.idleTapY,
                       Timing.now() - lastAction >= opts.idleTapAfter {
                 // Nothing known on screen for a while (a “tap to continue” screen, or one never seen before):
@@ -864,15 +871,34 @@ struct AllAtOnceChooser {
         self.prioritized = prioritized
     }
 
+    /// Without positions: each found step is one appearance until it's gone.
     mutating func choose(found: Set<Int>, now: Double) -> Int? {
+        choose(found: Dictionary(uniqueKeysWithValues: found.map { ($0, CGRect.zero) }), now: now)
+    }
+
+    /// `found`: where each step is on screen now. `clickable`: the ones ready to click (e.g. standing still);
+    /// nil = all found. An appearance lasts until the step has been gone for a moment or turns up somewhere
+    /// else, so a frame where it flickers, or reacts to the click, doesn't count as it showing up again.
+    mutating func choose(found: [Int: CGRect], clickable: Set<Int>? = nil, now: Double) -> Int? {
         var ready: [Int] = []
         for (index, rule) in rules {
-            guard found.contains(index) else {
+            guard let rect = found[index] else {
+                if let seen = lastSeen[index], now - seen < Self.goneAfter { continue }
                 seenSince[index] = nil
                 settleFor[index] = nil
+                lastSeen[index] = nil
+                lastRect[index] = nil
                 clickedThisAppearance.remove(index)
                 continue
             }
+            if let before = lastRect[index], Self.moved(before, rect) {
+                // Somewhere else: a new appearance (e.g. the next button in a list).
+                seenSince[index] = nil
+                settleFor[index] = nil
+                clickedThisAppearance.remove(index)
+            }
+            lastSeen[index] = now
+            lastRect[index] = rect
             let since = seenSince[index] ?? now
             seenSince[index] = since
             let settle = settleFor[index] ?? {
@@ -880,6 +906,7 @@ struct AllAtOnceChooser {
                 return Double.random(in: rule.settle...hi)
             }()
             settleFor[index] = settle
+            guard clickable?.contains(index) ?? true else { continue }
             guard now - since + 0.01 >= settle else { continue }
             if clickedThisAppearance.contains(index) {
                 guard rule.repeatUntilGone, now - (lastClick[index] ?? 0) + 0.01 >= max(0.1, rule.repeatEvery) else { continue }
@@ -888,6 +915,17 @@ struct AllAtOnceChooser {
         }
         if prioritized { return ready.min() }
         return ready.min { (lastClick[$0] ?? -1, $0) < (lastClick[$1] ?? -1, $1) }
+    }
+
+    /// Missing for less than this is a flicker, not gone.
+    static let goneAfter = 0.4
+    private var lastSeen: [Int: Double] = [:]
+    private var lastRect: [Int: CGRect] = [:]
+
+    /// Its middle moved by more than half its size.
+    static func moved(_ a: CGRect, _ b: CGRect) -> Bool {
+        guard a != .zero, b != .zero else { return false }
+        return abs(a.midX - b.midX) > max(a.width, b.width) / 2 || abs(a.midY - b.midY) > max(a.height, b.height) / 2
     }
 
     /// Whether the next click is the first since it appeared (repeat taps on the same appearance aren't).

@@ -110,9 +110,8 @@ final class ClickReader: @unchecked Sendable {
         guard text.count <= 30, text.split(separator: " ").count <= 4 else { return nil }
         // Something a person would call a label: at least two characters, including a letter.
         guard text.count >= 2, text.contains(where: \.isLetter) else { return nil }
-        let copies = lines.filter {
-            $0.text.range(of: text, options: [.caseInsensitive, .diacriticInsensitive]) != nil
-        }.count
+        // Look-alikes the step would also find (whole words, the way it searches).
+        let copies = lines.filter { TextFinder.wholeWordRange(of: text, in: $0.text) != nil }.count
         let area = copies > 1 ? around(p, in: window) : nil
         return Label(text: text, area: area)
     }

@@ -169,6 +169,33 @@ var prio = AllAtOnceChooser(rules: [0: .init(settle: 0, repeatUntilGone: true, r
 let p1 = prio.choose(found: [0, 5], now: 1); prio.clicked(p1!, at: 1)
 let p2 = prio.choose(found: [0, 5], now: 2)
 check("higher steps win: step 1 every time", p1 == 0 && p2 == 0, "\(String(describing: p1)) \(String(describing: p2))")
+// Words are matched whole: “Claim” isn't found in “Claimed ✓” (it used to click the label after claiming).
+let claimLines = [TextFinder.Line(text: "Claimed ✓", rect: CGRect(x: 10, y: 10, width: 80, height: 14), words: [("Claimed", CGRect(x: 10, y: 10, width: 60, height: 14))]),
+                  TextFinder.Line(text: "Claim all rewards", rect: CGRect(x: 10, y: 60, width: 120, height: 14), words: [])]
+check("“Claim” skips “Claimed” but finds “Claim all rewards”", TextFinder.find("Claim", in: claimLines, area: nil)?.minY == 60)
+check("…no match at all when only “Claimed” is there", TextFinder.find("Claim", in: [claimLines[0]], area: nil) == nil)
+check("…phrases and other scripts still match inside a line",
+      TextFinder.wholeWordRange(of: "daily reward", in: "Your daily reward is ready") != nil
+      && TextFinder.wholeWordRange(of: "领取", in: "立即领取奖励") != nil
+      && TextFinder.wholeWordRange(of: "OK", in: "(OK)") != nil)
+
+// One appearance is one click (and one round), however the screen flickers around it.
+let spotA = CGRect(x: 100, y: 100, width: 60, height: 24), spotB = CGRect(x: 100, y: 300, width: 60, height: 24)
+var once = AllAtOnceChooser(rules: [0: .init(settle: 0, repeatUntilGone: false, repeatEvery: 0.4)])
+let o1 = once.choose(found: [0: spotA], now: 1); once.clicked(0, at: 1)
+let o2 = once.choose(found: [0: spotA], clickable: [], now: 1.1)              // reacting to the click: not still
+let o3 = once.choose(found: [:], now: 1.2)                                    // a frame where it isn't read
+let o4 = once.choose(found: [0: spotA], now: 1.3)                             // the same button, still there
+check("a flicker or a not-still frame isn't a new appearance", o1 == 0 && o2 == nil && o3 == nil && o4 == nil,
+      "\([o1, o2, o3, o4])")
+let o5 = once.choose(found: [0: spotB], now: 1.4)
+check("…but turning up somewhere else is", o5 == 0)
+once.clicked(0, at: 1.4)
+_ = once.choose(found: [:], now: 1.5)
+let o6 = once.choose(found: [:], now: 2.0)
+let o7 = once.choose(found: [0: spotB], now: 2.1)
+check("…and so is coming back after it was gone", o6 == nil && o7 == 0)
+
 var pb = PlaybackOptions(); pb.prioritized = true; pb.idleTapAfter = 4; pb.idleTapX = 195; pb.idleTapY = 700
 let pb2 = try! JSONDecoder().decode(PlaybackOptions.self, from: JSONEncoder().encode(pb))
 check("priority and tap-when-stuck save and load", pb2.prioritized && pb2.idleTapAfter == 4 && pb2.idleTapX == 195 && pb2.idleTapY == 700)

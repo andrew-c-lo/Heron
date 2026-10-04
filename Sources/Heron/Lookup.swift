@@ -163,7 +163,7 @@ enum TextFinder {
         var best: (rect: CGRect, confidence: Float)?
         for observation in request.results ?? [] {
             guard let candidate = observation.topCandidates(1).first,
-                  let range = candidate.string.range(of: query, options: [.caseInsensitive, .diacriticInsensitive])
+                  let range = wholeWordRange(of: query, in: candidate.string)
             else { continue }
             // Vision boxes are normalized with the origin at the bottom left.
             let box = (try? candidate.boundingBox(for: range))?.boundingBox ?? observation.boundingBox
@@ -192,7 +192,26 @@ enum TextFinder {
         // Part of a longer line, for phrases only: a single character like “1” would otherwise match any number
         // containing it (a score, a counter, “Turn 1”…).
         guard q.count >= 3 else { return nil }
-        return lines.first { $0.text.range(of: q, options: opts) != nil && inArea($0.rect) }?.rect
+        return lines.first { wholeWordRange(of: q, in: $0.text) != nil && inArea($0.rect) }?.rect
+    }
+
+    /// Where `query` is in `text` as whole words: “Claim” is in “Claim all” but not in “Claimed”.
+    /// Only checked at Latin letters and digits, so scripts written without spaces still match inside a line.
+    static func wholeWordRange(of query: String, in text: String) -> Range<String.Index>? {
+        let opts: String.CompareOptions = [.caseInsensitive, .diacriticInsensitive]
+        func wordy(_ c: Character?) -> Bool { c.map { $0.isASCII && ($0.isLetter || $0.isNumber) } ?? false }
+        let q = query.trimmingCharacters(in: .whitespaces)
+        guard !q.isEmpty else { return nil }
+        var from = text.startIndex
+        while let r = text.range(of: q, options: opts, range: from..<text.endIndex) {
+            let before = r.lowerBound > text.startIndex ? text[text.index(before: r.lowerBound)] : nil
+            let after = r.upperBound < text.endIndex ? text[r.upperBound] : nil
+            let startOK = !(wordy(q.first) && wordy(before))
+            let endOK = !(wordy(q.last) && wordy(after))
+            if startOK && endOK { return r }
+            from = text.index(after: r.lowerBound)
+        }
+        return nil
     }
 
     struct Line {
