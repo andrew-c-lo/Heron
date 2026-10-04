@@ -6,7 +6,8 @@
 
 <p align="center">
   <b>The free Mac auto clicker that can see your screen.</b><br>
-  Click on a timer, replay what you did, or click a button or a word the moment it shows up.
+  Click on a timer, replay what you did, or click a button or a word the moment it shows up.<br>
+  Run it on a schedule, and let it stop by itself when the job is done.
 </p>
 
 <p align="center">
@@ -31,8 +32,15 @@
 clicks it the moment it appears, wherever it appears. Words are read on your Mac with Apple's built-in text
 recognition.
 
-**Record once, see what you did.** A recording shows up as numbered taps and swipes on top of the window,
-with a timeline, instead of hundreds of raw events. Drag a tap to move it.
+**Start in seconds.** A new macro asks what it should do: click something whenever it appears, do some
+steps in order, run on a schedule, or repeat until it's done. Answer a question or two and it's set up.
+
+**Record once, and it finds things for you.** Every tap you record becomes a step that finds what you
+tapped, by its picture or its words, wherever it is next time. A recording shows up as numbered taps on top
+of the window, with a timeline, instead of hundreds of raw events.
+
+**Runs on its own.** Start a macro every morning, every few hours or when an app opens, and have it stop
+when a “finished” screen appears. Heron keeps the screen awake while it works and tells you how it went.
 
 **Runs in the background.** Switch on a macro that clicks pop-ups whenever they show up, while another
 macro plays or you keep working.
@@ -51,6 +59,14 @@ your Mac.
   <tr>
     <td align="center">Recordings as a map</td>
     <td align="center">Background macros</td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/templates.png" alt="A new macro asking what it should do, with five starting points"></td>
+    <td><img src="docs/screenshots/chain.png" alt="A picture step's settings: look for a picture, words or both, where clicks land, and the search area"></td>
+  </tr>
+  <tr>
+    <td align="center">Start from a template</td>
+    <td align="center">Pictures and words</td>
   </tr>
   <tr>
     <td><img src="docs/screenshots/auto-clicker.png" alt="The auto clicker with a large speed readout and its settings"></td>
@@ -102,20 +118,23 @@ scripts/setup-signing.sh   # once: a personal signing certificate, so permission
 </details>
 
 <details>
-<summary><b>Record and build macros</b></summary>
+<summary><b>Start, record and build macros</b></summary>
 
-- Record mouse moves, clicks, drags, scrolls and keystrokes, or just one app's window
-- Remember what you click: a click on a word like “Claim” or on an icon becomes a step that finds it
-  wherever it is, and clicks the recorded spot if it isn't there. Works whenever every click goes to one app
-- Or build one step by step: Click, Type, Wait, Find Picture and Find Text are one click each, and the
-  selected step's settings show beside the list
-- See a macro three ways: a map of the window with every tap, a readable list (“Tap”, “Swipe up”,
-  “Type “hello””), or every raw event
-- Switch any step off without deleting it, and keep macros in folders
+- Templates: a new macro asks what it should do (click something whenever it appears, steps in order,
+  run on a schedule, repeat until done) and sets itself up
+- Record mouse and keyboard, or just one app's window. Every tap becomes a step that finds what you tapped,
+  by its picture, its words or both, and taps the recorded spot if it isn't there. Several quick taps on one
+  spot become “keep tapping until it's gone”
+- Build step by step: Find Picture, and an Add menu with every kind of step, from clicks and key presses to
+  waits and repeats. The selected step's settings show beside the list, with fine-tuning folded away
+- Type text, or Type from a list: each run types the next item (codes, names, numbers), remembers where it
+  got to, and stops or starts over at the end
+- Suggestions from your own taps: things you press yourself while a macro plays are offered as steps
+- See a macro as a map of the window with every tap, a readable list, or every raw event
+- Reorder by dragging, from the right-click menu, or with ⌥⌘↑ and ⌥⌘↓; switch steps off without deleting
+  them; keep macros in folders
 - Branch and repeat: a step that isn't found can go to another step, and a Repeat step goes back to an
   earlier one a set number of times
-- Replay at any speed, once, a number of times, until stopped or for a set time, with a random pause
-  between rounds
 - Undo and redo for every edit, and global hotkeys for everything, including a panic stop
 
 </details>
@@ -123,32 +142,37 @@ scripts/setup-signing.sh   # once: a personal signing certificate, so permission
 <details>
 <summary><b>Finding pictures and words</b></summary>
 
-- A picture step waits for a picture to appear in the window, then clicks it wherever it is. It can also
-  just wait for it, or wait until it's gone
-- A text step does the same for words, read on your Mac
+- Look for a picture, some words (read on your Mac), or both, whichever shows up first
+- Click it, just wait for it, wait until it's gone, or stop the macro when it appears
 - Pick pictures by drawing a box on a screenshot, with zoom and pixel-precise handles
-- A step can hold several pictures of the same thing (different states or colours), and any of them counts;
-  select several picture steps to combine them into one
-- Choose exactly where clicks land on a picture by dragging a box on it, or click once for a precise spot
-- Limit any search to an area of the window, so it's faster and ignores look-alikes elsewhere
-- Keep clicking until it's gone, wait before clicking, click at an offset, and choose what happens if it
-  never shows up
-- Run steps in order, or all at once: every picture is watched together and whichever appears gets clicked,
-  taking turns or with higher steps winning
-- Tap when stuck: if nothing shows up for a while, tap a spot you choose, and keep that screen under Stuck
-  Screens so you can turn it into a step
-- After a run, see how often each step fired, and limit a step's search to where it was actually found
+- Several pictures of the same thing (different states or colours) can count as one step
+- Draw a box on the picture and each click lands on a different spot inside it
+- Limit any search to an area of the window; after a few runs Heron can narrow searches to where things
+  actually showed up
+- Pictures and positions resize with the window, so a bigger or smaller window still works
+- Waits for things to stop moving before clicking, and the wait before clicking can be a random range
+- Spot: switch any step to click fixed coordinates without looking, and back again, keeping its picture
+- Fast: even large pictures are checked in a few milliseconds, so many steps can be watched at once
 - Test Now shows whether it's on screen right now and how close the match is
 
 </details>
 
 <details>
-<summary><b>Background macros</b></summary>
+<summary><b>Running: in order, all at once, on a schedule</b></summary>
 
-- Any macro can keep running in the background with its own on/off switch, alongside whatever else is
-  playing
-- “Watch for something” starts one: a picture or some words to click whenever they show up
-- Optionally stop after a number of clicks
+- Run steps in order, or all at once: every picture is watched together and whichever appears gets clicked,
+  taking turns or with higher steps winning
+- Replay at any speed, once, a number of times, until stopped or for a set time, with a random pause between rounds
+- Vary the timing so waits between steps come a little early or late
+- Stop when it appears: a picture or words that end the run as soon as they show up, like a “Finished” screen
+- Schedule: daily at set times (pick the weekdays), every few hours, or when the app opens, with a time
+  limit and a notification when it's done. Optionally open Heron at login
+- Keep the screen on while a macro runs, so the screen saver and auto-lock don't stop it
+- Tap when stuck: if nothing shows up for a while, tap a spot you choose, and keep that screen under Stuck
+  Screens so you can turn it into a step
+- Background macros: any macro can keep running alongside others. Every macro in the list has a dot that
+  turns green while it runs; click it to start or stop
+- After a run, see how often each step fired
 
 </details>
 
@@ -166,12 +190,12 @@ With Apple Intelligence (macOS 26 or later), all on your Mac and never sent anyw
 <details>
 <summary><b>Clicking that stays out of your way</b></summary>
 
-- Jump & return: the cursor jumps to each click and straight back, and waits until you've stopped moving
-  the mouse
+- Jump & return (the default): the cursor jumps to each click and straight back, and waits until you've
+  stopped moving the mouse
 - Background delivery for apps that accept it, without moving the cursor at all
 - Positions are relative to the app's window, so moving the window doesn't break anything
-- Optional click spread: each click lands at a random spot near its target, and clicks on a found picture
-  always stay inside it
+- Randomize click position: each click lands at a random spot near its target (or anywhere in a picture's
+  click box)
 - Optional double-click everywhere: every single click is sent as a double click, with a hotkey to flip it
 - A notification if something stops on its own while you're in another app
 
@@ -189,7 +213,7 @@ It asks only for the permissions a feature needs:
 |---|---|
 | Accessibility | Clicking, moving the mouse and typing |
 | Input Monitoring | Recording your mouse and keyboard |
-| Screen Recording *(optional)* | Color checks, finding pictures and words, and the map view. Only the target window is read, and nothing is saved except the pictures you pick |
+| Screen Recording *(optional)* | Color checks, finding pictures and words, smart recording and the map view. Only the target window is read, and nothing is saved except the pictures you pick |
 
 ## When something misbehaves
 
@@ -203,7 +227,7 @@ It asks only for the permissions a feature needs:
 ## Contributing
 
 Issues and pull requests are welcome. `Tests/qa/run.sh` runs the tests (the screenshot cropper, click
-spread, double-click, and finding pictures and words), and `scripts/make-demo.sh --screenshots`
+spread and click boxes, double-click, finding pictures and words, resizing, scheduling, playback and lists), and `scripts/make-demo.sh --screenshots`
 regenerates the screenshots on this page from neutral demo data. `scripts/qa-sweep.sh` captures every page at three window sizes in light and dark for a visual check, and
 `scripts/release.sh` builds the app for
 both kinds of Mac and publishes a release with the notes in `docs/release-notes/`.

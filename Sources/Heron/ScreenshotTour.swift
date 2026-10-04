@@ -44,6 +44,11 @@ enum ScreenshotTour {
                 if let viewMode { UserDefaults.standard.set(viewMode, forKey: "stepsViewMode") }
                 model.sidebar = page
                 try? await Task.sleep(for: .seconds(1.2))
+                // The main picture shows a step's settings beside the list.
+                if name == "chain" {
+                    NotificationCenter.default.post(name: Self.selectAction, object: 0)
+                    try? await Task.sleep(for: .seconds(0.8))
+                }
                 NSApp.activate(ignoringOtherApps: true)
                 try? await Task.sleep(for: .seconds(0.4))
                 // An open sheet is its own window.
@@ -52,6 +57,13 @@ enum ScreenshotTour {
                     try? png.write(to: out.appendingPathComponent("\(name).png"))
                 }
             }
+            // A new macro opens on its templates (“What should it do?”).
+            model.newMacro()
+            try? await Task.sleep(for: .seconds(1.2))
+            if let win = NSApp.windows.first(where: { $0.isVisible && $0.canBecomeMain }), let png = capture(win) {
+                try? png.write(to: out.appendingPathComponent("templates.png"))
+            }
+            if let m = model.selectedMacro, m.steps.isEmpty { model.delete(m) }
             model.sidebar = .autoClicker
             // Settings live in their own window.
             let main = NSApp.windows.first { $0.isVisible && $0.canBecomeMain }

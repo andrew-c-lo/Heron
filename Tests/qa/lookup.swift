@@ -188,12 +188,12 @@ CLICK
 check("a drafted plan becomes steps", planned == [.click("Claim"), .wait(2), .type("hello"), .press("Return")], "\(planned)")
 
 // Live (informational): what the on-device model suggests on a typical results screen.
-let screenLines = ["K.O.", "Battle Results", "OK", "Link Skill Level"].map { TextFinder.Line(text: $0, rect: .zero, words: []) }
+let screenLines = ["Level complete", "Results", "OK", "Total score"].map { TextFinder.Line(text: $0, rect: .zero, words: []) }
 let sem = DispatchSemaphore(value: 0)
 var suggestion: String?
 Task.detached { suggestion = await Assistant.suggestTap(on: screenLines); sem.signal() }
 sem.wait()
-print("INFO suggestion for [K.O., Battle Results, OK, Link Skill Level]: \(suggestion ?? "none") (model available: \(Assistant.modelAvailable))")
+print("INFO suggestion for [Level complete, Results, OK, Total score]: \(suggestion ?? "none") (model available: \(Assistant.modelAvailable))")
 check("a suggestion is always one of the words on screen", suggestion == nil || screenLines.contains { $0.text == suggestion })
 
 // Smart recording, icons: a detailed spot becomes a picture; a flat one doesn't.
@@ -360,7 +360,7 @@ check("“4” matches the 4 standing on its own", near(TextFinder.find("4", in:
 check("longer words still match inside a line", TextFinder.find("Turn", in: nlines, area: nil) != nil)
 
 // Big pictures: found where they are, without taking seconds.
-let bigScene = window([("Battle Results", CGPoint(x: 60, y: 60)), ("Link Skill Level", CGPoint(x: 60, y: 120)),
+let bigScene = window([("Results", CGPoint(x: 60, y: 60)), ("Total score", CGPoint(x: 60, y: 120)),
                        ("Claim", CGPoint(x: 500, y: 300)), ("Close", CGPoint(x: 300, y: 420))])
 let bigRect = CGRect(x: 40, y: 40, width: 520, height: 330)
 let bigPic = pngOf(bigScene.0, bigRect)
