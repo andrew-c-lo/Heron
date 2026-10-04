@@ -325,7 +325,7 @@ struct NumberField: View {
                 TextField("", value: $value, format: .number)
                     .multilineTextAlignment(.trailing)
                     .frame(width: width)
-                if !unit.isEmpty { Text(unit).foregroundStyle(.secondary) }
+                if !unit.isEmpty { Text(unit).foregroundStyle(.secondary).fixedSize() }
             }
         }
     }
@@ -344,7 +344,7 @@ struct IntField: View {
                     .multilineTextAlignment(.trailing)
                     .frame(width: 80)
                 Stepper("", value: $value, in: range).labelsHidden()
-                if !unit.isEmpty { Text(unit).foregroundStyle(.secondary) }
+                if !unit.isEmpty { Text(unit).foregroundStyle(.secondary).fixedSize() }
             }
         }
     }

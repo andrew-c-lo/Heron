@@ -479,8 +479,14 @@ struct MacroDetailView: View {
             killswitchControls
             if allAtOnce || macro.runsInBackground {
                 Divider()
-                IntField(title: "After this many clicks (0 = no limit)", value: $macro.playback.maxClicks, unit: "clicks",
-                         range: 0...10_000_000)
+                Toggle(isOn: Binding(get: { macro.playback.maxClicks > 0 },
+                                     set: { macro.playback.maxClicks = $0 ? 100 : 0 })) {
+                    Text("After a number of clicks")
+                    Text("Counts every click, from any step.")
+                }
+                if macro.playback.maxClicks > 0 {
+                    IntField(title: "After", value: $macro.playback.maxClicks, unit: "clicks", range: 1...10_000_000)
+                }
             }
         }
         .padding(16)
