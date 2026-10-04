@@ -218,10 +218,13 @@ struct RunDot: View {
 
     var body: some View {
         Button(action: action) {
+            // The fill is always there and fades, rather than being added: an added view gets its own layer,
+            // which snapped to a different pixel than the ring and sat off-centre on non-Retina screens.
             ZStack {
                 Circle().strokeBorder(running ? Color.green : Color.secondary.opacity(0.6), lineWidth: 1.5)
-                if running { Circle().fill(Color.green).padding(2.5) }
+                Circle().fill(Color.green).padding(3).opacity(running ? 1 : 0)
             }
+            .drawingGroup()
             .frame(width: 12, height: 12)
             .padding(4)
             .contentShape(Rectangle())
