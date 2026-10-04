@@ -9,11 +9,66 @@ struct Route {
     var windowNumber: Int = 0
     /// Added to stored coordinates (the target window's top-left corner).
     var origin: CGPoint = .zero
+    /// Background delivery to an app that ignores input unless it's the active app (iPhone Mirroring):
+    /// it's brought to the front for each press and the previous app is put back right after.
+    var focusFlash = false
 
     static let screen = Route()
 
     func absolute(_ x: Double, _ y: Double) -> CGPoint {
         CGPoint(x: origin.x + x, y: origin.y + y)
+    }
+}
+
+/// Apps that drop pid-posted input while they aren't the active app, even with the window fields filled in.
+enum FocusFlash {
+    static let apps: Set<String> = ["com.apple.ScreenContinuity"] // iPhone Mirroring
+
+    static func needed(for bundleID: String?) -> Bool { bundleID.map(apps.contains) ?? false }
+
+    // Private window-server calls (as used by window managers). Unlike `NSRunningApplication.activate`, they
+    // still work while Heron itself is in the background, where macOS refuses ordinary activation requests.
+    private typealias GetPSNFn = @convention(c) (pid_t, UnsafeMutablePointer<ProcessSerialNumber>) -> OSStatus
+    private typealias SetFrontFn = @convention(c) (UnsafeMutablePointer<ProcessSerialNumber>, UInt32, UInt32) -> CGError
+    private typealias PostRecordFn = @convention(c) (UnsafeMutablePointer<ProcessSerialNumber>, UnsafeMutablePointer<UInt8>) -> CGError
+    private static let skyLight: UnsafeMutableRawPointer? =
+        dlopen("/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight", RTLD_NOW)
+    private static func sym(_ name: String) -> UnsafeMutableRawPointer? {
+        _ = skyLight
+        return dlsym(UnsafeMutableRawPointer(bitPattern: -2), name) // RTLD_DEFAULT
+    }
+    private static let getPSN = sym("GetProcessForPID").map { unsafeBitCast($0, to: GetPSNFn.self) }
+    private static let setFront = sym("_SLPSSetFrontProcessWithOptions").map { unsafeBitCast($0, to: SetFrontFn.self) }
+    private static let postRecord = sym("SLPSPostEventRecordTo").map { unsafeBitCast($0, to: PostRecordFn.self) }
+
+    /// Makes `pid` the active app with `window` (0 = its frontmost) as the key window.
+    static func bringToFront(_ pid: pid_t, window: Int) {
+        guard let getPSN, let setFront, let postRecord else {
+            NSRunningApplication(processIdentifier: pid)?.activate(options: [])
+            return
+        }
+        var psn = ProcessSerialNumber()
+        guard getPSN(pid, &psn) == noErr else { return }
+        let wid = UInt32(window != 0 ? window : frontWindow(of: pid))
+        _ = setFront(&psn, wid, 0x200) // kCPSUserGenerated
+        guard wid != 0 else { return }
+        // Focus and key-window records for the window, as a real click on it would produce.
+        for kind: UInt8 in [1, 2] {
+            var bytes = [UInt8](repeating: 0, count: 0xf8)
+            bytes[0x04] = 0xf8
+            bytes[0x08] = kind
+            bytes[0x3a] = 0x10
+            withUnsafeBytes(of: wid.littleEndian) { for i in 0..<4 { bytes[0x3c + i] = $0[i] } }
+            for i in 0x20..<0x30 { bytes[i] = 0xff }
+            _ = postRecord(&psn, &bytes)
+        }
+    }
+
+    private static func frontWindow(of pid: pid_t) -> Int {
+        let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
+            as? [[String: Any]] ?? []
+        return list.first { ($0[kCGWindowOwnerPID as String] as? pid_t) == pid && ($0[kCGWindowLayer as String] as? Int) == 0 }?[
+            kCGWindowNumber as String] as? Int ?? 0
     }
 }
 
@@ -193,6 +248,11 @@ final class Performer {
     /// so "home" is always where the user left the cursor, never another jump's click spot.
     private static let jumpLock = NSLock()
     private var holdsJumpLock = false
+    /// Focus flash in progress: the app that was in front before the target was brought forward.
+    private var flashReturn: NSRunningApplication?
+    /// One focus flash at a time across the whole app, so "the app that was in front" is never a flashed target.
+    private static let flashLock = NSLock()
+    private var holdsFlashLock = false
     /// Jump & return: wait until the physical mouse has been still this long before jumping (0 = don't wait).
     var stillThreshold: Double = 0
     var token: CancelToken?
@@ -234,6 +294,13 @@ final class Performer {
         }
     }
 
+    private func isKeyboard(_ a: StepAction) -> Bool {
+        switch a {
+        case .key, .flags: true
+        default: false
+        }
+    }
+
     /// `absolute`: coordinates are already screen coordinates (don't add the window origin).
     /// Returns how many seconds were spent waiting for the user's mouse to go still (so callers can shift their schedule).
     @discardableResult
@@ -248,6 +315,8 @@ final class Performer {
 
         // Plain moves are pointless when we put the cursor back anyway.
         if jump, action.isMouseMove, heldButtons.isEmpty { return 0 }
+        let flash = background && route.focusFlash && route.pid != 0 && (isPointer(action) || isKeyboard(action))
+        if flash, !holdsFlashLock { beginFlash() }
         if jump, isPointer(action), jumpOrigin == nil {
             if !absolute { waited = waitForStillMouse() }
             Self.jumpLock.lock()
@@ -323,12 +392,35 @@ final class Performer {
             break
         }
 
+        if holdsFlashLock, heldButtons.isEmpty, heldKeys.isEmpty { endFlash() }
         if let seq, jumpOrigin != nil { lastPointerSeq = seq }
         if jump, heldButtons.isEmpty, let o = jumpOrigin, isPointer(action) {
             returnCursor(to: o, from: landed)
             jumpOrigin = nil
         }
         return waited
+    }
+
+    /// Brings the target app to the front (without moving the pointer) so it accepts the next press.
+    private func beginFlash() {
+        Self.flashLock.lock()
+        holdsFlashLock = true
+        let front = NSWorkspace.shared.frontmostApplication
+        guard let front, front.processIdentifier != route.pid else { flashReturn = nil; return } // already in front
+        flashReturn = front
+        FocusFlash.bringToFront(route.pid, window: route.windowNumber)
+    }
+
+    /// Puts the previous app back in front, unless the user has switched apps meanwhile.
+    private func endFlash() {
+        defer { holdsFlashLock = false; Self.flashLock.unlock() }
+        guard let back = flashReturn else { return }
+        flashReturn = nil
+        usleep(30_000) // let the target take the press before it loses focus
+        let front = NSWorkspace.shared.frontmostApplication?.processIdentifier
+        if front == route.pid || front == nil || front == back.processIdentifier {
+            FocusFlash.bringToFront(back.processIdentifier, window: 0)
+        }
     }
 
     private func releaseJumpLock() {
@@ -401,6 +493,7 @@ final class Performer {
         touchedModifiers = false
         if let o = jumpOrigin { EventSynth.warp(to: o); jumpOrigin = nil }
         releaseJumpLock()
+        if holdsFlashLock { endFlash() }
     }
 }
 

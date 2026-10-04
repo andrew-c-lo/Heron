@@ -15,7 +15,8 @@ enum RouteBuilder {
         guard let w = resolver.window() else {
             return .failure(RouteError(message: "Can't find a window for \(resolver.app.name). Is it open?"))
         }
-        return .success(Route(mode: target.delivery, pid: w.pid, windowNumber: w.windowNumber, origin: w.frame.origin))
+        return .success(Route(mode: target.delivery, pid: w.pid, windowNumber: w.windowNumber, origin: w.frame.origin,
+                              focusFlash: target.delivery == .background && FocusFlash.needed(for: resolver.app.bundleID)))
     }
 }
 
