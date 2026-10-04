@@ -9,6 +9,8 @@ struct MacroDetailView: View {
     // @State is a compiler-plugin macro that the Command Line Tools don't ship, so use an ObservableObject.
     @StateObject private var ui = DetailUIState()
     @AppStorage("stepsViewMode") private var viewMode = "visual"
+    /// The step details panel beside the list; hide it to give the list the whole width.
+    @AppStorage("showStepDetails") private var showDetails = true
 
     private enum Mode: String { case visual, actions, raw }
 
@@ -43,7 +45,7 @@ struct MacroDetailView: View {
             HStack(spacing: 0) {
                 stepsList
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                if mode != .raw, !macro.steps.isEmpty {
+                if mode != .raw, !macro.steps.isEmpty, showDetails {
                     Divider()
                     StepInspector(editing: editing, app: macro.target.app, allAtOnce: allAtOnce,
                                   onShowRaw: showRawSteps, onAddColorCheck: addColorCheck,
@@ -79,6 +81,7 @@ struct MacroDetailView: View {
                 Button("") { editing.move(nil, .down) }.keyboardShortcut(.downArrow, modifiers: [.command, .option])
                 Button("") { editing.move(nil, .top) }.keyboardShortcut(.upArrow, modifiers: [.command, .option, .shift])
                 Button("") { editing.move(nil, .bottom) }.keyboardShortcut(.downArrow, modifiers: [.command, .option, .shift])
+                Button("") { showDetails.toggle() }.keyboardShortcut("i", modifiers: [.command, .option])
             }
             .opacity(0)
             .allowsHitTesting(false)
@@ -152,6 +155,12 @@ struct MacroDetailView: View {
                     .help("Redo (⇧⌘Z)")
             }
             .fixedSize()
+            if mode != .raw, !macro.steps.isEmpty {
+                Toggle(isOn: $showDetails) { Image(systemName: "sidebar.right") }
+                    .toggleStyle(.button)
+                    .help(showDetails ? "Hide step details (⌥⌘I)" : "Show step details (⌥⌘I)")
+                    .accessibilityLabel("Step details")
+            }
         }
     }
 
@@ -1051,6 +1060,7 @@ struct MacroDetailView: View {
     /// Picture steps are edited in the details panel: selecting one shows it there.
     private func editPicture(_ g: ActionGroup) {
         editing.select(g)
+        showDetails = true
     }
 
     private func updateCompact(_ width: CGFloat) {

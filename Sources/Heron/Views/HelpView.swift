@@ -41,6 +41,7 @@ struct HelpView: View {
         Topic(id: "Keyboard shortcuts", icon: "keyboard", body: [
             "⌘1 Target  ·  ⌘2 Playback  ·  ⌘3 Stops  ·  ⌘4 Schedule",
             "⌘. stops a run.  ⌥⌘↑ / ⌥⌘↓ move the selected steps; add ⇧ to move them to the top or bottom.",
+            "⌥⌘I shows or hides the step details beside the list.",
         ]),
         Topic(id: "Privacy", icon: "lock", body: [
             "Everything happens on this Mac. Pictures, text reading and suggestions never leave it.",
