@@ -466,5 +466,17 @@ check("Click Selected Steps' Spots switches the clicking steps only", spotOf(0) 
 bedit.setSpotOnly(nil, false)
 check("…and Find Again switches them back", !spotOf(0))
 
+// Delivery: “Normal” is no longer offered; macros saved with it load as Jump & return.
+let oldTarget = try! JSONDecoder().decode(TargetOptions.self, from: Data(#"{"delivery":"normal","activateFirst":true,"pauseWhenInactive":false,"jumpWhenStillMs":150}"#.utf8))
+check("a saved “Normal” delivery loads as Jump & return", oldTarget.delivery == .jumpReturn)
+check("new targets default to Jump & return, and Normal isn't offered", TargetOptions().delivery == .jumpReturn && !DeliveryMode.choices.contains(.normal))
+
+// Killswitch: a picture or words in Playback, saved with the macro.
+var ks = PlaybackOptions(); var ksStep = ImageStep(png: Data(), width: 0, height: 0, originX: 0, originY: 0)
+ksStep.text = "Lv 30"; ksStep.mode = .stop; ksStep.area = CGRect(x: 10, y: 600, width: 400, height: 200); ks.stopWhen = ksStep
+let ks2 = try! JSONDecoder().decode(PlaybackOptions.self, from: JSONEncoder().encode(ks))
+check("the killswitch saves and loads", ks2.stopWhen?.text == "Lv 30" && ks2.stopWhen?.area == ksStep.area)
+check("older macros have no killswitch", (try! JSONDecoder().decode(PlaybackOptions.self, from: Data("{}".utf8))).stopWhen == nil)
+
 print(failures == 0 ? "ALL PASSED" : "\(failures) FAILED")
 exit(failures == 0 ? 0 : 1)

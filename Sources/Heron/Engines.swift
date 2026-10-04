@@ -66,7 +66,21 @@ final class Player {
             return map
         }()
 
+        // The killswitch watches on its own, for the whole run.
+        let watch = CancelToken()
+        let tripped = Tripwire()
+        if let kill = opts.stopWhen, let app = target.app, let lookup = Lookup(step: kill) {
+            let what = kill.isText && !kill.usesPicture ? "“\(kill.text!.trimmingCharacters(in: .whitespaces))”" : "The stop picture"
+            Thread.detachNewThread {
+                Self.watchKillswitch(lookup, resolver: TargetResolver(app: app), watch: watch) {
+                    tripped.message = Self.done("\(what) appeared")
+                    token.cancel()
+                }
+            }
+        }
+
         Thread.detachNewThread { [weak self] in
+            defer { watch.cancel() }
             let resolver = target.app.map { TargetResolver(app: $0) }
             let performer = Performer(route: .screen)
             performer.token = token
@@ -229,6 +243,7 @@ final class Player {
             }
 
             performer.releaseAll()
+            if let m = tripped.message { error = m }
             Task { @MainActor [error] in
                 if self?.token === token { self?.token = nil }
                 finished(error)
@@ -239,6 +254,35 @@ final class Player {
     func stop() {
         token?.cancel()
         token = nil
+    }
+
+    /// Set once, from the killswitch thread.
+    private final class Tripwire: @unchecked Sendable {
+        private let lock = NSLock()
+        private var value: String?
+        var message: String? {
+            get { lock.withLock { value } }
+            set { lock.withLock { value = newValue } }
+        }
+    }
+
+    /// Looks for the killswitch a few times a second (words about twice a second) until it shows up or the run ends.
+    static func watchKillswitch(_ lookup: Lookup, resolver: TargetResolver, watch: CancelToken, found: () -> Void) {
+        var lastText = -Double.infinity
+        var frameNumber = 0
+        while !watch.isCancelled {
+            guard Timing.wait(until: Timing.now() + 0.25, watch) else { return }
+            guard let win = resolver.window(),
+                  let frame = FrameSource.shared.frame(for: win, after: frameNumber, timeout: 0.2) else { continue }
+            let readText = lookup.hasText && Timing.now() - lastText >= 0.5
+            if frame.number == frameNumber && !readText { continue }
+            frameNumber = frame.number
+            if readText { lastText = Timing.now() }
+            if lookup.locate(in: frame.pixels, readText: readText) != nil {
+                found()
+                return
+            }
+        }
     }
 
     enum ColorResult { case matched, timedOut, unreadable, cancelled }

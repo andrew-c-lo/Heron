@@ -468,6 +468,8 @@ struct PlaybackOptions: Codable, Equatable {
     /// Used by `.duration`, in seconds. No new loop starts after this; the current one finishes.
     var repeatDuration: Double = 600
     /// Real seconds between loops (not affected by speed).
+    /// Killswitch: whenever this picture or these words show up during a run, the macro has done its job and stops.
+    var stopWhen: ImageStep?
     var loopDelay: Double = 0
     /// Up to this many extra random seconds added to each pause.
     var loopDelayRandom: Double = 0
@@ -502,6 +504,7 @@ extension PlaybackOptions {
         idleTapX = try c.decodeIfPresent(Double.self, forKey: .idleTapX)
         idleTapY = try c.decodeIfPresent(Double.self, forKey: .idleTapY)
         maxClicks = try c.decodeIfPresent(Int.self, forKey: .maxClicks) ?? 0
+        stopWhen = try c.decodeIfPresent(ImageStep.self, forKey: .stopWhen)
     }
 }
 

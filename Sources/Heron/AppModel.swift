@@ -461,7 +461,7 @@ final class AppModel: ObservableObject {
             flash("Couldn't find the window to convert coordinates. They were kept as-is; re-check them.")
         }
         m.target.app = app
-        if app == nil && m.target.delivery == .background { m.target.delivery = .normal }
+        if app == nil && m.target.delivery == .background { m.target.delivery = .jumpReturn }
         update(m)
     }
 

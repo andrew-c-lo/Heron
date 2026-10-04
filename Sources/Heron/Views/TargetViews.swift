@@ -44,7 +44,7 @@ struct TargetControls: View {
                 .font(.caption).foregroundStyle(.secondary)
         }
         Picker("Delivery", selection: $target.delivery) {
-            ForEach(DeliveryMode.allCases) { Text($0.label).tag($0) }
+            ForEach(DeliveryMode.choices) { Text($0.label).tag($0) }
         }
         .pickerStyle(.segmented)
         HStack {

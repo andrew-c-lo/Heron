@@ -35,8 +35,7 @@ struct MacroDetailView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             header
-            settingsBar
-            addBar
+            toolbarRow
             HStack(spacing: 0) {
                 stepsList
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -121,12 +120,11 @@ struct MacroDetailView: View {
             Picker("View", selection: Binding(get: { mode.rawValue }, set: { viewMode = $0 })) {
                 Text("Visual").tag("visual")
                 Text("Actions").tag("actions")
-                Text("Raw").tag("raw")
             }
             .pickerStyle(.segmented)
             .labelsHidden()
             .fixedSize()
-            .help("Visual: where and when things happen. Actions: a readable list. Raw: every recorded event.")
+            .help("Visual: where and when things happen. Actions: a readable list.")
             ControlGroup {
                 Button { undoManager?.undo() } label: { Image(systemName: "arrow.uturn.backward") }
                     .help("Undo (⌘Z)")
@@ -139,30 +137,33 @@ struct MacroDetailView: View {
 
     private var stats: String {
         let actions = ActionGrouper.groups(for: macro.steps).count
-        var s = "\(actions) action\(actions == 1 ? "" : "s") (\(macro.steps.count) raw steps) · \(formatDuration(macro.duration)) at 1×"
+        var s = "\(actions) action\(actions == 1 ? "" : "s") · \(formatDuration(macro.duration))"
         if isPlaying {
             s += " · playing " + model.playStatus
         }
         return s
     }
 
-    // MARK: Settings bar (summaries; full controls open in popovers to save space)
+    // MARK: Toolbar: settings on the left (summaries; full controls in popovers), building on the right
 
-    private var settingsBar: some View {
+    private var toolbarRow: some View {
         HStack(spacing: 8) {
             Button { ui.showingPlayback = true } label: {
                 SettingsChip(icon: "repeat", title: "Playback", value: playbackSummary)
             }
             .buttonStyle(.plain)
+            .help("How it runs: order, repeats, and when it stops")
             .popover(isPresented: $ui.showingPlayback, arrowEdge: .bottom) { playbackPanel }
 
             Button { ui.showingTarget = true } label: {
                 SettingsChip(icon: "scope", title: "Target", value: targetSummary)
             }
             .buttonStyle(.plain)
+            .help("Which app it works in, and how clicks reach it")
             .popover(isPresented: $ui.showingTarget, arrowEdge: .bottom) { targetPanel }
 
-            Spacer(minLength: 0)
+            Spacer(minLength: 8)
+            buildControls
         }
     }
 
@@ -177,7 +178,7 @@ struct MacroDetailView: View {
         let bg = macro.runsInBackground ? "in the background · " : ""
         if pb.order == .allAtOnce {
             return bg + "all at once · " + (pb.repeatMode == .duration ? "for \(formatDuration(pb.repeatDuration))" : "until stopped")
-                + (pb.maxClicks > 0 ? " · up to \(pb.maxClicks) clicks" : "")
+                + (pb.maxClicks > 0 ? " · up to \(pb.maxClicks) clicks" : "") + killswitchSummary
         }
         var parts = [bg + "\(pb.speed.formatted())×"]
         switch pb.repeatMode {
@@ -191,7 +192,13 @@ struct MacroDetailView: View {
             parts.append(pb.loopDelayRandom > 0 ? "\(pb.loopDelay.formatted())–\(hi.formatted())s apart" : "\(pb.loopDelay.formatted())s apart")
         }
         if pb.skipMouseMoves { parts.append("no moves") }
-        return parts.joined(separator: " · ")
+        return parts.joined(separator: " · ") + killswitchSummary
+    }
+
+    private var killswitchSummary: String {
+        guard let k = macro.playback.stopWhen else { return "" }
+        if let t = k.text, !t.trimmingCharacters(in: .whitespaces).isEmpty { return " · stops at “\(t)”" }
+        return k.png.isEmpty ? "" : " · stops at a picture"
     }
 
     private var targetSummary: String {
@@ -239,9 +246,59 @@ struct MacroDetailView: View {
             } else {
                 inOrderPlayback
             }
+            Divider()
+            killswitchControls
         }
         .padding(16)
         .frame(width: 380)
+    }
+
+    /// “Stop when…”: a picture or words that end the run whenever they show up (a goal, like a level cap).
+    private var killswitchControls: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("Stop when it appears")
+                Spacer()
+                if macro.playback.stopWhen == nil {
+                    Button("Picture…") { addPictureStep(for: .killswitch) }
+                        .disabled(macro.target.app == nil)
+                    Button("Words") {
+                        var k = ImageStep(png: Data(), width: 0, height: 0, originX: 0, originY: 0)
+                        k.text = ""
+                        k.mode = .stop
+                        macro.playback.stopWhen = k
+                    }
+                    .disabled(macro.target.app == nil)
+                } else {
+                    Button("Remove") { macro.playback.stopWhen = nil }
+                }
+            }
+            if let k = macro.playback.stopWhen {
+                HStack(spacing: 8) {
+                    if k.text != nil {
+                        TextField("", text: Binding(get: { macro.playback.stopWhen?.text ?? "" },
+                                                    set: { macro.playback.stopWhen?.text = $0 }),
+                                  prompt: Text("Lv 30"))
+                    } else {
+                        PictureThumbnail(png: k.png, maxWidth: 140, maxHeight: 40)
+                        Spacer()
+                        Button("Pick Again…") { addPictureStep(for: .killswitch) }
+                    }
+                }
+                HStack {
+                    Text(k.area.map { "Looks in a \(Int($0.width)) × \(Int($0.height)) area" } ?? "Looks in the whole window")
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button(k.area == nil ? "Choose Area…" : "Change Area…") { addPictureStep(for: .killswitchArea) }
+                    if k.area != nil { Button("Whole Window") { macro.playback.stopWhen?.area = nil } }
+                }
+                .font(.callout)
+            }
+            Text(macro.target.app == nil
+                 ? "Choose a target app first; Heron watches its window."
+                 : "Heron watches for it during the whole run and stops as soon as it shows up, like reaching level 30. A small area avoids look-alikes elsewhere on screen.")
+                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+        }
     }
 
     /// “If nothing shows up for a while, tap here”: gets past tap-to-continue screens and ones never seen before.
@@ -393,111 +450,73 @@ struct MacroDetailView: View {
 
     // MARK: Editing toolbar
 
-    /// The main way to build a macro: one click per kind of step. The new step is selected so its
-    /// settings show in the details panel.
-    private var addBar: some View {
+    /// Building: Find Picture (the main way) and one Add menu with every other kind of step, each named and grouped;
+    /// the new step is selected so its settings show in the details panel.
+    private var buildControls: some View {
         HStack(spacing: 6) {
-            addButton("Click", "cursorarrow.click", "Hover over the spot; it's added after a 3 second countdown") {
-                model.captureSpot(in: macro.target.app) { p, _ in
-                    select(insert(.click(button: .left, x: Double(p.x.rounded()), y: Double(p.y.rounded()), count: 1)))
-                }
+            Button { addPictureStep() } label: {
+                if ui.compactAdd { Image(systemName: "viewfinder") } else { Label("Find Picture", systemImage: "viewfinder") }
             }
-            addButton("Type", "keyboard", "Type some text") { ui.showingType = true }
-                .popover(isPresented: $ui.showingType, arrowEdge: .bottom) {
-                    TypeTextPopover { text in insertText(text); ui.showingType = false }
+            .fixedSize()
+            .help("Box a picture on the window; Heron waits for it, then clicks it")
+            .accessibilityLabel("Find Picture")
+
+            Menu {
+                Section("Find on screen") {
+                    Button { addPictureStep() } label: { Label("Find a Picture…", systemImage: "viewfinder") }
+                    Button { addTextStep() } label: { Label("Find Words", systemImage: "text.viewfinder") }
+                    Button {
+                        model.captureSpot(in: macro.target.app) { p, hex in
+                            select(insert(.waitForColor(at: p, .detect(hex ?? "#FFFFFF")), delay: 0.1))
+                        }
+                    } label: { Label("Wait for a Color… (hover, 3 s)", systemImage: "eyedropper") }
                 }
-            addButton("Wait", "clock", "Pause for a second") { select(insert(.wait, delay: 1)) }
-            addButton("Find Picture", "viewfinder", "Wait for a picture to appear, then click it") { addPictureStep() }
-            addButton("Find Text", "text.viewfinder", "Wait for some words to appear, then click them") { addTextStep() }
-            addButton("Describe", "sparkles", "Describe what to do in words; Apple Intelligence on this Mac drafts the steps") {
-                ui.showingDescribe = true
+                Section("Do") {
+                    Button {
+                        model.captureSpot(in: macro.target.app) { p, _ in
+                            select(insert(.click(button: .left, x: Double(p.x.rounded()), y: Double(p.y.rounded()), count: 1)))
+                        }
+                    } label: { Label("Click a Spot… (hover, 3 s)", systemImage: "cursorarrow.click") }
+                    Button { ui.showingType = true } label: { Label("Type Text…", systemImage: "keyboard") }
+                    Menu {
+                        Button("Return") { insertKeyPress(36) }
+                        Button("Space") { insertKeyPress(49) }
+                        Button("Tab") { insertKeyPress(48) }
+                        Button("Esc") { insertKeyPress(53) }
+                    } label: { Label("Press a Key", systemImage: "return") }
+                    Menu {
+                        Button("Scroll Down") { select(insert(.scroll(dx: 0, dy: -100))) }
+                        Button("Scroll Up") { select(insert(.scroll(dx: 0, dy: 100))) }
+                    } label: { Label("Scroll", systemImage: "scroll") }
+                    Menu {
+                        Button("Click") { select(insert(.click(button: .left, x: nil, y: nil, count: 1))) }
+                        Button("Double-Click") { select(insert(.click(button: .left, x: nil, y: nil, count: 2))) }
+                        Button("Right-Click") { select(insert(.click(button: .right, x: nil, y: nil, count: 1))) }
+                    } label: { Label("Click Wherever the Pointer Is", systemImage: "cursorarrow") }
+                }
+                Section("Timing and flow") {
+                    Button { select(insert(.wait, delay: 1)) } label: { Label("Wait a Second", systemImage: "clock") }
+                    Button {
+                        if let first = editing.groups.first.flatMap(editing.actionStepID) {
+                            select(insert(.repeatFrom(step: first, times: 2), delay: 0))
+                        }
+                    } label: { Label("Repeat From an Earlier Step", systemImage: "arrow.counterclockwise") }
+                    .disabled(macro.steps.isEmpty)
+                }
+                Section {
+                    Button { ui.showingDescribe = true } label: { Label("Describe in Words… (Apple Intelligence)", systemImage: "sparkles") }
+                }
+            } label: {
+                Label("Add", systemImage: "plus")
+            }
+            .fixedSize()
+            .help("Add a step after the selected one")
+            .popover(isPresented: $ui.showingType, arrowEdge: .bottom) {
+                TypeTextPopover { text in insertText(text); ui.showingType = false }
             }
             .popover(isPresented: $ui.showingDescribe, arrowEdge: .bottom) { describePopover }
-            Menu {
-                Button("Wait for a Color… (hover the spot, 3 s countdown)") {
-                    model.captureSpot(in: macro.target.app) { p, hex in
-                        select(insert(.waitForColor(at: p, .detect(hex ?? "#FFFFFF")), delay: 0.1))
-                    }
-                }
-                Divider()
-                Button("Click Wherever the Pointer Is") { select(insert(.click(button: .left, x: nil, y: nil, count: 1))) }
-                Button("Double-Click Wherever the Pointer Is") { select(insert(.click(button: .left, x: nil, y: nil, count: 2))) }
-                Button("Right-Click Wherever the Pointer Is") { select(insert(.click(button: .right, x: nil, y: nil, count: 1))) }
-                Button("Stop When Words Appear…") {
-                    var step = ImageStep(png: Data(), width: 0, height: 0, originX: 0, originY: 0)
-                    step.text = ""
-                    select(insert(.findImage(Self.stopStep(step)), delay: 0))
-                }
-                Button("Stop When a Picture Appears…") { addPictureStep(stop: true) }
-                Button("Repeat From an Earlier Step") {
-                    if let first = editing.groups.first.flatMap(editing.actionStepID) {
-                        select(insert(.repeatFrom(step: first, times: 2), delay: 0))
-                    }
-                }
-                .disabled(macro.steps.isEmpty)
-                Divider()
-                Button("Scroll Down") { select(insert(.scroll(dx: 0, dy: -100))) }
-                Button("Scroll Up") { select(insert(.scroll(dx: 0, dy: 100))) }
-                Divider()
-                Button("Press Return") { insertKeyPress(36) }
-                Button("Press Space") { insertKeyPress(49) }
-                Button("Press Tab") { insertKeyPress(48) }
-                Button("Press Esc") { insertKeyPress(53) }
-            } label: {
-                Text("More")
-            }
-            .fixedSize()
-            .help("Other kinds of steps")
 
-            Spacer(minLength: 4)
-            Menu {
-                Button("Remove All Mouse Moves") {
-                    macro.steps = Player.removingMoves(macro.steps)
-                    selection.removeAll()
-                }
-                Divider()
-                Button("Halve All Delays (2× faster)") { scaleDelays(0.5) }
-                Button("Double All Delays (2× slower)") { scaleDelays(2) }
-                Button("Cap Delays at 1 Second") { capDelays(1) }
-                Button("Set Delay of \(selection.isEmpty ? "All" : "Selected") Steps…") { ui.showingBulkDelay = true }
-                Divider()
-                Button("Select All") { selection = Set(macro.steps.map(\.id)) }
-                Button("Combine Selected Pictures into One Step") { editing.combinePictures() }
-                    .disabled(editing.combinablePictures.count < 2)
-                Button("Click Selected Steps' Spots Instead") { editing.setSpotOnly(nil, true) }
-                    .disabled(editing.clickFinders(nil).isEmpty)
-                Button("Find Selected Steps' Pictures Again") { editing.setSpotOnly(nil, false) }
-                    .disabled(editing.clickFinders(nil).isEmpty)
-                Menu("Move Selected Steps") {
-                    Button("To Top  ⌥⇧⌘↑") { editing.move(nil, .top) }.disabled(!editing.canMove(nil, .top))
-                    Button("Up  ⌥⌘↑") { editing.move(nil, .up) }.disabled(!editing.canMove(nil, .up))
-                    Button("Down  ⌥⌘↓") { editing.move(nil, .down) }.disabled(!editing.canMove(nil, .down))
-                    Button("To Bottom  ⌥⇧⌘↓") { editing.move(nil, .bottom) }.disabled(!editing.canMove(nil, .bottom))
-                }
-                .disabled(selection.isEmpty)
-                Button("Delete Selected Steps", role: .destructive) { deleteSelected() }.disabled(selection.isEmpty)
-                Divider()
-                let narrow = model.narrowableSteps(in: macro)
-                Button(narrow.isEmpty ? "Narrow Searches to Where Things Show Up"
-                                      : "Narrow \(narrow.count) Search\(narrow.count == 1 ? "" : "es") to Where Things Show Up") {
-                    narrowSearches(narrow)
-                }
-                .disabled(narrow.isEmpty)
-                .help("Steps that kept showing up in one part of the window will only look there: faster, and fewer look-alikes.")
-                Button("Stuck Screens…") { ui.showingStuck = true }
-                Button("Autopilot (Experimental)…") { ui.showingAutopilot = true }
-                Divider()
-                Button("Duplicate Macro") { model.duplicate(macro) }
-                Button("Export…") { model.export(macro) }
-                Button("Show Macro Files in Finder") { model.revealMacroFolder() }
-                Divider()
-                Button("Delete Macro", role: .destructive) { model.delete(macro) }
-            } label: {
-                Image(systemName: "ellipsis.circle")
-            }
-            .menuIndicator(.hidden)
-            .fixedSize()
-            .help("More actions")
+            moreMenu
         }
         .popover(isPresented: $ui.showingBulkDelay) {
             HStack {
@@ -514,6 +533,62 @@ struct MacroDetailView: View {
             }
             .padding()
         }
+    }
+
+    /// Everything else, grouped: the selected steps, timing, improving from past runs, and the macro itself.
+    private var moreMenu: some View {
+        Menu {
+            Section("Selected steps") {
+                Menu("Move") {
+                    Button("To Top  ⌥⇧⌘↑") { editing.move(nil, .top) }.disabled(!editing.canMove(nil, .top))
+                    Button("Up  ⌥⌘↑") { editing.move(nil, .up) }.disabled(!editing.canMove(nil, .up))
+                    Button("Down  ⌥⌘↓") { editing.move(nil, .down) }.disabled(!editing.canMove(nil, .down))
+                    Button("To Bottom  ⌥⇧⌘↓") { editing.move(nil, .bottom) }.disabled(!editing.canMove(nil, .bottom))
+                }
+                .disabled(selection.isEmpty)
+                Button("Click Their Spots Instead") { editing.setSpotOnly(nil, true) }
+                    .disabled(editing.clickFinders(nil).isEmpty)
+                Button("Find Their Pictures Again") { editing.setSpotOnly(nil, false) }
+                    .disabled(editing.clickFinders(nil).isEmpty)
+                Button("Combine Pictures into One Step") { editing.combinePictures() }
+                    .disabled(editing.combinablePictures.count < 2)
+                Button("Delete", role: .destructive) { deleteSelected() }.disabled(selection.isEmpty)
+                Button("Select All") { selection = Set(macro.steps.map(\.id)) }
+            }
+            Menu("Timing") {
+                Button("Set Delay of \(selection.isEmpty ? "All" : "Selected") Steps…") { ui.showingBulkDelay = true }
+                Button("Halve All Delays (2× faster)") { scaleDelays(0.5) }
+                Button("Double All Delays (2× slower)") { scaleDelays(2) }
+                Button("Cap Delays at 1 Second") { capDelays(1) }
+                Divider()
+                Button("Remove All Mouse Moves") {
+                    macro.steps = Player.removingMoves(macro.steps)
+                    selection.removeAll()
+                }
+            }
+            Menu("Improve") {
+                let narrow = model.narrowableSteps(in: macro)
+                Button(narrow.isEmpty ? "Narrow Searches to Where Things Show Up"
+                                      : "Narrow \(narrow.count) Search\(narrow.count == 1 ? "" : "es") to Where Things Show Up") {
+                    narrowSearches(narrow)
+                }
+                .disabled(narrow.isEmpty)
+                Button("Stuck Screens…") { ui.showingStuck = true }
+                Button("Autopilot (Experimental)…") { ui.showingAutopilot = true }
+            }
+            Divider()
+            Toggle("Show Raw Events", isOn: Binding(get: { mode == .raw }, set: { viewMode = $0 ? Mode.raw.rawValue : Mode.actions.rawValue }))
+            Button("Duplicate Macro") { model.duplicate(macro) }
+            Button("Export…") { model.export(macro) }
+            Button("Show Macro Files in Finder") { model.revealMacroFolder() }
+            Divider()
+            Button("Delete Macro", role: .destructive) { model.delete(macro) }
+        } label: {
+            Image(systemName: "ellipsis.circle")
+        }
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("More: selected steps, timing, improving from past runs, and the macro")
     }
 
     // MARK: Steps
@@ -544,28 +619,31 @@ struct MacroDetailView: View {
                 guard let c = PictureCrop.crop(rect, from: item.image) else { return }
                 var pic = ImageStep(png: c.png, width: c.width, height: c.height,
                                     originX: Double(rect.minX), originY: Double(rect.minY))
-                if ui.addingStop { pic = Self.stopStep(pic) }
-                ui.addingStop = false
-                select(insert(.findImage(pic), delay: macro.steps.isEmpty ? 0 : 0.1))
+                switch ui.picking {
+                case .step:
+                    select(insert(.findImage(pic), delay: macro.steps.isEmpty ? 0 : 0.1))
+                case .killswitch:
+                    pic.mode = .stop
+                    pic.area = macro.playback.stopWhen?.area
+                    macro.playback.stopWhen = pic
+                    ui.showingPlayback = true
+                case .killswitchArea:
+                    macro.playback.stopWhen?.area = rect.integral
+                    ui.showingPlayback = true
+                }
+                ui.picking = .step
             } onCancel: {
                 ui.pictureSource = nil
-                ui.addingStop = false
+                if ui.picking != .step { ui.showingPlayback = true }
+                ui.picking = .step
             }
         }
     }
 
-    /// A stop condition: looks briefly each time it's reached, and ends the macro if it's there.
-    static func stopStep(_ s: ImageStep) -> ImageStep {
-        var s = s
-        s.mode = .stop
-        s.timeout = 1
-        s.otherwise = .continueAnyway
-        return s
-    }
-
-    /// Screenshot the target window, then let the user box the picture to look for.
-    private func addPictureStep(stop: Bool = false) {
-        ui.addingStop = stop
+    /// Screenshot the target window, then let the user box the picture to look for (or the killswitch).
+    private func addPictureStep(for purpose: DetailUIState.Picking = .step) {
+        ui.picking = purpose
+        if purpose != .step { ui.showingPlayback = false }
         guard let app = macro.target.app else {
             model.flash("Choose the app to watch first (Target button).")
             ui.showingTarget = true
@@ -748,8 +826,9 @@ final class DetailUIState: ObservableObject {
     @Published var showingPlayback = false
     /// Screenshot to pick a new picture step from.
     @Published var pictureSource: NSImage?
-    /// The picture being picked is for a “Stop when it appears” step.
-    var addingStop = false
+    /// What the picture being boxed is for.
+    enum Picking { case step, killswitch, killswitchArea }
+    var picking = Picking.step
     /// Picture step whose editor is open.
     @Published var editingPicture: UUID?
     @Published var showingTarget = false

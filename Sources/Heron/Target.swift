@@ -29,6 +29,15 @@ enum DeliveryMode: String, Codable, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
+    /// What's offered: leaving the cursor wherever the last click was isn't a useful choice, so “Normal” is gone
+    /// (macros saved with it load as Jump & return).
+    static let choices: [DeliveryMode] = [.jumpReturn, .background]
+
+    init(from decoder: Decoder) throws {
+        let raw = try decoder.singleValueContainer().decode(String.self)
+        self = raw == "normal" ? .jumpReturn : DeliveryMode(rawValue: raw) ?? .jumpReturn
+    }
+
     var label: String {
         switch self {
         case .normal: "Normal"
@@ -49,7 +58,7 @@ enum DeliveryMode: String, Codable, CaseIterable, Identifiable {
 struct TargetOptions: Codable, Equatable {
     /// When set, all coordinates are relative to this app's window's top-left corner.
     var app: TargetApp?
-    var delivery: DeliveryMode = .normal
+    var delivery: DeliveryMode = .jumpReturn
     var activateFirst = true
     var pauseWhenInactive = false
     /// Jump & return only: wait for the user's mouse to be still this long before each jump.
