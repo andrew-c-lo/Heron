@@ -391,5 +391,39 @@ if mconv.steps.count == 1, case .findImage(let f) = mconv.steps[0].action {
 let words = ClickReader.both(in: px, at: CGPoint(x: boxes["Settings"]!.midX, y: boxes["Settings"]!.midY))
 check("a click on a word keeps the word (and a picture when the spot has detail)", words?.text == "Settings")
 
+// Reordering: an action (with its cursor travel) moves as a whole.
+var orderMacro = Macro(name: "o", steps: [
+    MacroStep(delay: 0.1, action: .click(button: .left, x: 1, y: 1, count: 1)),
+    MacroStep(delay: 0.2, action: .move(x: 5, y: 5)),
+    MacroStep(delay: 0.1, action: .click(button: .left, x: 2, y: 2, count: 1)),
+    MacroStep(delay: 0.1, action: .findImage(settingsPicStep))])
+let oui = DetailUIState()
+let oedit = ActionEditing(macro: Binding(get: { orderMacro }, set: { orderMacro = $0 }), ui: oui)
+func order() -> [String] { ActionGrouper.groups(for: orderMacro.steps).map { g in
+    switch g.kind { case .click(_, _, let at?, _): "c\(Int(at.x))"; case .image: "pic"; default: "?" } } }
+check("starts as click 1, click 2, picture", order() == ["c1", "c2", "pic"], "\(order())")
+let picGroup = ActionGrouper.groups(for: orderMacro.steps)[2]
+check("the last action can move up but not down", oedit.canMove(picGroup, .up) && !oedit.canMove(picGroup, .down))
+oedit.move(picGroup, .top)
+check("Move to Top makes the picture step 1", order() == ["pic", "c1", "c2"], "\(order())")
+check("…and click 2 keeps its cursor travel", orderMacro.steps.count == 4 && { if case .move = orderMacro.steps[2].action { return true }; return false }())
+oedit.select(ActionGrouper.groups(for: orderMacro.steps)[0])
+oedit.move(nil, .down)
+check("Move Down on the selection", order() == ["c1", "pic", "c2"], "\(order())")
+oedit.move(nil, .bottom)
+check("Move to Bottom on the selection", order() == ["c1", "c2", "pic"], "\(order())")
+oedit.move(nil, .up)
+check("Move Up on the selection", order() == ["c1", "pic", "c2"], "\(order())")
+
+// Stop conditions save and load, and read clearly.
+var stopStep = ImageStep(png: Data(), width: 0, height: 0, originX: 0, originY: 0)
+stopStep.text = "Lv 30"; stopStep.mode = .stop; stopStep.timeout = 1
+let stop2 = try! JSONDecoder().decode(ImageStep.self, from: JSONEncoder().encode(stopStep))
+check("a stop step saves and loads", stop2.mode == .stop && stop2.text == "Lv 30")
+let stopGroup = ActionGroup(id: UUID(), range: 0..<1, lead: 0...0, wait: 0, start: 0, kind: .image(stop2))
+check("a stop step reads “Stop when “Lv 30” appears”", stopGroup.title(touch: true) == "Stop when “Lv 30” appears", stopGroup.title(touch: true))
+check("…looks briefly, then carries on", stopGroup.detail?.hasPrefix("looks for 1s, then carries on") ?? false, stopGroup.detail ?? "")
+check("a done message is told apart from an error", Player.isDone(Player.done("“Lv 30” appeared")) && !Player.isDone("Stopped: oops"))
+
 print(failures == 0 ? "ALL PASSED" : "\(failures) FAILED")
 exit(failures == 0 ? 0 : 1)

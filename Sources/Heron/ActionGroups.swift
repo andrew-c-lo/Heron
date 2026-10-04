@@ -66,11 +66,12 @@ struct ActionGroup: Identifiable {
                 case .click: return (touch ? "Tap " : "Click ") + t + (s.repeatUntilGone ? " until it's gone" : "")
                 case .appear: return "Wait for " + t
                 case .gone: return "Wait until " + t + " is gone"
+                case .stop: return "Stop when " + t + " appears"
                 }
             }
             switch s.mode {
             case .click: return (touch ? "Tap" : "Click") + " the picture" + (s.repeatUntilGone ? " until it's gone" : "")
-            case .appear, .gone: return s.mode.label
+            case .appear, .gone, .stop: return s.mode.label
             }
         case .move: return "Move the mouse"
         case .repeatFrom(_, let n): return "Repeat from an earlier step, \(n)×"
@@ -82,6 +83,10 @@ struct ActionGroup: Identifiable {
         switch kind {
         case .drag(_, let from, let to): "\(Self.fmt(from)) → \(Self.fmt(to))"
         case .scroll(_, _, let at?): "at \(Self.fmt(at))"
+        case .image(let s) where s.mode == .stop:
+            (s.untilAppears ? "keeps looking until it does" : "looks for \(s.timeout.formatted())s, then carries on")
+                + (!s.usesPicture ? "" : " · \(Int((s.strictness * 100).rounded()))% match")
+                + (s.area == nil ? "" : " · in an area")
         case .image(let s):
             (s.untilAppears ? (s.mode == .gone ? "no time limit" : "whenever it appears")
                             : "up to \(s.timeout.formatted())s, else "

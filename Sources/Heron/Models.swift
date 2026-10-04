@@ -255,13 +255,15 @@ struct PictureVariant: Codable, Equatable {
 
 struct ImageStep: Codable, Equatable {
     enum Mode: String, Codable, CaseIterable, Identifiable {
-        case click, appear, gone
+        /// `stop`: when it shows up, the macro has done its job and stops (e.g. a level cap reached).
+        case click, appear, gone, stop
         var id: String { rawValue }
         var label: String {
             switch self {
             case .click: "Click the picture"
             case .appear: "Wait for the picture"
             case .gone: "Wait until the picture is gone"
+            case .stop: "Stop when the picture appears"
             }
         }
         var menuLabel: String {
@@ -269,6 +271,7 @@ struct ImageStep: Codable, Equatable {
             case .click: "Click it"
             case .appear: "Just wait for it"
             case .gone: "Wait until it's gone"
+            case .stop: "Stop the macro"
             }
         }
         var icon: String {
@@ -276,6 +279,7 @@ struct ImageStep: Codable, Equatable {
             case .click: "viewfinder"
             case .appear: "eye"
             case .gone: "eye.slash"
+            case .stop: "stop.circle"
             }
         }
     }

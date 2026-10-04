@@ -104,7 +104,11 @@ struct PictureStepEditor: View {
                 Picker("When it's found", selection: step.mode) {
                     ForEach(ImageStep.Mode.allCases) { Text($0.menuLabel).tag($0) }
                 }
-                if allAtOnce && s.mode != .click {
+                if s.mode == .stop {
+                    Text("When it shows up, the macro has done its job and stops, with a notification. Use it for a goal, like a level cap.")
+                        .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                }
+                if allAtOnce && s.mode != .click && s.mode != .stop {
                     Label("This chain runs All at once, which only uses steps that click. This step is skipped.",
                           systemImage: "exclamationmark.triangle.fill")
                         .font(.callout).foregroundStyle(.orange)
@@ -137,7 +141,17 @@ struct PictureStepEditor: View {
                 }
             }
 
-            if !allAtOnce {
+            if !allAtOnce && s.mode == .stop {
+            Section("If it isn't there") {
+                Picker("Look", selection: step.untilAppears) {
+                    Text("Briefly, then carry on").tag(false)
+                    Text("Until it appears").tag(true)
+                }
+                if !s.untilAppears {
+                    seconds("Look for", "Then the macro carries on with the next step.", step.timeout)
+                }
+            }
+            } else if !allAtOnce {
             Section("If it doesn't happen") {
                 Picker("Wait", selection: step.untilAppears) {
                     Text("As long as it takes").tag(true)

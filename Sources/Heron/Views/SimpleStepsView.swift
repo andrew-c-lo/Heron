@@ -85,7 +85,8 @@ struct ActionEditing {
     /// How a picture step behaves when the chain runs All at once (nil otherwise).
     func allAtOnceDetail(_ g: ActionGroup) -> String? {
         guard macro.wrappedValue.playback.order == .allAtOnce, case .image(let s) = g.kind else { return nil }
-        guard s.mode == .click else { return "Skipped in All at once (only steps that click are used)" }
+        if s.mode == .stop { return "Stops the chain as soon as it appears" }
+        guard s.mode == .click else { return "Skipped in All at once (only steps that click or stop are used)" }
         let how = s.repeatUntilGone ? "every \(s.repeatEvery.formatted())s while it's showing" : "once each time it appears"
         return "Whenever it appears, \(how)" + (!s.usesPicture ? "" : " · \(Int((s.strictness * 100).rounded()))% match")
     }
@@ -169,6 +170,38 @@ struct ActionEditing {
         guard g.range.upperBound <= steps.count else { return }
         macro.wrappedValue.steps.removeSubrange(g.range)
         ui.selection.removeAll()
+    }
+
+    enum MoveDirection { case top, up, down, bottom }
+
+    /// The positions (in `groups`) of what a move acts on: `g` alone unless it's part of the selection.
+    private func moving(_ g: ActionGroup?, in gs: [ActionGroup]) -> IndexSet {
+        if let g, !isSelected(g) { return IndexSet(gs.firstIndex { $0.id == g.id }.map { [$0] } ?? []) }
+        return IndexSet(gs.indices.filter { isSelected(gs[$0]) })
+    }
+
+    func canMove(_ g: ActionGroup?, _ d: MoveDirection) -> Bool {
+        let gs = groups, idx = moving(g, in: gs)
+        guard let first = idx.first, let last = idx.last else { return false }
+        let block = last - first + 1 == idx.count
+        switch d {
+        case .top, .up: return first > 0 || !block
+        case .down, .bottom: return last < gs.count - 1 || !block
+        }
+    }
+
+    /// Moves an action (or the selected ones, together) to the top, up one, down one or to the bottom.
+    func move(_ g: ActionGroup?, _ d: MoveDirection) {
+        let gs = groups, idx = moving(g, in: gs)
+        guard let first = idx.first, let last = idx.last else { return }
+        let to: Int
+        switch d {
+        case .top: to = 0
+        case .up: to = max(0, first - 1)
+        case .down: to = min(gs.count, last + 2)
+        case .bottom: to = gs.count
+        }
+        move(gs, from: idx, to: to)
     }
 
     func move(_ groups: [ActionGroup], from: IndexSet, to: Int) {
@@ -262,12 +295,17 @@ struct SimpleStepsList: View {
                               compact: true,
                               hits: hits(g, ran: ran))
                         .tag(g.id)
-                        .contextMenu {
-                            ActionMenu(group: g, editing: editing, onShowRaw: onShowRaw, onAddColorCheck: onAddColorCheck,
-                                       onEditPicture: onEditPicture)
-                        }
                 }
                 .onMove { editing.move(groups, from: $0, to: $1) }
+            }
+            // The list's own right-click menu and double-click keep single-click selection and dragging working.
+            .contextMenu(forSelectionType: UUID.self) { ids in
+                if let g = groups.first(where: { ids.contains($0.id) }) {
+                    ActionMenu(group: g, editing: editing, onShowRaw: onShowRaw, onAddColorCheck: onAddColorCheck,
+                               onEditPicture: onEditPicture)
+                }
+            } primaryAction: { ids in
+                if let g = groups.first(where: { ids.contains($0.id) }), case .image = g.kind { onEditPicture(g) }
             }
             .listStyle(.inset(alternatesRowBackgrounds: true))
             .onDeleteCommand(perform: onDelete)
@@ -300,6 +338,11 @@ struct ActionMenu: View {
             Button(editing.isTouch ? "Only Tap If the Color Matches…" : "Only Click If the Color Matches…") { onAddColorCheck(group) }
         }
         Button("Show Raw Steps") { onShowRaw(group) }
+        Divider()
+        Button("Move to Top") { editing.move(group, .top) }.disabled(!editing.canMove(group, .top))
+        Button("Move Up") { editing.move(group, .up) }.disabled(!editing.canMove(group, .up))
+        Button("Move Down") { editing.move(group, .down) }.disabled(!editing.canMove(group, .down))
+        Button("Move to Bottom") { editing.move(group, .bottom) }.disabled(!editing.canMove(group, .bottom))
         Divider()
         Button("Delete", role: .destructive) { editing.delete(group) }
     }
@@ -418,9 +461,8 @@ struct ActionRow: View {
         .opacity(group.enabled ? 1 : 0.45)
         .contentShape(Rectangle())
         .onHover { h in withAnimation(Motion.snap(reduceMotion)) { hover.hovering = h } }
-        .simultaneousGesture(TapGesture(count: 2).onEnded {
-            if case .image = group.kind { onEditPicture() }
-        })
+        // No tap gestures here: in a List they take the mouse away from row selection and drag-to-reorder.
+        // Double-click is the list's primary action instead.
     }
 
     private var isPause: Bool {

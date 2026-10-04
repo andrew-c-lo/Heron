@@ -21,6 +21,10 @@ enum RouteBuilder {
 
 /// Replays a macro on a background thread.
 final class Player {
+    /// Marks a finish message as success (a stop condition was reached), not a problem.
+    static let donePrefix = "\u{2713} "
+    static func done(_ what: String) -> String { donePrefix + "Done: \(what)." }
+    static func isDone(_ message: String) -> Bool { message.hasPrefix(donePrefix) }
     private var token: CancelToken?
 
     var isRunning: Bool { token != nil }
@@ -133,6 +137,22 @@ final class Player {
                             let result = Self.runPictureStep(pic, performer: performer, resolver: resolver, token: token,
                                                              onFound: { r in Task { @MainActor in clicked(stepID, r) } })
                             Task { @MainActor in waiting(nil) }
+                            if pic.mode == .stop {
+                                // A stop condition: seen means done; not seen means carry on.
+                                switch result {
+                                case .cancelled: break outer
+                                case .unreadable:
+                                    error = "Couldn't see \(resolver.app.name). Picture steps need Screen Recording permission."
+                                    break outer
+                                case .matched:
+                                    Task { @MainActor in clicked(stepID, nil) }
+                                    error = Self.done("\(looking) appeared")
+                                    break outer
+                                case .timedOut:
+                                    t = Timing.now()
+                                    continue
+                                }
+                            }
                             switch result {
                             case .cancelled: break outer
                             case .unreadable:
@@ -243,8 +263,13 @@ final class Player {
             guard case .findImage(let p) = s.action, p.mode == .click, let l = Lookup(step: p) else { return nil }
             return Item(index: i, step: p, lookup: l)
         }
+        // Stop conditions: the chain ends as soon as one of these shows up.
+        let stops: [Item] = steps.enumerated().compactMap { i, s in
+            guard case .findImage(let p) = s.action, p.mode == .stop, let l = Lookup(step: p) else { return nil }
+            return Item(index: i, step: p, lookup: l)
+        }
         guard !items.isEmpty else { return "“All at once” needs at least one picture step set to click." }
-        let hasText = items.contains { $0.lookup.hasText }
+        let hasText = items.contains { $0.lookup.hasText } || stops.contains { $0.lookup.hasText }
         var lines: [TextFinder.Line] = []
         var lastTextRead = -Double.infinity
         var textFound: [Int: CGRect?] = [:]
@@ -284,6 +309,16 @@ final class Player {
                 // (reading text takes far longer than matching a picture).
                 let readText = hasText && tick - lastTextRead >= 0.2
                 if readText { lines = TextFinder.read(frame.pixels); lastTextRead = tick }
+                for it in stops {
+                    var seen = it.lookup.hasPicture && it.lookup.locatePicture(in: frame.pixels, scene: scene) != nil
+                    if !seen, let text = it.lookup.text, !text.isEmpty {
+                        seen = TextFinder.find(text, in: lines, area: it.step.area) != nil
+                    }
+                    if seen {
+                        let what = it.step.isText && !it.step.usesPicture ? "“\(it.step.text!.trimmingCharacters(in: .whitespaces))”" : "Step \(it.index + 1)'s picture"
+                        return Self.done("\(what) appeared")
+                    }
+                }
                 for it in items {
                     // The picture first (fast); then, for text or “Both”, the words.
                     if it.lookup.hasPicture, let r = it.lookup.locatePicture(in: frame.pixels, scene: scene) {
@@ -376,6 +411,19 @@ final class Player {
             performer.spreadBounds = nil
         }
         func pause(_ seconds: Double) -> Bool { Timing.wait(until: Timing.now() + seconds, token) }
+
+        if s.mode == .stop {
+            // Only looks: found means the macro is done.
+            while true {
+                if token.isCancelled { return .cancelled }
+                switch look() {
+                case .unreadable: return .unreadable
+                case .found: return .matched
+                case .missing: break
+                }
+                if Timing.now() >= deadline { return .timedOut }
+            }
+        }
 
         if s.mode == .gone {
             while true {

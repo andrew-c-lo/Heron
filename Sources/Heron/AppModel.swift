@@ -617,7 +617,11 @@ final class AppModel: ObservableObject {
             self.saveRunReport(macroID)
             self.playingMacroID = nil
             self.playWaitingColor = nil
-            if let error {
+            if let error, Player.isDone(error) {
+                let text = String(error.dropFirst(Player.donePrefix.count))
+                self.flash(text); self.sound("Glass")
+                Notifier.post(macro.name, text, enabled: self.prefs.notifyWhenStopped)
+            } else if let error {
                 self.flash(error); self.sound("Basso")
                 Notifier.post(macro.name, error, enabled: self.prefs.notifyWhenStopped)
             }
@@ -884,7 +888,11 @@ final class AppModel: ObservableObject {
             self.backgroundPlayers[id] = nil
             self.backgroundRunning.remove(id)
             let name = self.macros.first { $0.id == id }?.name ?? "Macro"
-            if let error {
+            if let error, Player.isDone(error) {
+                let text = String(error.dropFirst(Player.donePrefix.count))
+                self.flash("“\(name)”: \(text)"); self.sound("Glass")
+                Notifier.post(name, text, enabled: self.prefs.notifyWhenStopped)
+            } else if let error {
                 self.flash("“\(name)”: \(error)"); self.sound("Basso")
                 Notifier.post(name, error, enabled: self.prefs.notifyWhenStopped)
             } else if m.playback.maxClicks > 0, (self.backgroundClicks[id] ?? 0) >= m.playback.maxClicks {

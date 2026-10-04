@@ -60,6 +60,18 @@ struct MacroDetailView: View {
                 .onChange(of: g.size.width) { _, w in updateCompact(w) }
         })
         .onAppear { model.loadStuck(for: macro.id); model.loadFoundHistory(for: macro) }
+        .background {
+            // Keyboard shortcuts for moving the selected steps.
+            Group {
+                Button("") { editing.move(nil, .up) }.keyboardShortcut(.upArrow, modifiers: [.command, .option])
+                Button("") { editing.move(nil, .down) }.keyboardShortcut(.downArrow, modifiers: [.command, .option])
+                Button("") { editing.move(nil, .top) }.keyboardShortcut(.upArrow, modifiers: [.command, .option, .shift])
+                Button("") { editing.move(nil, .bottom) }.keyboardShortcut(.downArrow, modifiers: [.command, .option, .shift])
+            }
+            .opacity(0)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+        }
         .sheet(isPresented: $ui.showingPresses) {
             PressSuggestionsView(macroID: macro.id, inOrder: macro.playback.order != .allAtOnce, onAdd: { step in
                 select(insert(.findImage(step), delay: 0.1))
@@ -353,6 +365,15 @@ struct MacroDetailView: View {
             if macro.playback.repeatMode != .once {
                 NumberField(title: "Wait between loops", value: pb.loopDelay, unit: "s")
                 NumberField(title: "Plus a random extra of up to", value: pb.loopDelayRandom, unit: "s")
+                if let first = editing.groups.first, case .image(let p) = first.kind, p.mode != .gone, p.mode != .stop,
+                   p.untilAppears {
+                    Label("Each loop starts when step 1 appears: Heron idles until then, however long the last run took.",
+                          systemImage: "viewfinder")
+                        .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                } else {
+                    Text("Tip: make step 1 a picture that waits until it appears, and each loop starts when it shows up instead of on a timer.")
+                        .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                }
             }
             Divider()
             Toggle("Skip mouse moves", isOn: pb.skipMouseMoves)
@@ -402,6 +423,12 @@ struct MacroDetailView: View {
                 Button("Click Wherever the Pointer Is") { select(insert(.click(button: .left, x: nil, y: nil, count: 1))) }
                 Button("Double-Click Wherever the Pointer Is") { select(insert(.click(button: .left, x: nil, y: nil, count: 2))) }
                 Button("Right-Click Wherever the Pointer Is") { select(insert(.click(button: .right, x: nil, y: nil, count: 1))) }
+                Button("Stop When Words Appear…") {
+                    var step = ImageStep(png: Data(), width: 0, height: 0, originX: 0, originY: 0)
+                    step.text = ""
+                    select(insert(.findImage(Self.stopStep(step)), delay: 0))
+                }
+                Button("Stop When a Picture Appears…") { addPictureStep(stop: true) }
                 Button("Repeat From an Earlier Step") {
                     if let first = editing.groups.first.flatMap(editing.actionStepID) {
                         select(insert(.repeatFrom(step: first, times: 2), delay: 0))
@@ -437,6 +464,13 @@ struct MacroDetailView: View {
                 Button("Select All") { selection = Set(macro.steps.map(\.id)) }
                 Button("Combine Selected Pictures into One Step") { editing.combinePictures() }
                     .disabled(editing.combinablePictures.count < 2)
+                Menu("Move Selected Steps") {
+                    Button("To Top  ⌥⇧⌘↑") { editing.move(nil, .top) }.disabled(!editing.canMove(nil, .top))
+                    Button("Up  ⌥⌘↑") { editing.move(nil, .up) }.disabled(!editing.canMove(nil, .up))
+                    Button("Down  ⌥⌘↓") { editing.move(nil, .down) }.disabled(!editing.canMove(nil, .down))
+                    Button("To Bottom  ⌥⇧⌘↓") { editing.move(nil, .bottom) }.disabled(!editing.canMove(nil, .bottom))
+                }
+                .disabled(selection.isEmpty)
                 Button("Delete Selected Steps", role: .destructive) { deleteSelected() }.disabled(selection.isEmpty)
                 Divider()
                 let narrow = model.narrowableSteps(in: macro)
@@ -483,7 +517,7 @@ struct MacroDetailView: View {
     private var stepsList: some View {
         Group {
             if macro.steps.isEmpty {
-                EmptyMacroPrompt(appName: macro.target.app?.name, onAddPicture: addPictureStep,
+                EmptyMacroPrompt(appName: macro.target.app?.name, onAddPicture: { addPictureStep() },
                                  onRecord: { model.toggleRecording(fromUI: true) })
             } else {
                 switch mode {
@@ -504,17 +538,30 @@ struct MacroDetailView: View {
             RegionPickerSheet(image: item.image) { rect in
                 ui.pictureSource = nil
                 guard let c = PictureCrop.crop(rect, from: item.image) else { return }
-                let pic = ImageStep(png: c.png, width: c.width, height: c.height,
+                var pic = ImageStep(png: c.png, width: c.width, height: c.height,
                                     originX: Double(rect.minX), originY: Double(rect.minY))
+                if ui.addingStop { pic = Self.stopStep(pic) }
+                ui.addingStop = false
                 select(insert(.findImage(pic), delay: macro.steps.isEmpty ? 0 : 0.1))
             } onCancel: {
                 ui.pictureSource = nil
+                ui.addingStop = false
             }
         }
     }
 
+    /// A stop condition: looks briefly each time it's reached, and ends the macro if it's there.
+    static func stopStep(_ s: ImageStep) -> ImageStep {
+        var s = s
+        s.mode = .stop
+        s.timeout = 1
+        s.otherwise = .continueAnyway
+        return s
+    }
+
     /// Screenshot the target window, then let the user box the picture to look for.
-    private func addPictureStep() {
+    private func addPictureStep(stop: Bool = false) {
+        ui.addingStop = stop
         guard let app = macro.target.app else {
             model.flash("Choose the app to watch first (Target button).")
             ui.showingTarget = true
@@ -697,6 +744,8 @@ final class DetailUIState: ObservableObject {
     @Published var showingPlayback = false
     /// Screenshot to pick a new picture step from.
     @Published var pictureSource: NSImage?
+    /// The picture being picked is for a “Stop when it appears” step.
+    var addingStop = false
     /// Picture step whose editor is open.
     @Published var editingPicture: UUID?
     @Published var showingTarget = false
