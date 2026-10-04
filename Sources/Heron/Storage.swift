@@ -91,12 +91,19 @@ struct MacroStore {
 
     func importMacro(from url: URL) throws -> Macro {
         let data = try Data(contentsOf: url)
+        // Only files that are macros: other JSON would otherwise fill in as an empty one.
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any], object["steps"] is [Any] else {
+            throw CocoaError(.fileReadCorruptFile)
+        }
         guard var m = Lenient.decode(data, defaults: Macro(name: url.deletingPathExtension().lastPathComponent, steps: []),
                                      encoder: Self.encoder, decoder: Self.decoder) else {
             throw CocoaError(.fileReadCorruptFile)
         }
+        m = m.migrated()
         m.id = UUID()
         m.created = Date()
+        // Someone else's macro doesn't start on its own until you switch its schedule on.
+        m.schedule?.enabled = false
         return m
     }
 }
@@ -121,9 +128,51 @@ enum Lenient {
                                    encoder: JSONEncoder = JSONEncoder(), decoder: JSONDecoder = JSONDecoder()) -> T? {
         if let v = try? decoder.decode(T.self, from: data) { return v }
         guard let stored = try? JSONSerialization.jsonObject(with: data),
-              let base = try? JSONSerialization.jsonObject(with: encoder.encode(defaults)),
-              let merged = try? JSONSerialization.data(withJSONObject: merge(base, stored)) else { return nil }
-        return try? decoder.decode(T.self, from: merged)
+              let base = try? JSONSerialization.jsonObject(with: encoder.encode(defaults)) else { return nil }
+        var merged = merge(base, stored)
+        // Still unreadable (a value this version doesn't know, say from a newer Heron, or a damaged file): put the
+        // default back at exactly the spot the decoder complains about, or drop that one list item, and try again.
+        // Losing one setting beats the whole macro vanishing from the list.
+        for _ in 0..<50 {
+            guard let json = try? JSONSerialization.data(withJSONObject: merged) else { return nil }
+            do { return try decoder.decode(T.self, from: json) } catch let error as DecodingError {
+                guard let path = Self.path(of: error), !path.isEmpty,
+                      let fixed = Self.repair(merged, base: base, at: path) else { return nil }
+                merged = fixed
+            } catch { return nil }
+        }
+        return nil
+    }
+
+    private static func path(of error: DecodingError) -> [CodingKey]? {
+        switch error {
+        case .typeMismatch(_, let c), .valueNotFound(_, let c), .dataCorrupted(let c): c.codingPath
+        case .keyNotFound(_, let c): c.codingPath
+        @unknown default: nil
+        }
+    }
+
+    /// `value` with the item at `path` replaced by the default (or removed when there's no default for it).
+    private static func repair(_ value: Any, base: Any?, at path: [CodingKey]) -> Any? {
+        guard let key = path.first else { return base }
+        let rest = Array(path.dropFirst())
+        if var dict = value as? [String: Any] {
+            let b = (base as? [String: Any])?[key.stringValue]
+            if rest.isEmpty || dict[key.stringValue] == nil {
+                if let b { dict[key.stringValue] = b } else if dict[key.stringValue] != nil { dict[key.stringValue] = nil } else { return nil }
+                return dict
+            }
+            guard let inner = repair(dict[key.stringValue]!, base: b, at: rest) else { return nil }
+            dict[key.stringValue] = inner
+            return dict
+        }
+        if var list = value as? [Any], let i = key.intValue, list.indices.contains(i) {
+            let b = (base as? [Any]).flatMap { $0.indices.contains(i) ? $0[i] : nil }
+            if rest.isEmpty || b == nil && !(list[i] is [String: Any]) { list.remove(at: i); return list }
+            if let inner = repair(list[i], base: b, at: rest) { list[i] = inner } else { list.remove(at: i) }
+            return list
+        }
+        return nil
     }
 
     private static func merge(_ base: Any, _ over: Any) -> Any {

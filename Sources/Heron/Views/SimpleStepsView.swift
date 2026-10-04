@@ -89,7 +89,7 @@ struct ActionEditing {
         if s.spotOnly { return "Skipped in All at once (set to a fixed spot)" }
         guard s.mode == .click else { return "Skipped in All at once (only steps that click or stop are used)" }
         // The title already says when it's tapped; this is the rhythm and how close a match counts.
-        let how = s.repeatUntilGone ? "Every \(s.repeatEvery.formatted())s" : "Each time it shows"
+        let how = s.repeatUntilGone ? "every \(s.repeatEvery.formatted())s" : "each time it shows"
         return how + (!s.usesPicture ? "" : " · \(Int((s.strictness * 100).rounded()))% match")
     }
 

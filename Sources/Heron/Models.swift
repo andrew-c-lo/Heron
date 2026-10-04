@@ -602,7 +602,7 @@ extension PlaybackOptions {
         stopWhen = try c.decodeIfPresent(ImageStep.self, forKey: .stopWhen)
         stopAtNumber = try c.decodeIfPresent(Int.self, forKey: .stopAtNumber)
         stopAfterStep = try c.decodeIfPresent(UUID.self, forKey: .stopAfterStep)
-        stopAfterCount = try c.decodeIfPresent(Int.self, forKey: .stopAfterCount) ?? 5
+        stopAfterCount = max(1, try c.decodeIfPresent(Int.self, forKey: .stopAfterCount) ?? 5)
         stopIfIdleMinutes = try c.decodeIfPresent(Double.self, forKey: .stopIfIdleMinutes) ?? 0
         stopAfterMinutes = try c.decodeIfPresent(Double.self, forKey: .stopAfterMinutes) ?? 0
         if repeatMode == .duration {
@@ -699,12 +699,15 @@ struct MacroSchedule: Codable, Equatable {
     func summary(appName: String?) -> String {
         switch kind {
         case .daily:
+            guard !weekdays.isEmpty else { return "No days chosen" }
+            guard !times.isEmpty else { return "No times chosen" }
             let t = times.sorted().map(Self.clock).joined(separator: ", ")
             let days = weekdays.count == 7 ? "Daily" : weekdays == Set(2...6) ? "Weekdays" : weekdays == [1, 7] ? "Weekends"
                 : weekdays.sorted().map { Calendar.current.shortWeekdaySymbols[$0 - 1] }.joined(separator: " ")
             return "\(days) at \(t)"
         case .interval:
-            return everyMinutes % 60 == 0 ? "Every \(everyMinutes / 60) h" : "Every \(everyMinutes) min"
+            let every = max(1, everyMinutes)
+            return every % 60 == 0 ? "Every \(every / 60) h" : "Every \(every) min"
         case .appOpens:
             return "When \(appName ?? "the app") opens"
         }
@@ -795,6 +798,15 @@ enum ScreenAwake: String, Codable, CaseIterable, Identifiable {
 }
 
 // MARK: - Formatting
+
+/// A span of time the way a person says it, for limits and run times: “45 s”, “30 min”, “1 h 30 min”.
+func formatSpan(_ seconds: Double) -> String {
+    let s = Int(seconds.rounded())
+    if s < 60 { return "\(max(0, s)) s" }
+    let m = s / 60, h = m / 60
+    if h == 0 { return s % 60 == 0 || m >= 10 ? "\(m) min" : "\(m) min \(s % 60) s" }
+    return m % 60 == 0 ? "\(h) h" : "\(h) h \(m % 60) min"
+}
 
 func formatDuration(_ s: Double) -> String {
     if s < 60 { return String(format: "%.2fs", s) }

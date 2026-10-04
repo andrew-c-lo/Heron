@@ -890,6 +890,7 @@ final class AppModel: ObservableObject {
         if macro.runsInBackground { toggleBackground(macro.id); return }
         guard requireAccessibility() else { return }
         guard !macro.steps.isEmpty else { flash("This macro has no steps."); return }
+        guard macro.steps.contains(where: \.enabled) else { flash("All of this macro's steps are switched off."); return }
         if isRecording { stopRecording(fromUI: false) }
         guard let prep = prepareTarget(macro.target) else { return }
         stopAutoClick()
@@ -1471,7 +1472,9 @@ final class AppModel: ObservableObject {
                 count += 1
             }
         }
-        flash(count > 0 ? "Imported \(count) macro\(count == 1 ? "" : "s")." : "No valid macro files selected.")
+        let scheduled = macros.suffix(count).contains { $0.schedule != nil }
+        flash(count == 0 ? "None of those files is a Heron macro."
+              : "Imported \(count) macro\(count == 1 ? "" : "s")." + (scheduled ? " Schedules stay off until you turn them on." : ""))
     }
 
     func revealMacroFolder() {

@@ -5,6 +5,7 @@ struct MacroDetailView: View {
     @Binding var macro: Macro
     /// Separate from `macro` so typing a name isn't an undo step per letter.
     @Binding var name: String
+    @FocusState private var nameFocused: Bool
     @Environment(\.undoManager) private var undoManager
     // @State is a compiler-plugin macro that the Command Line Tools don't ship, so use an ObservableObject.
     @StateObject private var ui = DetailUIState()
@@ -118,6 +119,11 @@ struct MacroDetailView: View {
                     .textFieldStyle(.plain)
                     .font(.title3.weight(.semibold))
                     .help("Click to rename")
+                    .focused($nameFocused)
+                    // Left empty: it gets a name back, so it never shows as a blank row or “” in messages.
+                    .onChange(of: nameFocused) { _, focused in if !focused { keepAName() } }
+                    .onSubmit { keepAName() }
+                    .onDisappear { keepAName() }
                 Text(stats).font(.caption).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer(minLength: 8)
@@ -162,6 +168,10 @@ struct MacroDetailView: View {
                     .accessibilityLabel("Step details")
             }
         }
+    }
+
+    private func keepAName() {
+        if name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { name = "Untitled Macro" }
     }
 
     private var stats: String {
@@ -531,7 +541,7 @@ struct MacroDetailView: View {
             else if !k.png.isEmpty { parts.append("at a picture") }
         }
         if pb.maxClicks > 0, allAtOnce || macro.runsInBackground { parts.append("after \(pb.maxClicks) clicks") }
-        if pb.stopAfterMinutes > 0 { parts.append("after \(formatDuration(pb.stopAfterMinutes * 60))") }
+        if pb.stopAfterMinutes > 0 { parts.append("after \(formatSpan(pb.stopAfterMinutes * 60))") }
         if pb.stopIfIdleMinutes > 0 { parts.append("if idle \(pb.stopIfIdleMinutes.formatted()) min") }
         guard let first = parts.first else { return "When you stop it" }
         let head = first.prefix(1).uppercased() + first.dropFirst()
@@ -619,7 +629,7 @@ struct MacroDetailView: View {
                         ForEach(choices, id: \.id) { c in Text(c.title).tag(Optional(c.id)) }
                     }
                     .labelsHidden()
-                    TextField("", value: $macro.playback.stopAfterCount, format: .number).frame(width: 50)
+                    TextField("", value: Binding(get: { macro.playback.stopAfterCount }, set: { macro.playback.stopAfterCount = max(1, $0) }), format: .number).frame(width: 50)
                     Text("times").foregroundStyle(.secondary)
                 }
             }

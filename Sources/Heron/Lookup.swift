@@ -119,12 +119,33 @@ struct Lookup {
     static func largestNumber(in lines: [TextFinder.Line], area: CGRect?) -> Int? {
         var best: Int?
         for l in lines where area.map({ $0.contains(CGPoint(x: l.rect.midX, y: l.rect.midY)) }) ?? true {
-            let digits = l.text.replacingOccurrences(of: ",", with: "")
-            for part in digits.split(whereSeparator: { !$0.isNumber }) {
-                if let n = Int(part), n < 1_000_000_000 { best = max(best ?? n, n) }
-            }
+            for n in numbers(in: l.text) where n < 1_000_000_000 { best = max(best ?? n, n) }
         }
         return best
+    }
+
+    /// The whole numbers a person would read in `text`: “x1,250” is 1250, “30/50” is 30 (progress, not the
+    /// goal), “1.5k” is 1500, “12.5” is 12, and full-width digits count too.
+    static func numbers(in text: String) -> [Int] {
+        var t = text.applyingTransform(.fullwidthToHalfwidth, reverse: false) ?? text
+        // “30 / 50”, “HP 120/500”: the part after the slash is a maximum, not a value that has been reached.
+        t = t.replacingOccurrences(of: #"(\d)\s*/\s*[\d,]+"#, with: "$1", options: .regularExpression)
+        var out: [Int] = []
+        let pattern = #"\d{1,3}(?:,\d{3})+(?!\d)|\d++(?:\.\d++)?\s?[kKmM]?(?![A-Za-z])|\d+"#
+        let re = try! NSRegularExpression(pattern: pattern)
+        for m in re.matches(in: t, range: NSRange(t.startIndex..., in: t)) {
+            guard let r = Range(m.range, in: t) else { continue }
+            var part = String(t[r]).replacingOccurrences(of: ",", with: "").trimmingCharacters(in: .whitespaces)
+            var scale = 1.0
+            if let last = part.last, "kKmM".contains(last) {
+                scale = "kK".contains(last) ? 1_000 : 1_000_000
+                part = String(part.dropLast()).trimmingCharacters(in: .whitespaces)
+            }
+            guard let v = Double(part) else { continue }
+            let n = (v * scale).rounded(.down)
+            if n < 1e15 { out.append(Int(n)) }
+        }
+        return out
     }
 
     /// The picture, if it's on screen and meets the strictness.
@@ -183,6 +204,7 @@ enum TextFinder {
         let opts: String.CompareOptions = [.caseInsensitive, .diacriticInsensitive]
         func inArea(_ r: CGRect) -> Bool { area.map { $0.contains(CGPoint(x: r.midX, y: r.midY)) } ?? true }
         let q = query.trimmingCharacters(in: .whitespaces)
+        guard !q.isEmpty else { return nil }
         if let l = lines.first(where: { $0.text.trimmingCharacters(in: .whitespaces).compare(q, options: opts) == .orderedSame && inArea($0.rect) }) {
             return l.rect
         }

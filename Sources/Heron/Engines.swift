@@ -98,7 +98,7 @@ final class Player {
                 while Timing.now() - start < limit {
                     guard Timing.wait(until: min(start + limit, Timing.now() + 1), watch) else { return }
                 }
-                tripped.message = Self.done("ran for \(formatDuration(limit))")
+                tripped.message = Self.done("ran for \(formatSpan(limit))")
                 token.cancel()
             }
         }
@@ -154,6 +154,7 @@ final class Player {
                         guard Timing.wait(until: Timing.now() + pause, token) else { break }
                     }
                     var t = Timing.now()
+                    let loopStarted = t
                     var skipUntil = -1
                     // Steps go by index so “Go to step” and “Repeat from” can jump; counters restart each loop.
                     var repeatsLeft: [UUID: Int] = [:]
@@ -279,7 +280,7 @@ final class Player {
                             }
                         } else if case .typeList(let l) = step.action {
                             let items = typingKeys[step.id] ?? []
-                            var n = listNext[step.id] ?? l.next
+                            var n = max(0, listNext[step.id] ?? l.next)
                             if n >= items.count {
                                 guard l.whenDone == .startOver, !items.isEmpty else {
                                     error = Self.done(items.isEmpty ? "the list is empty" : "typed all \(items.count) items from the list")
@@ -330,6 +331,11 @@ final class Player {
                         }
                     }
                     loop += 1
+                    // A loop that takes no time at all (say, steps with no waits) gets a breather, so repeating
+                    // until stopped can't pin the processor.
+                    if Timing.now() - loopStarted < 0.01 {
+                        guard Timing.wait(until: loopStarted + 0.01, token) else { break }
+                    }
                 }
 
             }

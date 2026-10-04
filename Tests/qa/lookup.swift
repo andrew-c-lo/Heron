@@ -721,5 +721,46 @@ var redStep = ImageStep(png: Data(), width: 1, height: 1, originX: 0, originY: 0
 redStep.pictureWords = ""; redStep.pictureColor = "red"
 check("…and the step's title says so", ActionGroup.pictureNoun(redStep) == "red picture")
 
+// Edge cases (deep QA pass).
+check("numbers: progress “30/50” is 30, “HP 120 / 500” is 120",
+      Lookup.numbers(in: "30/50") == [30] && Lookup.numbers(in: "HP 120 / 500") == [120])
+check("numbers: “1.5k” is 1500, “2M” is 2,000,000, “12.5%” is 12, “30min” is 30",
+      Lookup.numbers(in: "1.5k") == [1500] && Lookup.numbers(in: "2M coins") == [2_000_000]
+      && Lookup.numbers(in: "12.5%") == [12] && Lookup.numbers(in: "30min") == [30], "\(Lookup.numbers(in: "30min"))")
+check("numbers: full-width digits and thousands separators", Lookup.numbers(in: "２５") == [25] && Lookup.numbers(in: "Score: 1,234,567") == [1_234_567])
+check("time limits read the way people say them",
+      [45.0, 90, 600, 1800, 3600, 5400].map(formatSpan) == ["45 s", "1 min 30 s", "10 min", "30 min", "1 h", "1 h 30 min"],
+      [45.0, 90, 600, 1800, 3600, 5400].map(formatSpan).joined(separator: ", "))
+var noDays = MacroSchedule(); noDays.weekdays = []
+var zeroEvery = MacroSchedule(); zeroEvery.kind = .interval; zeroEvery.everyMinutes = 0
+check("a schedule with no days says so, and a 0-minute interval reads as 1 min",
+      noDays.summary(appName: nil) == "No days chosen" && zeroEvery.summary(appName: nil) == "Every 1 min")
+check("empty text never matches (not even an empty line)", TextFinder.find("", in: [TextFinder.Line(text: "", rect: .zero, words: [])], area: nil) == nil)
+let lenientEnc = JSONEncoder(); lenientEnc.dateEncodingStrategy = .iso8601
+let lenientDec = JSONDecoder(); lenientDec.dateDecodingStrategy = .iso8601
+var future = Macro(name: "Future", steps: [MacroStep(delay: 0.1, action: .wait), MacroStep(delay: 0.2, action: .wait)])
+future.playback.loops = 7
+var futureObj = try! JSONSerialization.jsonObject(with: lenientEnc.encode(future)) as! [String: Any]
+var futurePB = futureObj["playback"] as! [String: Any]; futurePB["repeatMode"] = "forever2"; futureObj["playback"] = futurePB
+var futureSteps = futureObj["steps"] as! [[String: Any]]; futureSteps[1]["action"] = ["teleport": ["x": 1]]; futureObj["steps"] = futureSteps
+let healed = Lenient.decode(try! JSONSerialization.data(withJSONObject: futureObj), defaults: Macro(name: "Untitled", steps: []),
+                            encoder: lenientEnc, decoder: lenientDec)
+check("a macro with values this version doesn't know still loads: only those values fall back",
+      healed?.name == "Future" && healed?.steps.count == 1 && healed?.playback.loops == 7,
+      healed.map { "\($0.name), \($0.steps.count) steps, loops \($0.playback.loops)" } ?? "didn't load")
+let junkURL = FileManager.default.temporaryDirectory.appendingPathComponent("not-a-macro.json")
+try! Data(#"{"hello":"world"}"#.utf8).write(to: junkURL)
+check("importing a JSON file that isn't a macro is refused", (try? MacroStore().importMacro(from: junkURL)) == nil)
+var shared = Macro(name: "Shared", steps: [MacroStep(delay: 0, action: .wait)]); shared.schedule = MacroSchedule()
+let sharedURL = FileManager.default.temporaryDirectory.appendingPathComponent("shared.json")
+try! lenientEnc.encode(shared).write(to: sharedURL)
+let imported = try? MacroStore().importMacro(from: sharedURL)
+check("an imported macro's schedule starts switched off", imported?.schedule?.enabled == false && imported?.id != shared.id)
+var badList = TypeList(); badList.items = ["a", "b"]; badList.next = -3
+var listMacro = Macro(name: "list", steps: [MacroStep(delay: 0, action: .typeList(badList))])
+listMacro.playback.repeatMode = .once
+let negativeListRun = playUntilDone(listMacro, timeout: 3)
+check("a list whose saved place is negative starts at the top instead of crashing", negativeListRun.end.map(Player.isDone) != false)
+
 print(failures == 0 ? "ALL PASSED" : "\(failures) FAILED")
 exit(failures == 0 ? 0 : 1)

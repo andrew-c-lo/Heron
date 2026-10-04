@@ -20,8 +20,10 @@ struct VisualMacroView: View {
 
         VStack(alignment: .leading, spacing: 8) {
             HStack {
+                // Two lines rather than cut off mid-word beside the screenshot button at narrow widths.
                 Text(editing.summary(groups)).font(.caption).foregroundStyle(.secondary)
-                    .lineLimit(1).truncationMode(.tail)
+                    .lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                    .help(editing.summary(groups))
                 Spacer()
                 if macro.target.app != nil {
                     Button(snapshot == nil ? "Capture Screenshot" : "Update Screenshot") { model.updateSnapshot(for: macro) }
