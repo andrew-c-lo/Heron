@@ -500,5 +500,13 @@ let sm2 = try! JSONDecoder().decode(Macro.self, from: JSONEncoder().encode(sm))
 check("a schedule saves and loads with its macro", sm2.schedule == daily)
 check("older macros have no schedule", (try? JSONDecoder().decode(Macro.self, from: JSONEncoder().encode(Macro(name: "o", steps: []))))?.schedule == nil)
 
+// Timing variation: each wait lands within ±the chosen share, and actually varies.
+var vt = PlaybackOptions(); vt.varyTiming = 0.2
+let samples = (0..<500).map { _ in vt.varied(1.0) }
+check("varied waits stay within ±20%", samples.allSatisfy { $0 >= 0.8 && $0 <= 1.2 }, "\(samples.min()!)…\(samples.max()!)")
+check("…and do vary", Set(samples.map { ($0 * 1000).rounded() }).count > 50)
+check("no variation leaves waits exact, and zero stays zero", PlaybackOptions().varied(0.7) == 0.7 && vt.varied(0) == 0)
+check("older macros load with no variation", (try! JSONDecoder().decode(PlaybackOptions.self, from: Data("{}".utf8))).varyTiming == 0)
+
 print(failures == 0 ? "ALL PASSED" : "\(failures) FAILED")
 exit(failures == 0 ? 0 : 1)

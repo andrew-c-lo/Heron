@@ -121,7 +121,7 @@ final class Player {
                         var next = i + 1
                         defer { i = next }
                         if i < skipUntil { continue }
-                        t += delays[i] / speed
+                        t += opts.varied(delays[i]) / speed
                         guard Timing.wait(until: t, token) else { break outer }
 
                         switch RouteBuilder.route(for: target, resolver: resolver) {

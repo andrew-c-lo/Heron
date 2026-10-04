@@ -470,6 +470,15 @@ struct PlaybackOptions: Codable, Equatable {
     /// Real seconds between loops (not affected by speed).
     /// Killswitch: whenever this picture or these words show up during a run, the macro has done its job and stops.
     var stopWhen: ImageStep?
+    /// Each wait between steps is stretched or shortened at random by up to this share (0.2 = ±20%).
+    var varyTiming: Double = 0
+
+    /// A wait with the timing variation applied.
+    func varied(_ delay: Double) -> Double {
+        guard varyTiming > 0, delay > 0 else { return delay }
+        let v = min(varyTiming, 0.9)
+        return delay * Double.random(in: (1 - v)...(1 + v))
+    }
     var loopDelay: Double = 0
     /// Up to this many extra random seconds added to each pause.
     var loopDelayRandom: Double = 0
@@ -505,6 +514,7 @@ extension PlaybackOptions {
         idleTapY = try c.decodeIfPresent(Double.self, forKey: .idleTapY)
         maxClicks = try c.decodeIfPresent(Int.self, forKey: .maxClicks) ?? 0
         stopWhen = try c.decodeIfPresent(ImageStep.self, forKey: .stopWhen)
+        varyTiming = try c.decodeIfPresent(Double.self, forKey: .varyTiming) ?? 0
     }
 }
 

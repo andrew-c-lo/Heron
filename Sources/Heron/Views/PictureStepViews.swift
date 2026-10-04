@@ -93,18 +93,6 @@ struct PictureStepEditor: View {
                 }
                 }
                 SearchAreaRow(area: step.area) { pick(area: true) }
-                if s.text == nil || s.alsoPicture {
-                LabeledContent {
-                    HStack {
-                        Slider(value: step.strictness, in: 0.6...0.98).frame(width: 100)
-                        Text("\(Int((s.strictness * 100).rounded()))%")
-                            .monospacedDigit().foregroundStyle(.secondary).frame(width: 40, alignment: .trailing)
-                    }
-                } label: {
-                    Text("Match strictness")
-                    Text("Raise it if look-alikes get matched.")
-                }
-                }
                 }
             }
 
@@ -122,35 +110,18 @@ struct PictureStepEditor: View {
                         .font(.callout).foregroundStyle(.orange)
                 }
                 if s.mode == .click {
-                    Picker("Click with", selection: step.button) {
-                        ForEach(MouseButton.allCases) { Text($0.label).tag($0) }
-                    }
-                    .pickerStyle(.segmented)
                     if allAtOnce && s.spotOnly {
                         Label("All at once only clicks things it finds, so a step set to a spot is skipped. Switch Look for back to Picture, Text or Both.",
                               systemImage: "exclamationmark.triangle.fill")
                             .font(.callout).foregroundStyle(.orange)
                     }
                     if !s.spotOnly {
-                    seconds("Wait before clicking", "How long it must be visible first. Helps with things that animate in.",
-                            step.settle)
                     Toggle(isOn: step.repeatUntilGone) {
                         Text("Keep \(touch ? "tapping" : "clicking") until it's gone")
                         Text("For when one \(touch ? "tap" : "click") doesn't always register because of lag.")
                     }
                     if s.repeatUntilGone {
                         seconds("Every", "Time between repeat \(touch ? "taps" : "clicks").", step.repeatEvery)
-                    }
-                    LabeledContent {
-                        HStack(spacing: 4) {
-                            Text("x").foregroundStyle(.secondary)
-                            TextField("", value: step.offsetX, format: .number).multilineTextAlignment(.trailing).frame(width: 50)
-                            Text("y").foregroundStyle(.secondary)
-                            TextField("", value: step.offsetY, format: .number).multilineTextAlignment(.trailing).frame(width: 50)
-                        }
-                    } label: {
-                        Text("Click offset")
-                        Text("Shift the \(touch ? "tap" : "click") away from the \(s.text == nil ? "picture" : s.alsoPicture ? "match" : "text")'s center, in points.")
                     }
                     }
                 }
@@ -186,9 +157,54 @@ struct PictureStepEditor: View {
                 }
             }
             }
+
+            if hasMoreOptions {
+            Section {
+                DisclosureGroup("More options", isExpanded: $showMore) {
+                    if s.usesPicture && !(s.spotOnly && s.mode == .click) {
+        LabeledContent {
+            HStack {
+                Slider(value: step.strictness, in: 0.6...0.98).frame(width: 100)
+                Text("\(Int((s.strictness * 100).rounded()))%")
+                    .monospacedDigit().foregroundStyle(.secondary).frame(width: 40, alignment: .trailing)
+            }
+        } label: {
+            Text("Match strictness")
+            Text("Raise it if look-alikes get matched.")
+        }
+                    }
+                    if s.mode == .click {
+                        Picker("Click with", selection: step.button) {
+                            ForEach(MouseButton.allCases) { Text($0.label).tag($0) }
+                        }
+                        .pickerStyle(.segmented)
+                        if !s.spotOnly {
+                            seconds("Wait before clicking", "How long it must be visible first. Helps with things that animate in.",
+                                    step.settle)
+                            LabeledContent {
+                                HStack(spacing: 4) {
+                                    Text("x").foregroundStyle(.secondary)
+                                    TextField("", value: step.offsetX, format: .number).multilineTextAlignment(.trailing).frame(width: 50)
+                                    Text("y").foregroundStyle(.secondary)
+                                    TextField("", value: step.offsetY, format: .number).multilineTextAlignment(.trailing).frame(width: 50)
+                                }
+                            } label: {
+                                Text("Click offset")
+                                Text("Shift the \(touch ? "tap" : "click") away from the \(s.text == nil ? "picture" : s.alsoPicture ? "match" : "text")'s center, in points.")
+                            }
+                        }
+                    }
+                }
+            }
+            }
         }
         .formStyle(.grouped)
     }
+
+    /// Fine-tuning most steps never need: kept folded away (and remembered open for those who use it).
+    @AppStorage("stepMoreOptions") private var showMore = false
+
+    private var hasMoreOptions: Bool { s.mode == .click || (s.usesPicture && !s.spotOnly) }
 
     /// The fixed spot, in window points, and a way to point at it.
     private var spotRow: some View {

@@ -542,6 +542,16 @@ struct MacroDetailView: View {
                 }
             }
             Divider()
+            Toggle(isOn: Binding(get: { macro.playback.varyTiming > 0 },
+                                 set: { macro.playback.varyTiming = $0 ? 0.2 : 0 })) {
+                Text("Vary the timing")
+                Text("Each wait between steps comes a little early or late, so the rhythm isn't exact.")
+            }
+            if macro.playback.varyTiming > 0 {
+                NumberField(title: "By up to", value: Binding(get: { (macro.playback.varyTiming * 100).rounded() },
+                                                            set: { macro.playback.varyTiming = min(max($0, 1), 90) / 100 }),
+                            unit: "%")
+            }
             Toggle("Skip mouse moves", isOn: pb.skipMouseMoves)
             Text("Only replay clicks, swipes, scrolls and keys. Timing stays the same.")
                 .font(.caption).foregroundStyle(.secondary)
