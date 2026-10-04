@@ -90,6 +90,21 @@ enum TextFinder {
         return best.map { TemplateMatcher.Match(rect: $0.rect, score: Double(min($0.confidence, 1))) }
     }
 
+    /// Where `query` is among already-read lines (window coordinates), preferring a line that is exactly the
+    /// text, then a word, then any line containing it. `area` limits where it may be.
+    static func find(_ query: String, in lines: [Line], area: CGRect?) -> CGRect? {
+        let opts: String.CompareOptions = [.caseInsensitive, .diacriticInsensitive]
+        func inArea(_ r: CGRect) -> Bool { area.map { $0.contains(CGPoint(x: r.midX, y: r.midY)) } ?? true }
+        let q = query.trimmingCharacters(in: .whitespaces)
+        if let l = lines.first(where: { $0.text.trimmingCharacters(in: .whitespaces).compare(q, options: opts) == .orderedSame && inArea($0.rect) }) {
+            return l.rect
+        }
+        for l in lines {
+            if let w = l.words.first(where: { $0.text.compare(q, options: opts) == .orderedSame && inArea($0.rect) }) { return w.rect }
+        }
+        return lines.first { $0.text.range(of: q, options: opts) != nil && inArea($0.rect) }?.rect
+    }
+
     struct Line {
         let text: String
         let rect: CGRect

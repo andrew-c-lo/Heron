@@ -243,6 +243,10 @@ final class Player {
             return Item(index: i, step: p, lookup: l)
         }
         guard !items.isEmpty else { return "“All at once” needs at least one picture step set to click." }
+        let hasText = items.contains { $0.lookup.isText }
+        var lines: [TextFinder.Line] = []
+        var lastTextRead = -Double.infinity
+        var textFound: [Int: CGRect?] = [:]
 
         Task { @MainActor in waiting("any of the pictures") }
         defer { Task { @MainActor in waiting(nil) } }
@@ -275,8 +279,17 @@ final class Player {
                 latest = frame.pixels
                 let scene = TemplateMatcher.Scene(rgba: frame.pixels.rgba, width: frame.pixels.width, height: frame.pixels.height)
                 found = [:]
+                // Pictures every frame; words from one shared read of the screen, a few times a second
+                // (reading text takes far longer than matching a picture).
+                let readText = hasText && tick - lastTextRead >= 0.2
+                if readText { lines = TextFinder.read(frame.pixels); lastTextRead = tick }
                 for it in items {
-                    if let r = it.lookup.locate(in: frame.pixels, scene: scene) { found[it.index] = r }
+                    if let text = it.lookup.text, !text.isEmpty {
+                        if readText { textFound[it.index] = TextFinder.find(text, in: lines, area: it.step.area) }
+                        if let r = textFound[it.index] ?? nil { found[it.index] = r }
+                    } else if let r = it.lookup.locate(in: frame.pixels, scene: scene) {
+                        found[it.index] = r
+                    }
                 }
             }
             if let index = chooser.choose(found: Set(found.keys), now: tick),
@@ -330,8 +343,9 @@ final class Player {
         /// Checks the newest frame of the live feed, waiting briefly for one if nothing changed.
         func look() -> Look {
             // At most ~30 checks a second.
+            let interval = lookup.isText ? 0.15 : 1.0 / 30 // reading text is slow; pictures are cheap
             let since = Timing.now() - lastLook
-            if since < 1.0 / 30 { _ = Timing.wait(until: lastLook + 1.0 / 30, token) }
+            if since < interval { _ = Timing.wait(until: lastLook + interval, token) }
             lastLook = Timing.now()
             guard let win = resolver.window(),
                   let frame = FrameSource.shared.frame(for: win, after: frameNumber, timeout: 0.1) else { return .unreadable }

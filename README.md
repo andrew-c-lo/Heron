@@ -105,13 +105,15 @@ scripts/setup-signing.sh   # once: a personal signing certificate, so permission
 <summary><b>Record and build macros</b></summary>
 
 - Record mouse moves, clicks, drags, scrolls and keystrokes, or just one app's window
-- Remember what you click: when recording inside one app, a click on a word like “Claim” becomes a step that
-  finds that word wherever it is, and clicks the recorded spot if it isn't there
+- Remember what you click: a click on a word like “Claim” or on an icon becomes a step that finds it
+  wherever it is, and clicks the recorded spot if it isn't there. Works whenever every click goes to one app
 - Or build one step by step: Click, Type, Wait, Find Picture and Find Text are one click each, and the
   selected step's settings show beside the list
 - See a macro three ways: a map of the window with every tap, a readable list (“Tap”, “Swipe up”,
   “Type “hello””), or every raw event
-- Switch any step off without deleting it
+- Switch any step off without deleting it, and keep macros in folders
+- Branch and repeat: a step that isn't found can go to another step, and a Repeat step goes back to an
+  earlier one a set number of times
 - Replay at any speed, once, a number of times, until stopped or for a set time, with a random pause
   between rounds
 - Undo and redo for every edit, and global hotkeys for everything, including a panic stop
@@ -128,7 +130,11 @@ scripts/setup-signing.sh   # once: a personal signing certificate, so permission
 - Limit any search to an area of the window, so it's faster and ignores look-alikes elsewhere
 - Keep clicking until it's gone, wait before clicking, click at an offset, and choose what happens if it
   never shows up
-- Run steps in order, or all at once: every picture is watched together and whichever appears gets clicked
+- Run steps in order, or all at once: every picture is watched together and whichever appears gets clicked,
+  taking turns or with higher steps winning
+- Tap when stuck: if nothing shows up for a while, tap a spot you choose, and keep that screen under Stuck
+  Screens so you can turn it into a step
+- After a run, see how often each step fired, and limit a step's search to where it was actually found
 - Test Now shows whether it's on screen right now and how close the match is
 
 </details>
@@ -144,6 +150,17 @@ scripts/setup-signing.sh   # once: a personal signing certificate, so permission
 </details>
 
 <details>
+<summary><b>On-device help</b></summary>
+
+With Apple Intelligence (macOS 26 or later), all on your Mac and never sent anywhere:
+
+- Describe: write what to do (“tap Claim, wait 2 seconds, tap Close”) and the steps are drafted for you
+- Suggest: on a stuck screen, the word to tap is picked from the words actually on it
+- Autopilot (experimental): give a goal and Heron taps toward it one on-screen word at a time
+
+</details>
+
+<details>
 <summary><b>Clicking that stays out of your way</b></summary>
 
 - Jump & return: the cursor jumps to each click and straight back, and waits until you've stopped moving
@@ -152,7 +169,7 @@ scripts/setup-signing.sh   # once: a personal signing certificate, so permission
 - Positions are relative to the app's window, so moving the window doesn't break anything
 - Optional click spread: each click lands at a random spot near its target, and clicks on a found picture
   always stay inside it
-- Optional double-click everywhere: every single click is sent as a double click
+- Optional double-click everywhere: every single click is sent as a double click, with a hotkey to flip it
 - A notification if something stops on its own while you're in another app
 
 </details>

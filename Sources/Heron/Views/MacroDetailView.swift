@@ -54,6 +54,11 @@ struct MacroDetailView: View {
         }
         .padding(.trailing, 12)
         .padding(.bottom, 10)
+        .background(GeometryReader { g in
+            Color.clear
+                .onAppear { updateCompact(g.size.width) }
+                .onChange(of: g.size.width) { _, w in updateCompact(w) }
+        })
         .onAppear { model.loadStuck(for: macro.id) }
         .sheet(isPresented: $ui.showingStuck) {
             StuckScreensView(macroID: macro.id, onAdd: { step in
@@ -512,6 +517,11 @@ struct MacroDetailView: View {
         editing.select(g)
     }
 
+    private func updateCompact(_ width: CGFloat) {
+        let compact = width < 700
+        if ui.compactAdd != compact { ui.compactAdd = compact }
+    }
+
     private func select(_ id: UUID) {
         ui.selection = [id]
         ui.scrollTarget = id
@@ -519,10 +529,12 @@ struct MacroDetailView: View {
 
     private func addButton(_ title: String, _ icon: String, _ help: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Label(title, systemImage: icon)
+            // Narrow editor: icons only (the name is in the tooltip and for VoiceOver).
+            if ui.compactAdd { Image(systemName: icon) } else { Label(title, systemImage: icon) }
         }
         .fixedSize()
-        .help(help)
+        .help(ui.compactAdd ? "\(title): \(help)" : help)
+        .accessibilityLabel(title)
     }
 
     /// "Type": each character becomes a key press (with Shift where needed).
@@ -640,6 +652,8 @@ final class DetailUIState: ObservableObject {
     @Published var bulkDelay: Double = 0.1
     @Published var showingBulkDelay = false
     @Published var showingType = false
+    /// The editor is too narrow for labelled Add buttons.
+    @Published var compactAdd = false
     @Published var showingDescribe = false
     @Published var describeText = ""
     @Published var describing = false

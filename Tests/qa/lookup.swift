@@ -227,5 +227,12 @@ while !finishedRun && Date() < deadline { RunLoop.main.run(until: Date().addingT
 check("repeat from: the step runs 3 times, then the next one once", presses == [11, 11, 11, 22], "\(presses)")
 EventSynth.testSink = nil
 
+// Words found among lines read once (the shared read in All at once chains).
+let one = TextFinder.find("claim", in: lines, area: nil)
+check("a word is found among lines already read", one != nil)
+let near = TextFinder.find("Claim", in: lines, area: CGRect(x: 500, y: 250, width: 300, height: 150))
+check("…and a search area picks the copy inside it", near.map { $0.midY > 250 } ?? false, "\(String(describing: near))")
+check("…and a word that isn't there isn't found", TextFinder.find("Collect", in: lines, area: nil) == nil)
+
 print(failures == 0 ? "ALL PASSED" : "\(failures) FAILED")
 exit(failures == 0 ? 0 : 1)
