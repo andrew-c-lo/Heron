@@ -232,7 +232,7 @@ enum ColorFallback: String, Codable, CaseIterable, Identifiable {
     var id: String { rawValue }
     var label: String {
         switch self {
-        case .skipNext: "Skip the next action"
+        case .skipNext: "Skip the next step"
         case .nextLoop: "Start the next loop"
         case .stopMacro: "Stop the macro"
         case .continueAnyway: "Continue anyway"
@@ -363,6 +363,8 @@ struct ImageStep: Codable, Equatable {
     }
     /// Click a fixed spot without looking (the picture and words are kept, so switching back is one click).
     var spotOnly = false
+    /// Words read from inside the picture, for its title (“” when it has none; nil = not read yet).
+    var pictureWords: String?
     /// That spot (window points).
     var spotX: Double?
     var spotY: Double?
@@ -457,6 +459,7 @@ extension ImageStep {
         variants = try c.decodeIfPresent([PictureVariant].self, forKey: .variants) ?? []
         alsoPicture = try c.decodeIfPresent(Bool.self, forKey: .alsoPicture) ?? false
         spotOnly = try c.decodeIfPresent(Bool.self, forKey: .spotOnly) ?? false
+        pictureWords = try c.decodeIfPresent(String.self, forKey: .pictureWords)
         settleMax = try c.decodeIfPresent(Double.self, forKey: .settleMax)
         captureWindowWidth = try c.decodeIfPresent(Double.self, forKey: .captureWindowWidth)
         captureWindowHeight = try c.decodeIfPresent(Double.self, forKey: .captureWindowHeight)
@@ -475,6 +478,8 @@ struct MacroStep: Codable, Identifiable, Equatable {
     var action: StepAction
     /// Switched-off steps stay in the macro but are skipped when it plays.
     var enabled = true
+    /// A name you give the step (“Claim button”); shown instead of the generated title.
+    var name: String?
 
     init(id: UUID = UUID(), delay: Double, action: StepAction, enabled: Bool = true) {
         self.id = id
@@ -492,6 +497,7 @@ extension MacroStep {
         delay = try c.decode(Double.self, forKey: .delay)
         action = try c.decode(StepAction.self, forKey: .action)
         enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
+        name = try c.decodeIfPresent(String.self, forKey: .name)
     }
 }
 

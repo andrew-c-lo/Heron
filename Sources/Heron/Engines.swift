@@ -36,6 +36,7 @@ final class Player {
               clicked: @escaping @MainActor (_ step: UUID, _ found: CGRect?) -> Void = { _, _ in },
               stuck: @escaping @MainActor (_ screen: ScreenReader.WindowPixels) -> Void = { _ in },
               listAdvanced: @escaping @MainActor (_ step: UUID, _ next: Int) -> Void = { _, _ in },
+              counted: @escaping @MainActor (_ times: Int) -> Void = { _ in },
               finished: @escaping @MainActor (_ error: String?) -> Void) {
         stop()
         let token = CancelToken()
@@ -125,7 +126,7 @@ final class Player {
             if opts.order == .allAtOnce {
                 error = Self.runAllAtOnce(steps, opts: opts, target: target, resolver: resolver, performer: performer,
                                           pauseable: pauseable, token: token, idle: idle, progress: progress, waiting: waiting,
-                                          clicked: clicked, stuck: stuck)
+                                          clicked: clicked, stuck: stuck, counted: counted)
             } else {
                 outer: while true {
                     if let n = opts.loopCount, loop >= n { break }
@@ -301,6 +302,8 @@ final class Player {
                             if step.id == opts.stopAfterStep {
                                 timesHappened += 1
                                 timesSoFar = timesHappened
+                                let n = timesHappened
+                                Task { @MainActor in counted(n) }
                                 if timesHappened >= opts.stopAfterCount {
                                     error = Self.done("\(Self.stepName(step, i)) happened \(opts.stopAfterCount) time\(opts.stopAfterCount == 1 ? "" : "s")")
                                     break outer
@@ -428,7 +431,8 @@ final class Player {
                              progress: @escaping @MainActor (Int, Int, Double?) -> Void,
                              waiting: @escaping @MainActor (String?) -> Void,
                              clicked: @escaping @MainActor (UUID, CGRect?) -> Void = { _, _ in },
-                             stuck: @escaping @MainActor (ScreenReader.WindowPixels) -> Void = { _ in }) -> String? {
+                             stuck: @escaping @MainActor (ScreenReader.WindowPixels) -> Void = { _ in },
+                             counted: @escaping @MainActor (Int) -> Void = { _ in }) -> String? {
         guard let resolver else { return "Picture steps need a target app. Choose one with the Target button." }
         struct Item { let index: Int; let step: ImageStep; let lookup: Lookup }
         let items: [Item] = steps.enumerated().compactMap { i, s in
@@ -544,6 +548,8 @@ final class Player {
                 idle.touch()
                 if firstThisTime, steps[index].id == opts.stopAfterStep {
                     timesHappened += 1
+                    let n = timesHappened
+                    Task { @MainActor in counted(n) }
                     if timesHappened >= opts.stopAfterCount {
                         return Self.done("\(Self.stepName(steps[index], index)) happened \(opts.stopAfterCount) time\(opts.stopAfterCount == 1 ? "" : "s")")
                     }

@@ -45,6 +45,15 @@ final class AppModel: ObservableObject {
     private var backgroundPlayers: [UUID: Player] = [:]
     /// Last run: how often each step fired, and the area its picture or text was found in.
     @Published private(set) var stepHits: [UUID: Int] = [:]
+    /// What a running macro is up to, for the editor's live strip.
+    struct LiveRun: Equatable {
+        var started = Date()
+        var lastActivity = Date()
+        var lastFired: UUID?
+        var lastFiredAt: Date?
+        var rounds = 0
+    }
+    @Published private(set) var live: [UUID: LiveRun] = [:]
     @Published private(set) var stepFound: [UUID: CGRect] = [:]
     /// The biggest single thing each step found last run (to tell one spot from matches all over the window).
     private var stepFoundSize: [UUID: CGSize] = [:]
@@ -105,6 +114,49 @@ final class AppModel: ObservableObject {
             Task { @MainActor in self?.refreshPermissions(); self?.updateAwake() }
         }
         startScheduler()
+        readPictureWords()
+    }
+
+    // MARK: - Words inside pictures (for step titles)
+
+    private var readingWords = Set<UUID>()
+
+    /// Reads the words inside picture steps that haven't been read yet (once each, on this Mac), so steps can be
+    /// titled “Tap the “OK” picture” instead of all being “Tap the picture”.
+    func readPictureWords() {
+        var todo: [(UUID, Data)] = []
+        for m in macros {
+            for st in m.steps {
+                if case .findImage(let p) = st.action, p.pictureWords == nil, !p.png.isEmpty, !readingWords.contains(st.id) {
+                    todo.append((st.id, p.png))
+                }
+            }
+        }
+        for (id, png) in todo {
+            readingWords.insert(id)
+            Task { @MainActor in
+                let words = await Task.detached(priority: .utility) { Self.words(inPicture: png) }.value
+                self.readingWords.remove(id)
+                guard var m = self.macros.first(where: { $0.steps.contains { $0.id == id } }),
+                      let i = m.steps.firstIndex(where: { $0.id == id }),
+                      case .findImage(var p) = m.steps[i].action, p.png == png else { return }
+                p.pictureWords = words
+                m.steps[i].action = .findImage(p)
+                self.update(m, bookkeeping: true)
+            }
+        }
+    }
+
+    /// The most prominent short label in a picture (a few words at most), or "" if there isn't one.
+    nonisolated static func words(inPicture png: Data) -> String {
+        guard let image = NSImage(data: png), let px = ScreenReader.WindowPixels(image: image) else { return "" }
+        let candidates = TextFinder.read(px).compactMap { l -> (String, CGFloat)? in
+            let t = l.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard (1...20).contains(t.count), t.split(separator: " ").count <= 3,
+                  t.contains(where: { $0.isLetter || $0.isNumber }) else { return nil }
+            return (t, l.rect.width * l.rect.height)
+        }
+        return candidates.max { $0.1 < $1.1 }?.0 ?? ""
     }
 
     // MARK: - Schedules
@@ -701,7 +753,7 @@ final class AppModel: ObservableObject {
             show(m.id)
             recordedInto = m.id
             let n = ActionGrouper.groups(for: steps).count
-            flash("Recorded \(n) action\(n == 1 ? "" : "s")" + smartSummary(smart))
+            flash("Recorded \(n) step\(n == 1 ? "" : "s")" + smartSummary(smart))
             return
         }
         let df = DateFormatter()
@@ -760,7 +812,7 @@ final class AppModel: ObservableObject {
               let i = m.steps.firstIndex(where: { $0.id == stepID }), case .typeList(var l) = m.steps[i].action else { return }
         l.next = next
         m.steps[i].action = .typeList(l)
-        update(m)
+        update(m, bookkeeping: true)
     }
 
     /// Remembers the app window's size the first time a macro runs (older macros), so later runs can resize
@@ -791,6 +843,7 @@ final class AppModel: ObservableObject {
         resetHits(for: macro)
         let macroID = macro.id
         player.play(macro, startDelay: prep.startDelay, progress: { [weak self] s, l, p in
+            if let self, self.playStep != s { self.live[macroID]?.lastActivity = Date() }
             self?.playStep = s
             self?.playLoop = l
             self?.playPausing = p
@@ -802,6 +855,8 @@ final class AppModel: ObservableObject {
             self?.saveStuck(screen, macro: macroID)
         }, listAdvanced: { [weak self] step, next in
             self?.setListNext(step, next)
+        }, counted: { [weak self] n in
+            self?.live[macroID]?.rounds = n
         }, finished: { [weak self] error in
             guard let self, !self.player.isRunning else { return }
             self.saveRunReport(macroID)
@@ -851,6 +906,7 @@ final class AppModel: ObservableObject {
     // MARK: - Run statistics and stuck screens
 
     private func resetHits(for m: Macro) {
+        live[m.id] = LiveRun()
         for s in m.steps { stepHits[s.id] = nil; stepFound[s.id] = nil; stepFoundSize[s.id] = nil }
         runs[m.id] = RunLog(started: Date())
         _ = pressWatchers.removeValue(forKey: m.id)?.finish()
@@ -896,6 +952,11 @@ final class AppModel: ObservableObject {
             runs[macro]!.events.append((Date().timeIntervalSince(runs[macro]!.started), step))
         }
         stepHits[step, default: 0] += 1
+        if let id = macros.first(where: { $0.steps.contains { $0.id == step } })?.id, live[id] != nil {
+            live[id]!.lastFired = step
+            live[id]!.lastFiredAt = Date()
+            live[id]!.lastActivity = Date()
+        }
         if let found {
             stepFound[step] = stepFound[step].map { $0.union(found) } ?? found
             let old = stepFoundSize[step] ?? .zero
@@ -976,6 +1037,7 @@ final class AppModel: ObservableObject {
 
     /// Writes the report of a finished run: how often each step fired, where, and every click's time.
     private func saveRunReport(_ macroID: UUID) {
+        live[macroID] = nil
         collectPresses(macroID)
         if let log = runs[macroID] {
             finishScheduled(macroID, clicks: log.events.count, seconds: Int(Date().timeIntervalSince(log.started)))
@@ -1083,6 +1145,8 @@ final class AppModel: ObservableObject {
             self?.saveStuck(screen, macro: id)
         }, listAdvanced: { [weak self] step, next in
             self?.setListNext(step, next)
+        }, counted: { [weak self] n in
+            self?.live[id]?.rounds = n
         }, finished: { [weak self, weak player] error in
             guard let self, player?.isRunning != true, self.backgroundPlayers[id] === player else { return }
             self.saveRunReport(id)
@@ -1250,12 +1314,15 @@ final class AppModel: ObservableObject {
         update(m)
     }
 
-    func update(_ m: Macro) {
+    /// `bookkeeping`: a change Heron makes itself (a list's position, words read from a picture), which a running
+    /// background macro doesn't need to restart for.
+    func update(_ m: Macro, bookkeeping: Bool = false) {
         guard let i = macros.firstIndex(where: { $0.id == m.id }) else { return }
         let old = macros[i]
         macros[i] = m
+        if !bookkeeping { readPictureWords() }
         // A running background macro picks up edits by restarting with them.
-        if backgroundRunning.contains(m.id), old.steps != m.steps || old.target != m.target || old.playback != m.playback {
+        if !bookkeeping, backgroundRunning.contains(m.id), old.steps != m.steps || old.target != m.target || old.playback != m.playback {
             stopBackground(m.id, quietly: true)
             startBackground(m.id, quietly: true)
         }

@@ -50,10 +50,10 @@ struct VisualMacroView: View {
                 Text("\(i + 1). \(groups[i].title(touch: editing.isTouch))")
                     .lineLimit(1)
             } else if selected.count > 1 {
-                Text("\(selected.count) actions selected. Delete removes them all.")
+                Text("\(selected.count) steps selected. Delete removes them all.")
                     .foregroundStyle(.secondary)
             } else {
-                Text("Click a marker or the timeline to edit an action. Drag markers to move them. Right-click for more.")
+                Text("Click a marker or the timeline to edit a step. Drag markers to move them. Right-click for more.")
                     .foregroundStyle(.secondary)
             }
         }

@@ -30,13 +30,28 @@ struct ActionGroup: Identifiable {
     let kind: Kind
     /// Off = skipped when the macro plays.
     var enabled = true
+    /// The name given to its step, if any.
+    var name: String? = nil
 
     /// Index of the first non-travel step.
     var actionIndex: Int { lead.upperBound }
 
     // MARK: Presentation (touch = target is a phone, so say "tap"/"swipe")
 
+    /// “picture”, or “"OK" picture” when words were read from inside it.
+    static func pictureNoun(_ s: ImageStep) -> String {
+        guard let w = s.pictureWords?.trimmingCharacters(in: .whitespaces), !w.isEmpty else { return "picture" }
+        return "“\(w)” picture"
+    }
+
+    /// The step's name if it has one, otherwise what it does.
     func title(touch: Bool) -> String {
+        if let n = name?.trimmingCharacters(in: .whitespaces), !n.isEmpty { return n }
+        return actionTitle(touch: touch)
+    }
+
+    /// What the step does (“Tap the picture until it's gone”), whatever it's called.
+    func actionTitle(touch: Bool) -> String {
         switch kind {
         case .click(let b, let count, let at, let hold):
             var s: String
@@ -65,7 +80,7 @@ struct ActionGroup: Identifiable {
         case .image(let s):
             if s.text != nil {
                 let words = s.isText ? "“\(s.text!.trimmingCharacters(in: .whitespaces))”" : "some words"
-                let t = s.usesPicture ? "the picture or " + words : words
+                let t = s.usesPicture ? "the \(Self.pictureNoun(s)) or " + words : words
                 switch s.mode {
                 case .click: return (touch ? "Tap " : "Click ") + t + (s.repeatUntilGone ? " until it's gone" : "")
                 case .appear: return "Wait for " + t
@@ -74,7 +89,7 @@ struct ActionGroup: Identifiable {
                 }
             }
             switch s.mode {
-            case .click: return (touch ? "Tap" : "Click") + " the picture" + (s.repeatUntilGone ? " until it's gone" : "")
+            case .click: return (touch ? "Tap" : "Click") + " the \(Self.pictureNoun(s))" + (s.repeatUntilGone ? " until it's gone" : "")
             case .appear, .gone, .stop: return s.mode.label
             }
         case .typeList(let l):
@@ -238,7 +253,7 @@ enum ActionGrouper {
             }
 
             out.append(ActionGroup(id: steps[start].id, range: start..<end, lead: start...first, wait: wait,
-                                   start: clock + wait, kind: kind, enabled: steps[first].enabled))
+                                   start: clock + wait, kind: kind, enabled: steps[first].enabled, name: steps[first].name))
             clock += steps[start..<end].reduce(0) { $0 + $1.delay }
             i = end
         }

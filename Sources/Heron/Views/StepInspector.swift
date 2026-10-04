@@ -10,6 +10,8 @@ struct StepInspector: View {
     let onAddColorCheck: (ActionGroup) -> Void
     let onSampleColor: (ActionGroup) -> Void
     let onDelete: () -> Void
+    @StateObject private var naming = Naming()
+    final class Naming: ObservableObject { @Published var active = false }
 
     var body: some View {
         let selected = editing.groups.filter(editing.isSelected)
@@ -17,9 +19,10 @@ struct StepInspector: View {
             if selected.count == 1, let g = selected.first {
                 details(g)
                     .id(g.id)
+                    .onChange(of: g.id) { _, _ in naming.active = false }
             } else if selected.count > 1 {
                 VStack(spacing: 12) {
-                    Text("\(selected.count) actions selected").font(.headline)
+                    Text("\(selected.count) steps selected").font(.headline)
                     Button("Delete", role: .destructive, action: onDelete)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -40,7 +43,21 @@ struct StepInspector: View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
                 Image(systemName: g.icon(touch: touch)).foregroundStyle(.tint)
-                Text(g.title(touch: touch)).font(.headline).lineLimit(2)
+                if naming.active {
+                    TextField("", text: editing.nameBinding(g), prompt: Text(g.actionTitle(touch: touch)))
+                        .textFieldStyle(.roundedBorder)
+                        .font(.headline)
+                        .onSubmit { naming.active = false }
+                        .onExitCommand { naming.active = false }
+                        .accessibilityLabel("Step name")
+                } else {
+                    Text(g.title(touch: touch)).font(.headline).lineLimit(2)
+                    Button { naming.active = true } label: { Image(systemName: "pencil") }
+                        .buttonStyle(.borderless)
+                        .foregroundStyle(.secondary)
+                        .help("Name this step, like “Claim button”")
+                        .accessibilityLabel("Rename step")
+                }
                 Spacer(minLength: 4)
                 Toggle("On", isOn: editing.enabledBinding(g))
                     .toggleStyle(.switch)
@@ -88,7 +105,7 @@ struct StepInspector: View {
                         }
                     }
                     Section {
-                        Button("Show Raw Steps") { onShowRaw(g) }
+                        Button("Show Raw Events") { onShowRaw(g) }
                         Button("Delete", role: .destructive, action: onDelete)
                     }
                 }
@@ -117,7 +134,7 @@ struct StepInspector: View {
                 ColorWaitControls(wait: c, onSampleColor: { onSampleColor(g) })
             }
         case .wait:
-            Text("Pauses before the next action. Set how long below.")
+            Text("Pauses before the next step. Set how long below.")
                 .foregroundStyle(.secondary)
         case .keys(let text):
             LabeledContent("Keys", value: text)

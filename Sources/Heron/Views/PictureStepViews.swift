@@ -33,6 +33,7 @@ struct PictureStepEditor: View {
                         ui.testResult = nil
                     } else if let c = PictureCrop.crop(rect, from: item.image) {
                         step.wrappedValue.png = c.png
+                        step.wrappedValue.pictureWords = nil // read again for the new picture
                         step.wrappedValue.width = c.width
                         step.wrappedValue.height = c.height
                         step.wrappedValue.originX = Double(rect.minX)

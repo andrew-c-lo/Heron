@@ -97,6 +97,19 @@ struct ActionEditing {
         g.actionIndex < steps.count ? steps[g.actionIndex].id : nil
     }
 
+    /// The name given to an action (empty = use what it does as its title).
+    func nameBinding(_ g: ActionGroup) -> Binding<String> {
+        let id = actionStepID(g)
+        return Binding(
+            get: { id.flatMap { id in steps.first { $0.id == id }?.name } ?? "" },
+            set: { v in
+                guard let id, let i = steps.firstIndex(where: { $0.id == id }) else { return }
+                let t = v.trimmingCharacters(in: .whitespaces)
+                macro.wrappedValue.steps[i].name = t.isEmpty ? nil : v
+            }
+        )
+    }
+
     /// The list of a “Type from a list” action.
     func typeListBinding(_ g: ActionGroup) -> Binding<TypeList>? {
         guard g.actionIndex < steps.count, case .typeList(let initial) = steps[g.actionIndex].action else { return nil }
@@ -283,8 +296,8 @@ struct ActionEditing {
             count == 0 ? nil : "\(count) \(word)\(count == 1 ? "" : "s")"
         }
         let parts = [n(pictures, "picture step"), n(texts, "text step"), n(clicks, touch ? "tap" : "click"), n(drags, touch ? "swipe" : "drag"), n(scrolls, "scroll"),
-                     n(keys, "keyboard action"), n(colors, "color check"), n(pauses, "pause")].compactMap { $0 }
-        let head = "\(groups.count) action\(groups.count == 1 ? "" : "s")"
+                     n(keys, "keyboard step"), n(colors, "color check"), n(pauses, "pause")].compactMap { $0 }
+        let head = "\(groups.count) step\(groups.count == 1 ? "" : "s")"
         return parts.isEmpty ? head : head + ": " + parts.joined(separator: ", ")
     }
 }
@@ -304,6 +317,16 @@ struct SimpleStepsList: View {
         editing.macro.wrappedValue.steps.contains { model.stepHits[$0.id] != nil }
     }
 
+    /// The step a running macro is on (in order) or last clicked (all at once), to light up in the list.
+    private var liveStep: UUID? {
+        let m = editing.macro.wrappedValue
+        guard let run = model.live[m.id] else { return nil }
+        if m.playback.order == .allAtOnce || m.runsInBackground { return run.lastFired }
+        let steps = m.steps.filter(\.enabled)
+        let i = model.playStep - 1
+        return model.playingMacroID == m.id && steps.indices.contains(i) ? steps[i].id : run.lastFired
+    }
+
     private func hits(_ g: ActionGroup, ran: Bool) -> Int? {
         guard ran, let id = editing.actionStepID(g) else { return nil }
         return model.stepHits[id] ?? 0
@@ -312,6 +335,8 @@ struct SimpleStepsList: View {
     var body: some View {
         let groups = editing.groups
         let touch = editing.isTouch
+        let live = liveStep
+        let steps = editing.macro.wrappedValue.steps
 
         VStack(alignment: .leading, spacing: 6) {
             Text(editing.summary(groups))
@@ -328,7 +353,8 @@ struct SimpleStepsList: View {
                               onEditPicture: { onEditPicture(g) },
                               detailOverride: editing.allAtOnceDetail(g),
                               compact: true,
-                              hits: hits(g, ran: ran))
+                              hits: hits(g, ran: ran),
+                              live: live.map { id in steps[g.range.clamped(to: steps.indices)].contains { $0.id == id } } ?? false)
                         .tag(g.id)
                 }
                 .onMove { editing.move(groups, from: $0, to: $1) }
@@ -346,7 +372,7 @@ struct SimpleStepsList: View {
             .onDeleteCommand(perform: onDelete)
             .overlay {
                 if groups.isEmpty {
-                    Text("No actions yet. Record something, or use the buttons above.").foregroundStyle(.secondary)
+                    Text("No steps yet. Record something, or use Find Picture and Add above.").foregroundStyle(.secondary)
                 }
             }
         }
@@ -381,7 +407,7 @@ struct ActionMenu: View {
         if case .click = group.kind, group.editablePoint != nil {
             Button(editing.isTouch ? "Only Tap If the Color Matches…" : "Only Click If the Color Matches…") { onAddColorCheck(group) }
         }
-        Button("Show Raw Steps") { onShowRaw(group) }
+        Button("Show Raw Events") { onShowRaw(group) }
         Divider()
         Button("Move to Top") { editing.move(group, .top) }.disabled(!editing.canMove(group, .top))
         Button("Move Up") { editing.move(group, .up) }.disabled(!editing.canMove(group, .up))
@@ -408,6 +434,8 @@ struct ActionRow: View {
     var compact = false
     /// How often it fired last run (nil = no run yet).
     var hits: Int? = nil
+    /// The running macro is on this step (or just clicked it).
+    var live = false
     @StateObject private var hover = HoverState()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -417,8 +445,8 @@ struct ActionRow: View {
                 Toggle("", isOn: enabled)
                     .toggleStyle(.checkbox)
                     .labelsHidden()
-                    .help(enabled.wrappedValue ? "On. Uncheck to skip this action when the macro plays."
-                                               : "Off. This action is skipped when the macro plays.")
+                    .help(enabled.wrappedValue ? "On. Uncheck to skip this step when the macro plays."
+                                               : "Off. This step is skipped when the macro plays.")
             }
             Text("\(number)")
                 .monospacedDigit()
@@ -433,7 +461,7 @@ struct ActionRow: View {
                     .multilineTextAlignment(.trailing)
                 Text("s").foregroundStyle(.secondary)
             }
-            .help(isPause ? "How long to pause" : "How long to wait before this action")
+            .help(isPause ? "How long to pause" : "How long to wait before this step")
             }
 
             Image(systemName: group.icon(touch: touch))
@@ -462,7 +490,7 @@ struct ActionRow: View {
                                     .help("Also matches \(pic.variants.count) more picture\(pic.variants.count == 1 ? "" : "s")")
                             }
                         }
-                        if let d = detailOverride ?? group.detail { Text(d).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
+                        if let d = withAction(detailOverride ?? group.detail) { Text(d).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
                         if !compact {
                         // Shown on the row under the pointer only (double-click or right-click also edits).
                         Button("Edit…", action: onEditPicture)
@@ -471,7 +499,7 @@ struct ActionRow: View {
                             .allowsHitTesting(hover.hovering)
                         }
                     }
-                } else if let d = group.detail {
+                } else if let d = withAction(group.detail) {
                     Text(d).font(.caption).foregroundStyle(.secondary)
                 }
             }
@@ -504,11 +532,28 @@ struct ActionRow: View {
             }
         }
         .padding(.vertical, 3)
+        .background {
+            if live {
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(Color.accentColor.opacity(0.16))
+                    .padding(.horizontal, -6)
+                    .transition(.opacity)
+            }
+        }
+        .animation(Motion.snap(reduceMotion), value: live)
+        .accessibilityValue(live ? "Running now" : "")
         .opacity(group.enabled ? 1 : 0.45)
         .contentShape(Rectangle())
         .onHover { h in withAnimation(Motion.snap(reduceMotion)) { hover.hovering = h } }
         // No tap gestures here: in a List they take the mouse away from row selection and drag-to-reorder.
         // Double-click is the list's primary action instead.
+    }
+
+    /// A named step's detail line starts with what it does (the title shows the name).
+    private func withAction(_ detail: String?) -> String? {
+        guard let n = group.name, !n.trimmingCharacters(in: .whitespaces).isEmpty else { return detail }
+        let action = group.actionTitle(touch: touch)
+        return detail.map { "\(action) · \($0)" } ?? action
     }
 
     private var isPause: Bool {
@@ -586,7 +631,7 @@ struct ColorWaitControls: View {
                 Label("Ignore timing", systemImage: "bolt.fill")
             }
             .toggleStyle(.button)
-            .help("Ignore the recorded waits around this check: start checking right after the previous action, and do the next action the moment the color appears. Good when lag makes timing unpredictable.")
+            .help("Ignore the recorded waits around this check: start checking right after the previous step, and do the next step the moment the color appears. Good when lag makes timing unpredictable.")
     }
 }
 

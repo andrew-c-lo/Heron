@@ -202,7 +202,7 @@ struct StatusBar: View {
                                button: "Start", hotkey: nil, action: { model.startBackground(m.id) })
             }
             let n = ActionGrouper.groups(for: m.steps).count
-            let detail = "\(n) action\(n == 1 ? "" : "s")" + (m.target.app.map { " in \($0.name)" } ?? "") + also
+            let detail = "\(n) step\(n == 1 ? "" : "s")" + (m.target.app.map { " in \($0.name)" } ?? "") + also
             return Content(dot: others > 0 ? .green : .secondary.opacity(0.5), title: "Ready", detail: detail, button: "Play",
                            hotkey: .togglePlayback, action: { model.play(m) })
         }

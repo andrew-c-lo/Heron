@@ -145,7 +145,7 @@ private struct MacroList: View {
             return c > 0 ? "Running, \(c) click\(c == 1 ? "" : "s")" : "Running in the background"
         }
         let n = ActionGrouper.groups(for: m.steps).count
-        let steps = "\(n) action\(n == 1 ? "" : "s")"
+        let steps = "\(n) step\(n == 1 ? "" : "s")"
         let place = m.target.app.map { " in \($0.name)" } ?? ""
         return m.runsInBackground ? "Background\(place)" : steps + place
     }
