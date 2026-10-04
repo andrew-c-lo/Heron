@@ -347,7 +347,7 @@ struct MacroDetailView: View {
                 Text("Start on its own")
                 Text("Heron starts it at the times you choose. Each run ends the way Stops says.")
             }
-            if s.enabled {
+            if macro.schedule?.enabled == true {
                 Picker("Start", selection: Binding(get: { s.kind }, set: { set(\.kind, $0) })) {
                     ForEach(MacroSchedule.Kind.allCases) { Text($0.label).tag($0) }
                 }

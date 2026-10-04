@@ -88,8 +88,9 @@ struct ActionEditing {
         if s.mode == .stop { return "Stops the chain as soon as it appears" }
         if s.spotOnly { return "Skipped in All at once (set to a fixed spot)" }
         guard s.mode == .click else { return "Skipped in All at once (only steps that click or stop are used)" }
-        let how = s.repeatUntilGone ? "every \(s.repeatEvery.formatted())s while it's showing" : "once each time it appears"
-        return "Whenever it appears, \(how)" + (!s.usesPicture ? "" : " · \(Int((s.strictness * 100).rounded()))% match")
+        // The title already says when it's tapped; this is the rhythm and how close a match counts.
+        let how = s.repeatUntilGone ? "Every \(s.repeatEvery.formatted())s" : "Each time it shows"
+        return how + (!s.usesPicture ? "" : " · \(Int((s.strictness * 100).rounded()))% match")
     }
 
     /// The id of the step that holds a group's main action (e.g. the picture step itself).
@@ -478,6 +479,9 @@ struct ActionRow: View {
                 if let color {
                     ColorWaitControls(wait: color, onSampleColor: onSampleColor)
                 } else if case .image(let pic) = group.kind {
+                    // Narrow list: the detail gets its own line under the picture, so it isn't cut short.
+                    let detailLine = compact ? withAction(detailOverride ?? group.detail) : nil
+                    VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 8) {
                         if pic.usesPicture {
                             PictureThumbnail(png: pic.png, maxWidth: 110, maxHeight: 26)
@@ -490,7 +494,11 @@ struct ActionRow: View {
                                     .help("Also matches \(pic.variants.count) more picture\(pic.variants.count == 1 ? "" : "s")")
                             }
                         }
-                        if let d = withAction(detailOverride ?? group.detail) { Text(d).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
+                        if !compact, let d = withAction(detailOverride ?? group.detail) {
+                            Text(d).font(.caption).foregroundStyle(.secondary)
+                                .lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                                .help(d)
+                        }
                         if !compact {
                         // Shown on the row under the pointer only (double-click or right-click also edits).
                         Button("Edit…", action: onEditPicture)
@@ -498,6 +506,12 @@ struct ActionRow: View {
                             .opacity(hover.hovering ? 1 : 0)
                             .allowsHitTesting(hover.hovering)
                         }
+                    }
+                    if let d = detailLine {
+                        Text(d).font(.caption).foregroundStyle(.secondary)
+                            .lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                            .help(d)
+                    }
                     }
                 } else if let d = withAction(group.detail) {
                     Text(d).font(.caption).foregroundStyle(.secondary)
