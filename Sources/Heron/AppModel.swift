@@ -111,6 +111,9 @@ final class AppModel: ObservableObject {
     private var snapshotCache: [UUID: NSImage?] = [:]
     private var pendingSnapshot: NSImage?
     @Published var statusMessage: String?
+    /// A button shown with the message, when there's an obvious fix.
+    struct StatusAction { let title: String; let perform: () -> Void }
+    @Published private(set) var statusAction: StatusAction?
     /// The main area is narrow: toolbar items shrink so the page's main button (Play, Start) never overflows.
     @Published var compactToolbar = false
 
@@ -355,12 +358,27 @@ final class AppModel: ObservableObject {
         if compactToolbar != compact { compactToolbar = compact }
     }
 
-    func flash(_ message: String) {
+    func flash(_ message: String, action: StatusAction? = nil) {
         statusMessage = message
+        statusAction = action
         messageClear?.cancel()
-        let work = DispatchWorkItem { [weak self] in self?.statusMessage = nil }
+        let work = DispatchWorkItem { [weak self] in self?.statusMessage = nil; self?.statusAction = nil }
         messageClear = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 4, execute: work)
+        // Longer when there's a button to reach for.
+        DispatchQueue.main.asyncAfter(deadline: .now() + (action == nil ? 4 : 8), execute: work)
+    }
+
+    /// “Can't find a window for X”, with a button that opens X.
+    func flashMissingWindow(_ app: TargetApp, _ message: String? = nil) {
+        let open = StatusAction(title: "Open \(app.name)") { [weak self] in
+            guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: app.bundleID) else {
+                self?.flash("Can't find \(app.name) on this Mac.")
+                return
+            }
+            NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration())
+            self?.flash("Opening \(app.name)… Press Play again once its window is up.")
+        }
+        flash(message ?? "Can't find a window for \(app.name).", action: open)
     }
 
     private func sound(_ name: String) {
@@ -528,7 +546,7 @@ final class AppModel: ObservableObject {
             return Prepared(startDelay: 0)
         }
         guard WindowFinder.find(app) != nil else {
-            flash("Can't find a window for \(app.name). Open it first.")
+            flashMissingWindow(app)
             sound("Basso")
             return nil
         }
@@ -580,7 +598,7 @@ final class AppModel: ObservableObject {
         var screen = p
         if let app {
             guard let w = WindowFinder.find(app) else {
-                flash("Can't find a window for \(app.name)."); done(nil); return
+                flashMissingWindow(app); done(nil); return
             }
             screen = CGPoint(x: p.x + w.frame.minX, y: p.y + w.frame.minY)
         }
@@ -637,7 +655,7 @@ final class AppModel: ObservableObject {
     func relativePoint(_ p: CGPoint, to app: TargetApp?, requireInside: Bool = false) -> CGPoint? {
         guard let app else { return p }
         guard let w = WindowFinder.find(app) else {
-            flash("Can't find a window for \(app.name). Open it first.")
+            flashMissingWindow(app)
             return nil
         }
         if requireInside && !w.frame.contains(p) {
@@ -747,7 +765,7 @@ final class AppModel: ObservableObject {
         }
         if let reader = clickReader { opts.onPress = { id, p in reader.notePress(id, at: p) } }
         if let t = recordTargetNow, WindowFinder.find(t) == nil {
-            flash("Can't find a window for \(t.name). Open it first, or turn off “Record only in”.")
+            flashMissingWindow(t, "Can't find a window for \(t.name). Open it, or turn off “Record only in”.")
             sound("Basso")
             return
         }

@@ -61,7 +61,7 @@ struct ContentView: View {
         // Messages appear briefly over the content instead of in a permanent bar.
         .overlay(alignment: .bottom) {
             if let msg = model.statusMessage {
-                MessageToast(text: msg)
+                MessageToast(text: msg, action: model.statusAction)
                     .padding(.bottom, 72)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
@@ -298,11 +298,20 @@ struct PermissionBanner: View {
 /// A short message that slides up over the content and fades away by itself.
 struct MessageToast: View {
     let text: String
+    /// A way out of the problem the message names (“Open TextEdit”).
+    var action: AppModel.StatusAction? = nil
 
     var body: some View {
-        Text(text)
-            .font(.callout)
-            .multilineTextAlignment(.center)
+        HStack(spacing: 12) {
+            Text(text)
+                .font(.callout)
+                .multilineTextAlignment(.center)
+            if let action {
+                Button(action.title, action: action.perform)
+                    .controlSize(.small)
+                    .buttonStyle(.borderedProminent)
+            }
+        }
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
             .background(.regularMaterial, in: Capsule())
