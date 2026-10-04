@@ -6,6 +6,8 @@ import Vision
 /// the window. One place for "is it on screen, and where?", shared by chains, watchers and Test Now.
 struct Lookup {
     var template: TemplateMatcher.Prepared?
+    /// More pictures that count as the same thing; the best match among all of them wins.
+    var variants: [TemplateMatcher.Prepared] = []
     var text: String?
     var area: CGRect?
     var strictness: Double
@@ -13,6 +15,9 @@ struct Lookup {
     init?(step s: ImageStep) {
         self.init(png: s.png, width: s.width, height: s.height, text: s.text, area: s.area,
                   strictness: s.strictness)
+        if !isText {
+            variants = s.variants.compactMap { TemplateMatcher.prepare(png: $0.png, width: $0.width, height: $0.height) }
+        }
     }
 
     init?(watcher w: Watcher) {
@@ -46,8 +51,8 @@ struct Lookup {
             local = TextFinder.find(text, in: pixels)
         } else if let template {
             let useScene = offset == .zero && area == nil ? scene : nil
-            local = TemplateMatcher.find(template, in: useScene ?? TemplateMatcher.Scene(rgba: pixels.rgba, width: pixels.width,
-                                                                                         height: pixels.height))
+            let sc = useScene ?? TemplateMatcher.Scene(rgba: pixels.rgba, width: pixels.width, height: pixels.height)
+            local = ([template] + variants).compactMap { TemplateMatcher.find($0, in: sc) }.max { $0.score < $1.score }
         } else {
             local = nil
         }

@@ -7,6 +7,8 @@ final class WatcherUIState: ObservableObject {
     @Published var testing = false
     /// The open screenshot is for choosing the search area (not the picture).
     @Published var pickingArea = false
+    /// The open screenshot is for adding another picture of the same thing.
+    @Published var pickingVariant = false
 }
 
 /// "Look for: Picture | Text". Text mode is `text != nil`, so an empty box stays in text mode.

@@ -109,6 +109,35 @@ struct ActionEditing {
         )
     }
 
+    /// Selected picture steps (not text) that can be combined into one.
+    var combinablePictures: [ActionGroup] {
+        groups.filter { g in
+            guard isSelected(g), case .image(let s) = g.kind else { return false }
+            return s.text == nil && !s.png.isEmpty
+        }
+    }
+
+    /// Makes the first selected picture step also match the others' pictures, and removes the others.
+    func combinePictures() {
+        let picked = combinablePictures
+        guard picked.count >= 2, let keepID = actionStepID(picked[0]),
+              let keep = steps.firstIndex(where: { $0.id == keepID }),
+              case .findImage(var first) = steps[keep].action else { return }
+        var drop = Set<UUID>()
+        for g in picked.dropFirst() {
+            guard let id = actionStepID(g), let i = steps.firstIndex(where: { $0.id == id }),
+                  case .findImage(let other) = steps[i].action else { continue }
+            first.variants.append(PictureVariant(png: other.png, width: other.width, height: other.height))
+            first.variants.append(contentsOf: other.variants)
+            drop.formUnion(steps[g.range.clamped(to: steps.indices)].map(\.id))
+        }
+        var s = steps
+        s[keep].action = .findImage(first)
+        s.removeAll { drop.contains($0.id) }
+        macro.wrappedValue.steps = s
+        ui.selection = [keepID]
+    }
+
     /// Changes a “Repeat from” step.
     func setRepeat(_ g: ActionGroup, target: UUID, times: Int) {
         guard g.actionIndex < steps.count else { return }
@@ -264,6 +293,9 @@ struct ActionMenu: View {
             Button("Show Settings") { onEditPicture(group) }
         }
         Toggle("On", isOn: editing.enabledBinding(group))
+        if editing.combinablePictures.count >= 2 && editing.isSelected(group) {
+            Button("Combine \(editing.combinablePictures.count) Pictures into One Step") { editing.combinePictures() }
+        }
         if case .click = group.kind, group.editablePoint != nil {
             Button(editing.isTouch ? "Only Tap If the Color Matches…" : "Only Click If the Color Matches…") { onAddColorCheck(group) }
         }
@@ -331,7 +363,16 @@ struct ActionRow: View {
                     ColorWaitControls(wait: color, onSampleColor: onSampleColor)
                 } else if case .image(let pic) = group.kind {
                     HStack(spacing: 8) {
-                        if pic.text == nil { PictureThumbnail(png: pic.png, maxWidth: 110, maxHeight: 26) }
+                        if pic.text == nil {
+                            PictureThumbnail(png: pic.png, maxWidth: 110, maxHeight: 26)
+                            if !pic.variants.isEmpty {
+                                Text("+\(pic.variants.count)")
+                                    .font(.caption2.weight(.semibold))
+                                    .padding(.horizontal, 5).padding(.vertical, 1)
+                                    .background(Capsule().fill(Color.secondary.opacity(0.2)))
+                                    .help("Also matches \(pic.variants.count) more picture\(pic.variants.count == 1 ? "" : "s")")
+                            }
+                        }
                         if let d = detailOverride ?? group.detail { Text(d).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
                         if !compact {
                         // Shown on the row under the pointer only (double-click or right-click also edits).

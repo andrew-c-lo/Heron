@@ -246,6 +246,13 @@ extension StepAction {
 }
 
 /// A picture to look for in the target window, and what to do about it.
+/// One more picture of the same thing (PNG at 2×, size in points).
+struct PictureVariant: Codable, Equatable {
+    var png: Data
+    var width: Double
+    var height: Double
+}
+
 struct ImageStep: Codable, Equatable {
     enum Mode: String, Codable, CaseIterable, Identifiable {
         case click, appear, gone
@@ -298,6 +305,10 @@ struct ImageStep: Codable, Equatable {
     var fallbackY: Double?
     /// With `otherwise == .goToStep`: the step to continue from (branching).
     var goToStep: UUID?
+    /// More pictures that count as the same thing (for example the same button in different states).
+    var variants: [PictureVariant] = []
+    /// Where in the picture to click, as fractions of its width and height (nil = the middle, spread over all of it).
+    var clickArea: CGRect?
     /// Look for this text instead of the picture (nil = picture).
     var text: String?
     /// Only search inside this part of the window (window points; nil = whole window).
@@ -311,6 +322,17 @@ struct ImageStep: Codable, Equatable {
         self.height = height
         self.originX = originX
         self.originY = originY
+    }
+
+    /// Where to click on a found picture (window points) and the box click spread must stay in.
+    func clickTarget(in found: CGRect) -> (point: CGPoint, bounds: CGRect) {
+        var box = found
+        if let a = clickArea {
+            box = CGRect(x: found.minX + a.minX * found.width, y: found.minY + a.minY * found.height,
+                         width: max(1, a.width * found.width), height: max(1, a.height * found.height))
+        }
+        box = box.offsetBy(dx: offsetX, dy: offsetY)
+        return (CGPoint(x: box.midX, y: box.midY), box)
     }
 
     var untilAppears: Bool {
@@ -341,6 +363,8 @@ extension ImageStep {
         fallbackX = try c.decodeIfPresent(Double.self, forKey: .fallbackX)
         fallbackY = try c.decodeIfPresent(Double.self, forKey: .fallbackY)
         goToStep = try c.decodeIfPresent(UUID.self, forKey: .goToStep)
+        variants = try c.decodeIfPresent([PictureVariant].self, forKey: .variants) ?? []
+        clickArea = try c.decodeIfPresent(CGRect.self, forKey: .clickArea)
         text = try c.decodeIfPresent(String.self, forKey: .text)
         area = try c.decodeIfPresent(CGRect.self, forKey: .area)
     }

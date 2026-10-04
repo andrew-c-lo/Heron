@@ -127,6 +127,9 @@ scripts/setup-signing.sh   # once: a personal signing certificate, so permission
   just wait for it, or wait until it's gone
 - A text step does the same for words, read on your Mac
 - Pick pictures by drawing a box on a screenshot, with zoom and pixel-precise handles
+- A step can hold several pictures of the same thing (different states or colours), and any of them counts;
+  select several picture steps to combine them into one
+- Choose exactly where clicks land on a picture by dragging a box on it, or click once for a precise spot
 - Limit any search to an area of the window, so it's faster and ignores look-alikes elsewhere
 - Keep clicking until it's gone, wait before clicking, click at an offset, and choose what happens if it
   never shows up

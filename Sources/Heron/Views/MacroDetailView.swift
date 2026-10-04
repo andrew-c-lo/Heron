@@ -424,6 +424,8 @@ struct MacroDetailView: View {
                 Button("Set Delay of \(selection.isEmpty ? "All" : "Selected") Steps…") { ui.showingBulkDelay = true }
                 Divider()
                 Button("Select All") { selection = Set(macro.steps.map(\.id)) }
+                Button("Combine Selected Pictures into One Step") { editing.combinePictures() }
+                    .disabled(editing.combinablePictures.count < 2)
                 Button("Delete Selected Steps", role: .destructive) { deleteSelected() }.disabled(selection.isEmpty)
                 Divider()
                 Button("Stuck Screens…") { ui.showingStuck = true }

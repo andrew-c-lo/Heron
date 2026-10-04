@@ -1,3 +1,4 @@
+import SwiftUI
 import AppKit
 import CoreGraphics
 import Foundation
@@ -233,6 +234,46 @@ check("a word is found among lines already read", one != nil)
 let near = TextFinder.find("Claim", in: lines, area: CGRect(x: 500, y: 250, width: 300, height: 150))
 check("…and a search area picks the copy inside it", near.map { $0.midY > 250 } ?? false, "\(String(describing: near))")
 check("…and a word that isn't there isn't found", TextFinder.find("Collect", in: lines, area: nil) == nil)
+
+// Click areas: where on a found picture the click lands.
+var ca = ImageStep(png: Data(), width: 0, height: 0, originX: 0, originY: 0)
+ca.clickArea = CGRect(x: 0.75, y: 0, width: 0.25, height: 0.5)
+let t1 = ca.clickTarget(in: CGRect(x: 100, y: 100, width: 200, height: 100))
+check("a click area puts the click in its box", t1.point == CGPoint(x: 275, y: 125) && t1.bounds == CGRect(x: 250, y: 100, width: 50, height: 50), "\(t1)")
+ca.offsetX = 10
+check("…and the click offset still applies", ca.clickTarget(in: CGRect(x: 100, y: 100, width: 200, height: 100)).point == CGPoint(x: 285, y: 125))
+ca.clickArea = nil; ca.offsetX = 0
+check("no click area: the middle of the picture", ca.clickTarget(in: CGRect(x: 0, y: 0, width: 40, height: 20)).point == CGPoint(x: 20, y: 10))
+let dragged = ClickAreaEditor.area(from: CGPoint(x: 10, y: 10), to: CGPoint(x: 50, y: 30), in: CGSize(width: 100, height: 50))
+check("dragging on the picture sets the box", abs(dragged.minX - 0.1) < 1e-9 && abs(dragged.minY - 0.2) < 1e-9 && abs(dragged.width - 0.4) < 1e-9 && abs(dragged.height - 0.4) < 1e-9, "\(dragged)")
+let clicked = ClickAreaEditor.area(from: CGPoint(x: 50, y: 25), to: CGPoint(x: 51, y: 25), in: CGSize(width: 100, height: 50))
+check("clicking sets a small box around that spot", abs(clicked.midX - 0.51) < 0.01 && abs(clicked.midY - 0.5) < 0.01 && clicked.width < 0.1, "\(clicked)")
+
+// Variants: any of the step's pictures counts.
+func pngOf(_ px: ScreenReader.WindowPixels, _ r: CGRect) -> (Data, Double, Double) {
+    let c = px.cropped(to: r.integral)!
+    return (NSBitmapImageRep(cgImage: c.cgImage!).representation(using: .png, properties: [:])!, Double(c.width), Double(c.height))
+}
+let settingsPic = pngOf(px, boxes["Settings"]!)
+let claimPic = pngOf(ix, ib["Claim"]!)
+var vstep = ImageStep(png: settingsPic.0, width: settingsPic.1, height: settingsPic.2, originX: 0, originY: 0)
+check("without the variant, a picture that isn't on screen isn't found", Lookup(step: vstep)!.locate(in: ix) == nil)
+vstep.variants = [PictureVariant(png: claimPic.0, width: claimPic.1, height: claimPic.2)]
+let vfound = Lookup(step: vstep)!.locate(in: ix)
+check("with it, the variant on screen is found", near(vfound, ib["Claim"]!), "\(String(describing: vfound))")
+
+// Combine two picture steps into one.
+var combineMacro = Macro(name: "c", steps: [
+    MacroStep(delay: 0, action: .findImage(ImageStep(png: settingsPic.0, width: settingsPic.1, height: settingsPic.2, originX: 0, originY: 0))),
+    MacroStep(delay: 0, action: .findImage(ImageStep(png: claimPic.0, width: claimPic.1, height: claimPic.2, originX: 0, originY: 0))),
+    MacroStep(delay: 1, action: .wait)])
+let cui = DetailUIState()
+let cedit = ActionEditing(macro: Binding(get: { combineMacro }, set: { combineMacro = $0 }), ui: cui)
+cui.selection = Set(combineMacro.steps.prefix(2).map(\.id))
+cedit.combinePictures()
+if combineMacro.steps.count == 2, case .findImage(let merged) = combineMacro.steps[0].action {
+    check("combining makes one step that also matches the other picture", merged.variants.count == 1 && merged.png == settingsPic.0)
+} else { check("combining two picture steps", false, "\(combineMacro.steps.count) steps") }
 
 print(failures == 0 ? "ALL PASSED" : "\(failures) FAILED")
 exit(failures == 0 ? 0 : 1)

@@ -28,6 +28,9 @@ struct PictureStepEditor: View {
                     if ui.pickingArea {
                         step.wrappedValue.area = rect.integral
                         ui.testResult = nil
+                    } else if ui.pickingVariant, let c = PictureCrop.crop(rect, from: item.image) {
+                        step.wrappedValue.variants.append(PictureVariant(png: c.png, width: c.width, height: c.height))
+                        ui.testResult = nil
                     } else if let c = PictureCrop.crop(rect, from: item.image) {
                         step.wrappedValue.png = c.png
                         step.wrappedValue.width = c.width
@@ -60,13 +63,14 @@ struct PictureStepEditor: View {
                     if s.png.isEmpty {
                         Text("No picture yet").font(.caption).foregroundStyle(.secondary)
                     } else {
-                        PictureThumbnail(png: s.png, maxWidth: 240, maxHeight: 70)
+                        ClickAreaEditor(png: s.png, area: step.clickArea)
                     }
                     HStack {
                         Button(s.png.isEmpty ? "Pick…" : "Pick Again…") { pick(area: false) }
                             .help("Box the picture on a screenshot of the window")
                         testButton
                     }
+                    if !s.png.isEmpty { variantsRow }
                 }
                 }
                 SearchAreaRow(area: step.area) { pick(area: true) }
@@ -174,10 +178,37 @@ struct PictureStepEditor: View {
         }
     }
 
-    /// Screenshot the window to re-pick the picture, or to box the search area.
-    private func pick(area: Bool) {
+    /// More pictures of the same thing: any of them counts as found.
+    private var variantsRow: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(s.variants.isEmpty ? "Looks different sometimes? Add another picture of it."
+                                    : "Also matches any of these:")
+                .font(.caption).foregroundStyle(.secondary)
+            HStack(spacing: 6) {
+                ForEach(Array(s.variants.enumerated()), id: \.offset) { i, v in
+                    PictureThumbnail(png: v.png, maxWidth: 56, maxHeight: 36)
+                        .overlay(alignment: .topTrailing) {
+                            Button { step.wrappedValue.variants.remove(at: i) } label: {
+                                Image(systemName: "xmark.circle.fill").symbolRenderingMode(.palette)
+                                    .foregroundStyle(.white, .black.opacity(0.6))
+                            }
+                            .buttonStyle(.borderless)
+                            .help("Remove this picture")
+                            .offset(x: 5, y: -5)
+                        }
+                }
+                Button("Add Variant…") { pick(area: false, variant: true) }
+                    .controlSize(.small)
+                    .help("Box another picture of the same thing on a screenshot")
+            }
+        }
+    }
+
+    /// Screenshot the window to re-pick the picture, add a variant, or box the search area.
+    private func pick(area: Bool, variant: Bool = false) {
         Task { @MainActor in
             if let img = await model.windowPicture(for: app) {
+                ui.pickingVariant = variant
                 ui.pickingArea = area
                 ui.picker = img
             }

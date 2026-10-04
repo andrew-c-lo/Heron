@@ -301,8 +301,9 @@ final class Player {
                 case .failure(let e): return e.message
                 }
                 performer.route.origin = win.frame.origin
-                let x = Double(rect.midX) + s.offsetX, y = Double(rect.midY) + s.offsetY
-                performer.spreadBounds = rect.offsetBy(dx: s.offsetX, dy: s.offsetY)
+                let target = s.clickTarget(in: rect)
+                let x = Double(target.point.x), y = Double(target.point.y)
+                performer.spreadBounds = target.bounds
                 performer.perform(.mouseDown(button: s.button, x: x, y: y, clickCount: 1, flags: 0))
                 performer.perform(.mouseUp(button: s.button, x: x, y: y, clickCount: 1, flags: 0))
                 performer.spreadBounds = nil
@@ -361,8 +362,9 @@ final class Player {
         func click(_ r: CGRect, _ win: TargetWindow) {
             onFound(r)
             performer.route.origin = win.frame.origin // the window may have moved
-            let x = Double(r.midX) + s.offsetX, y = Double(r.midY) + s.offsetY
-            performer.spreadBounds = r.offsetBy(dx: s.offsetX, dy: s.offsetY)
+            let target = s.clickTarget(in: r)
+            let x = Double(target.point.x), y = Double(target.point.y)
+            performer.spreadBounds = target.bounds
             performer.perform(.mouseDown(button: s.button, x: x, y: y, clickCount: 1, flags: 0))
             performer.perform(.mouseUp(button: s.button, x: x, y: y, clickCount: 1, flags: 0))
             performer.spreadBounds = nil
