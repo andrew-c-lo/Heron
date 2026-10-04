@@ -169,6 +169,8 @@ final class Performer {
     private var pressOffset = CGVector.zero
     /// When set (window coordinates), spread clicks stay inside it, e.g. the picture that was found.
     var spreadBounds: CGRect?
+    /// The click spot was already picked at random (a click box): don't add the global spread.
+    var spreadPicked = false
     private var heldButtons = Set<MouseButton>()
     private var heldKeys = Set<UInt16>()
     private var touchedModifiers = false
@@ -204,7 +206,7 @@ final class Performer {
     /// position, which is never moved (it would make the cursor wander further with every click).
     func spreadPoint(_ p: CGPoint, newPress: Bool, absolute: Bool) -> CGPoint {
         guard !absolute else { return p }
-        if newPress { pressOffset = ClickSpread.randomOffset(ClickSpread.radius) }
+        if newPress { pressOffset = spreadPicked ? .zero : ClickSpread.randomOffset(ClickSpread.radius) }
         let moved = CGPoint(x: p.x + pressOffset.dx, y: p.y + pressOffset.dy)
         let bounds = spreadBounds.map { b in
             CGRect(origin: route.absolute(Double(b.minX), Double(b.minY)), size: b.size)

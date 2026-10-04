@@ -82,7 +82,8 @@ struct PictureStepEditor: View {
                     if s.png.isEmpty {
                         Text("No picture yet").font(.caption).foregroundStyle(.secondary)
                     } else {
-                        ClickAreaEditor(png: s.png, area: step.clickArea)
+                        ClickAreaEditor(png: s.png, area: step.clickArea, pictureWidth: s.width,
+                                        spread: model.prefs.clickSpread ? model.prefs.clickSpreadRadius : 0)
                     }
                     HStack {
                         Button(s.png.isEmpty ? "Pick…" : "Pick Again…") { pick(area: false) }

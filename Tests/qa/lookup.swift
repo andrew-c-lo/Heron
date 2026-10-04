@@ -587,5 +587,30 @@ check("the wait before clicking lands between the two numbers", waits.allSatisfy
 rs.settleMax = nil
 check("one number: a fixed wait", rs.pickSettle() == 0.2)
 
+// Click boxes: anywhere in the box, favouring the middle; no box: the middle (plus the global spread).
+var boxed = ImageStep(png: Data(), width: 0, height: 0, originX: 0, originY: 0)
+boxed.clickArea = CGRect(x: 0, y: 0, width: 1, height: 1)
+let foundRect = CGRect(x: 100, y: 200, width: 160, height: 60)
+let spots = (0..<2000).map { _ in boxed.clickSpot(in: foundRect) }
+let xs = spots.map { Double($0.point.x) }, ys = spots.map { Double($0.point.y) }
+check("a click box: every click lands inside it", spots.allSatisfy { foundRect.contains($0.point) } && spots.allSatisfy(\.ownSpread))
+check("…spread across the whole box", xs.min()! < 125 && xs.max()! > 235 && ys.min()! < 210 && ys.max()! > 250,
+      "x \(Int(xs.min()!))–\(Int(xs.max()!)), y \(Int(ys.min()!))–\(Int(ys.max()!))")
+let middle = spots.filter { abs($0.point.x - 180) < 40 }.count
+check("…more often near the middle", middle > 2000 * 55 / 100, "\(middle) of 2000 in the middle half")
+let plain = ImageStep(png: Data(), width: 0, height: 0, originX: 0, originY: 0).clickSpot(in: foundRect)
+check("no box: aims at the middle and leaves the spread to the global setting",
+      plain.point == CGPoint(x: 180, y: 230) && !plain.ownSpread)
+var spotDowns: [CGPoint] = []
+EventSynth.testSink = { e in if e.type == .leftMouseDown { spotDowns.append(e.location) } }
+ClickSpread.configure(enabled: true, radius: 25)
+let pf = Performer(route: .screen)
+pf.spreadPicked = true
+pf.perform(.mouseDown(button: .left, x: 50, y: 60, clickCount: 1, flags: 0))
+pf.perform(.mouseUp(button: .left, x: 50, y: 60, clickCount: 1, flags: 0))
+ClickSpread.configure(enabled: false, radius: 0)
+EventSynth.testSink = nil
+check("a spot picked in a box isn't spread a second time", spotDowns.first == CGPoint(x: 50, y: 60), "\(spotDowns)")
+
 print(failures == 0 ? "ALL PASSED" : "\(failures) FAILED")
 exit(failures == 0 ? 0 : 1)

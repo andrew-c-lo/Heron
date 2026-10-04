@@ -411,6 +411,21 @@ struct ImageStep: Codable, Equatable {
         return (CGPoint(x: box.midX, y: box.midY), box)
     }
 
+    /// Where to click this time. With a click box: a random spot anywhere in it (a little more likely near the
+    /// middle, never on the very edge), and `ownSpread` is true so the global spread isn't added on top.
+    /// Without one: the middle of the picture, and the global spread (Settings) applies.
+    func clickSpot(in found: CGRect) -> (point: CGPoint, bounds: CGRect, ownSpread: Bool) {
+        let t = clickTarget(in: found)
+        guard clickArea != nil else { return (t.point, t.bounds, false) }
+        let b = t.bounds.insetBy(dx: min(2, t.bounds.width / 4), dy: min(2, t.bounds.height / 4))
+        // Average of two random numbers: spread over the whole box, favouring the middle.
+        func pick(_ lo: CGFloat, _ hi: CGFloat) -> CGFloat {
+            guard hi > lo else { return (lo + hi) / 2 }
+            return lo + (hi - lo) * CGFloat((Double.random(in: 0...1) + Double.random(in: 0...1)) / 2)
+        }
+        return (CGPoint(x: pick(b.minX, b.maxX), y: pick(b.minY, b.maxY)), t.bounds, true)
+    }
+
     var untilAppears: Bool {
         get { timeout < 0 }
         set { timeout = newValue ? -1 : 10 }

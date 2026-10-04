@@ -461,12 +461,14 @@ final class Player {
                 case .failure(let e): return e.message
                 }
                 performer.route.origin = win.frame.origin
-                let target = s.clickTarget(in: rect)
+                let target = s.clickSpot(in: rect)
                 let x = Double(target.point.x), y = Double(target.point.y)
                 performer.spreadBounds = target.bounds
+                performer.spreadPicked = target.ownSpread
                 performer.perform(.mouseDown(button: s.button, x: x, y: y, clickCount: 1, flags: 0))
                 performer.perform(.mouseUp(button: s.button, x: x, y: y, clickCount: 1, flags: 0))
                 performer.spreadBounds = nil
+                performer.spreadPicked = false
                 chooser.clicked(index, at: Timing.now())
                 clicks += 1
                 lastAction = Timing.now()
@@ -528,12 +530,14 @@ final class Player {
         func click(_ r: CGRect, _ win: TargetWindow) {
             onFound(r)
             performer.route.origin = win.frame.origin // the window may have moved
-            let target = s.clickTarget(in: r)
+            let target = s.clickSpot(in: r)
             let x = Double(target.point.x), y = Double(target.point.y)
             performer.spreadBounds = target.bounds
+            performer.spreadPicked = target.ownSpread
             performer.perform(.mouseDown(button: s.button, x: x, y: y, clickCount: 1, flags: 0))
             performer.perform(.mouseUp(button: s.button, x: x, y: y, clickCount: 1, flags: 0))
             performer.spreadBounds = nil
+            performer.spreadPicked = false
         }
         func pause(_ seconds: Double) -> Bool { Timing.wait(until: Timing.now() + seconds, token) }
 

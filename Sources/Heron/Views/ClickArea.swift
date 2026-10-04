@@ -6,6 +6,9 @@ struct ClickAreaEditor: View {
     @Binding var area: CGRect?
     var maxWidth: CGFloat = 260
     var maxHeight: CGFloat = 130
+    /// The picture's width in points, and the global click spread (points), to show where clicks can land.
+    var pictureWidth: Double = 0
+    var spread: Double = 0
     @StateObject private var drag = DragState()
 
     final class DragState: ObservableObject { @Published var start: CGPoint? ; @Published var current: CGPoint? }
@@ -29,10 +32,11 @@ struct ClickAreaEditor: View {
                     .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(.separator))
                     .help("Drag a box where clicks should land, or click once for a precise spot")
                 HStack(spacing: 8) {
-                    Text(area == nil ? "Clicks land anywhere on the picture." : "Clicks land in the box.")
+                    Text(caption)
                         .font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                     if area != nil {
-                        Button("Whole Picture") { area = nil }.controlSize(.small)
+                        Button("Remove Box") { area = nil }.controlSize(.small)
                     }
                 }
             }
@@ -53,13 +57,36 @@ struct ClickAreaEditor: View {
                     .overlay(Rectangle().strokeBorder(Color.accentColor, lineWidth: 2))
                     .frame(width: r.width, height: r.height)
                     .offset(x: r.minX, y: r.minY)
-                crosshair.offset(x: r.midX - 7, y: r.midY - 7)
             } else {
+                // No box: clicks land within the spread of the middle.
+                let d = spreadDiameter(size)
+                if d > 4 {
+                    Circle()
+                        .fill(Color.accentColor.opacity(0.18))
+                        .overlay(Circle().strokeBorder(Color.accentColor, lineWidth: 1.5))
+                        .frame(width: d, height: d)
+                        .offset(x: size.width / 2 - d / 2, y: size.height / 2 - d / 2)
+                }
                 crosshair.offset(x: size.width / 2 - 7, y: size.height / 2 - 7)
             }
         }
         .frame(width: size.width, height: size.height, alignment: .topLeading)
         .allowsHitTesting(false)
+    }
+
+    /// The spread circle's size on the shown picture.
+    private func spreadDiameter(_ size: CGSize) -> CGFloat {
+        guard pictureWidth > 0, spread > 0 else { return 0 }
+        return min(CGFloat(spread * 2) * size.width / CGFloat(pictureWidth), min(size.width, size.height))
+    }
+
+    /// Where clicks land, in words (matches the shading on the picture).
+    private var caption: String {
+        if area != nil { return "Each click lands on a different spot in the box." }
+        if spread > 0 {
+            return "Clicks land within \(Int(spread.rounded())) points of the middle (Spread the position, in Settings). Drag a box to use more of the picture."
+        }
+        return "Clicks land in the middle. Drag a box to spread them over part of the picture."
     }
 
     private var crosshair: some View {
