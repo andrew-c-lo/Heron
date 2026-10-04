@@ -143,6 +143,12 @@ struct GeneralSettingsView: View {
                     Text("Sounds")
                     Text("A soft sound when clicking, recording or playback starts and stops.")
                 }
+                Picker(selection: $model.prefs.screenAwake) {
+                    ForEach(ScreenAwake.allCases) { Text($0.label).tag($0) }
+                } label: {
+                    Text("Keep the screen on")
+                    Text("So the screen saver and auto-lock don't stop a run. Heron can't run while the Mac is locked.")
+                }
             }
             Section {
                 LabeledContent {

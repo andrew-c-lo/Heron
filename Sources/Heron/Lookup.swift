@@ -12,12 +12,51 @@ struct Lookup {
     var area: CGRect?
     var strictness: Double
 
-    init?(step s: ImageStep) {
+    /// The window size the picture and area belong to; when the window is now a different size, both are
+    /// resized to match (nil = use them as they are).
+    var reference: CGSize?
+    /// The pictures as stored, for resizing.
+    private var sources: [(png: Data, width: Double, height: Double)] = []
+    private let resized = ResizedCache()
+
+    init?(step s: ImageStep, reference: CGSize? = nil) {
         self.init(png: s.png, width: s.width, height: s.height, text: s.text, area: s.area,
                   strictness: s.strictness, alsoPicture: s.alsoPicture)
+        self.reference = s.captureWindow ?? reference
         if template != nil {
             variants = s.variants.compactMap { TemplateMatcher.prepare(png: $0.png, width: $0.width, height: $0.height) }
+            sources = [(s.png, s.width, s.height)] + s.variants.map { ($0.png, $0.width, $0.height) }
         }
+    }
+
+    /// Prepared pictures at each size used so far.
+    private final class ResizedCache: @unchecked Sendable {
+        let lock = NSLock()
+        var byScale: [Int: [TemplateMatcher.Prepared]] = [:]
+    }
+
+    /// How much bigger the window is than the one the picture was picked in (1 = same).
+    func scale(for size: CGSize) -> Double {
+        guard let r = reference, r.width > 0, size.width > 0 else { return 1 }
+        let s = Double(size.width / r.width)
+        return abs(s - 1) < 0.02 ? 1 : s
+    }
+
+    /// The search area in this window's coordinates.
+    func scaledArea(for size: CGSize) -> CGRect? {
+        let s = CGFloat(scale(for: size))
+        guard s != 1, let a = area else { return area }
+        return CGRect(x: a.minX * s, y: a.minY * s, width: a.width * s, height: a.height * s)
+    }
+
+    /// The pictures prepared at scale `s`.
+    private func pictures(at s: Double) -> [TemplateMatcher.Prepared] {
+        if s == 1 { return (template.map { [$0] } ?? []) + variants }
+        let key = Int((s * 100).rounded())
+        if let hit = resized.lock.withLock({ resized.byScale[key] }) { return hit }
+        let made = sources.compactMap { TemplateMatcher.prepare(png: $0.png, width: $0.width * s, height: $0.height * s) }
+        resized.lock.withLock { resized.byScale[key] = made }
+        return made
     }
 
     init?(watcher w: Watcher) {
@@ -46,7 +85,7 @@ struct Lookup {
 
     /// The pixels inside the search area, and where they sit in the window.
     private func searchPixels(_ px: ScreenReader.WindowPixels) -> (ScreenReader.WindowPixels, CGPoint) {
-        if let a = area?.integral.intersection(CGRect(x: 0, y: 0, width: px.width, height: px.height)),
+        if let a = scaledArea(for: CGSize(width: px.width, height: px.height))?.integral.intersection(CGRect(x: 0, y: 0, width: px.width, height: px.height)),
            !a.isEmpty, let cropped = px.cropped(to: a) {
             return (cropped, a.origin)
         }
@@ -55,11 +94,12 @@ struct Lookup {
 
     /// Best picture match (any score), window coordinates.
     func matchPicture(in px: ScreenReader.WindowPixels, scene: TemplateMatcher.Scene? = nil) -> TemplateMatcher.Match? {
-        guard let template else { return nil }
+        guard template != nil else { return nil }
         let (pixels, offset) = searchPixels(px)
         let sc = (offset == .zero && area == nil ? scene : nil)
             ?? TemplateMatcher.Scene(rgba: pixels.rgba, width: pixels.width, height: pixels.height)
-        let m = ([template] + variants).compactMap { TemplateMatcher.find($0, in: sc) }.max { $0.score < $1.score }
+        let pics = pictures(at: scale(for: CGSize(width: px.width, height: px.height)))
+        let m = pics.compactMap { TemplateMatcher.find($0, in: sc) }.max { $0.score < $1.score }
         return m.map { TemplateMatcher.Match(rect: $0.rect.offsetBy(dx: offset.x, dy: offset.y), score: $0.score) }
     }
 
@@ -67,7 +107,8 @@ struct Lookup {
     /// search area count: text recognition misreads tight crops (a big “31” came back as “LE”).
     func matchText(in px: ScreenReader.WindowPixels) -> TemplateMatcher.Match? {
         guard let text, !text.isEmpty else { return nil }
-        return TextFinder.find(text, in: TextFinder.read(px), area: area).map { TemplateMatcher.Match(rect: $0, score: 1) }
+        return TextFinder.find(text, in: TextFinder.read(px), area: scaledArea(for: CGSize(width: px.width, height: px.height)))
+            .map { TemplateMatcher.Match(rect: $0, score: 1) }
     }
 
     /// The picture, if it's on screen and meets the strictness.

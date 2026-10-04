@@ -289,9 +289,11 @@ struct MacroDetailView: View {
                     Text("Open Heron at login")
                     Text("So schedules keep working after a restart.")
                 }
-                Toggle(isOn: $model.prefs.keepAwakeForSchedules) {
-                    Text("Keep the Mac awake while waiting")
-                    Text("The screen can still turn off. Runs can't happen while the Mac is locked; Heron skips them and lets you know.")
+                Picker(selection: $model.prefs.screenAwake) {
+                    ForEach(ScreenAwake.allCases) { Text($0.label).tag($0) }
+                } label: {
+                    Text("Keep the screen on")
+                    Text("So the screen saver and auto-lock don't stop runs. Heron can't run while the Mac is locked, and anyone nearby can use an unlocked Mac.")
                 }
             }
         }
@@ -349,6 +351,12 @@ struct MacroDetailView: View {
                     .font(.caption).foregroundStyle(.secondary)
             } else {
                 inOrderPlayback
+            }
+            if hasPictureSteps {
+                Toggle(isOn: $macro.playback.waitForStill) {
+                    Text("Wait for things to stop moving")
+                    Text("Clicks something only once it's in the same place twice in a row, so it doesn't miss things that slide or animate in.")
+                }
             }
             Divider()
             killswitchControls
@@ -742,6 +750,9 @@ struct MacroDetailView: View {
                 guard let c = PictureCrop.crop(rect, from: item.image) else { return }
                 var pic = ImageStep(png: c.png, width: c.width, height: c.height,
                                     originX: Double(rect.minX), originY: Double(rect.minY))
+                // The window's size when picked, so the picture can be resized if the window changes size.
+                pic.captureWindow = item.image.size
+                if macro.target.windowSize == nil { macro.target.windowSize = item.image.size }
                 switch ui.picking {
                 case .step:
                     select(insert(.findImage(pic), delay: macro.steps.isEmpty ? 0 : 0.1))

@@ -31,16 +31,22 @@ enum SystemState {
     }
 }
 
-/// Keeps the Mac from going to sleep on its own while a schedule is waiting (the display can still turn off).
+/// Keeps the Mac (and, when asked, the screen) from going to sleep on its own.
 final class StayAwake {
-    private var id: IOPMAssertionID?
+    private var system: IOPMAssertionID?
+    private var display: IOPMAssertionID?
 
-    func set(_ on: Bool) {
+    /// `mac`: no idle sleep. `screen`: the display stays on too, so the screen saver and auto-lock don't start.
+    func set(mac: Bool, screen: Bool) {
+        Self.hold(&system, mac || screen, kIOPMAssertionTypePreventUserIdleSystemSleep, "Heron is keeping the Mac awake for a macro")
+        Self.hold(&display, screen, kIOPMAssertionTypePreventUserIdleDisplaySleep, "Heron is running a macro")
+    }
+
+    private static func hold(_ id: inout IOPMAssertionID?, _ on: Bool, _ type: String, _ reason: String) {
         if on, id == nil {
             var a: IOPMAssertionID = 0
-            if IOPMAssertionCreateWithName(kIOPMAssertionTypePreventUserIdleSystemSleep as CFString,
-                                           IOPMAssertionLevel(kIOPMAssertionLevelOn),
-                                           "Heron is waiting for a scheduled macro" as CFString, &a) == kIOReturnSuccess {
+            if IOPMAssertionCreateWithName(type as CFString, IOPMAssertionLevel(kIOPMAssertionLevelOn),
+                                           reason as CFString, &a) == kIOReturnSuccess {
                 id = a
             }
         } else if !on, let a = id {

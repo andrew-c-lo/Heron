@@ -313,6 +313,14 @@ struct ImageStep: Codable, Equatable {
     var variants: [PictureVariant] = []
     /// With text set: the picture counts too (“Both”), whichever is found first.
     var alsoPicture = false
+    /// The window's size (points) when this picture was picked, if it differs from the macro's; used to resize
+    /// the picture when the window is a different size.
+    var captureWindowWidth: Double?
+    var captureWindowHeight: Double?
+    var captureWindow: CGSize? {
+        get { captureWindowWidth.flatMap { w in captureWindowHeight.map { CGSize(width: w, height: $0) } } }
+        set { captureWindowWidth = newValue.map { Double($0.width) }; captureWindowHeight = newValue.map { Double($0.height) } }
+    }
     /// Click a fixed spot without looking (the picture and words are kept, so switching back is one click).
     var spotOnly = false
     /// That spot (window points).
@@ -394,6 +402,8 @@ extension ImageStep {
         variants = try c.decodeIfPresent([PictureVariant].self, forKey: .variants) ?? []
         alsoPicture = try c.decodeIfPresent(Bool.self, forKey: .alsoPicture) ?? false
         spotOnly = try c.decodeIfPresent(Bool.self, forKey: .spotOnly) ?? false
+        captureWindowWidth = try c.decodeIfPresent(Double.self, forKey: .captureWindowWidth)
+        captureWindowHeight = try c.decodeIfPresent(Double.self, forKey: .captureWindowHeight)
         spotX = try c.decodeIfPresent(Double.self, forKey: .spotX)
         spotY = try c.decodeIfPresent(Double.self, forKey: .spotY)
         clickArea = try c.decodeIfPresent(CGRect.self, forKey: .clickArea)
@@ -472,6 +482,8 @@ struct PlaybackOptions: Codable, Equatable {
     var stopWhen: ImageStep?
     /// Each wait between steps is stretched or shortened at random by up to this share (0.2 = ±20%).
     var varyTiming: Double = 0
+    /// Only click something once it has stopped moving (seen in the same place twice in a row).
+    var waitForStill = true
 
     /// A wait with the timing variation applied.
     func varied(_ delay: Double) -> Double {
@@ -515,6 +527,7 @@ extension PlaybackOptions {
         maxClicks = try c.decodeIfPresent(Int.self, forKey: .maxClicks) ?? 0
         stopWhen = try c.decodeIfPresent(ImageStep.self, forKey: .stopWhen)
         varyTiming = try c.decodeIfPresent(Double.self, forKey: .varyTiming) ?? 0
+        waitForStill = try c.decodeIfPresent(Bool.self, forKey: .waitForStill) ?? true
     }
 }
 
@@ -669,10 +682,22 @@ struct Preferences: Codable, Equatable {
     var smartRecording = true
     /// Every single click is sent as a double click (everywhere: auto clicker, macros, chains, watchers).
     var doubleClickEverywhere = false
-    /// While a schedule is waiting, keep the Mac from going to sleep on its own.
-    var keepAwakeForSchedules = true
+    /// Keeping the screen on, so the screen saver and auto-lock don't stop runs (like a keep-awake app).
+    var screenAwake: ScreenAwake = .whileRunning
     /// While a macro plays, your own clicks in its app are noticed and offered as steps.
     var suggestFromMyPresses = true
+}
+
+enum ScreenAwake: String, Codable, CaseIterable, Identifiable {
+    case off, whileRunning, always
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .off: "Off"
+        case .whileRunning: "While a macro runs"
+        case .always: "Always while a schedule is set"
+        }
+    }
 }
 
 // MARK: - Formatting

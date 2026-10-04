@@ -102,7 +102,7 @@ final class AppModel: ObservableObject {
         registerHotkeys()
         ScreenshotTour.runIfRequested(self)
         permissionTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.refreshPermissions() }
+            Task { @MainActor in self?.refreshPermissions(); self?.updateAwake() }
         }
         startScheduler()
     }
@@ -167,7 +167,24 @@ final class AppModel: ObservableObject {
             }
         }
         lastScheduleCheck = now
-        stayAwake.set(waiting && prefs.keepAwakeForSchedules)
+        schedulesWaiting = waiting
+        updateAwake()
+    }
+
+    private var schedulesWaiting = false
+
+    /// Keeps the Mac and screen awake as the setting says: while running, shortly before a scheduled run, or
+    /// the whole time a schedule is set.
+    func updateAwake() {
+        let running = playingMacroID != nil || !backgroundRunning.isEmpty || isAutoClicking
+        let soon = macros.contains { m in nextScheduledRun(m).map { $0.timeIntervalSinceNow < 5 * 60 } ?? false }
+        let screen: Bool
+        switch prefs.screenAwake {
+        case .off: screen = false
+        case .whileRunning: screen = running || soon
+        case .always: screen = running || schedulesWaiting
+        }
+        stayAwake.set(mac: schedulesWaiting && prefs.screenAwake != .off, screen: screen)
     }
 
     private func appLaunched(_ bundleID: String?) {
@@ -677,6 +694,7 @@ final class AppModel: ObservableObject {
         if let into, var m = macros.first(where: { $0.id == into.id }) {
             m.steps = steps
             m.target.app = into.app ?? smart.app ?? m.target.app
+            m.target.windowSize = m.target.app.flatMap { WindowFinder.find($0)?.frame.size }
             update(m)
             if let snap = pendingSnapshot { setSnapshot(snap, for: m.id) }
             pendingSnapshot = nil
@@ -690,6 +708,7 @@ final class AppModel: ObservableObject {
         df.dateFormat = "MMM d, HH:mm:ss"
         var m = Macro(name: "Recording \(df.string(from: Date()))", steps: steps)
         m.target.app = prefs.recordTarget ?? smart.app
+        m.target.windowSize = m.target.app.flatMap { WindowFinder.find($0)?.frame.size }
         macros.append(m)
         store.save(m)
         if let snap = pendingSnapshot { setSnapshot(snap, for: m.id) }
@@ -735,7 +754,19 @@ final class AppModel: ObservableObject {
         if playingMacroID != nil { stopPlayback() } else if let m = selectedMacro { play(m) }
     }
 
+    /// Remembers the app window's size the first time a macro runs (older macros), so later runs can resize
+    /// pictures and positions when the window is a different size.
+    @discardableResult
+    private func rememberWindowSize(_ id: UUID) -> Macro? {
+        guard var m = macros.first(where: { $0.id == id }) else { return nil }
+        guard m.target.windowSize == nil, let app = m.target.app, let win = WindowFinder.find(app) else { return m }
+        m.target.windowSize = win.frame.size
+        update(m)
+        return m
+    }
+
     func play(_ macro: Macro) {
+        let macro = rememberWindowSize(macro.id) ?? macro
         // Background macros run on their own player, with their own switch.
         if macro.runsInBackground { toggleBackground(macro.id); return }
         guard requireAccessibility() else { return }
@@ -1019,7 +1050,7 @@ final class AppModel: ObservableObject {
     }
 
     func startBackground(_ id: UUID, quietly: Bool = false) {
-        guard let m = macros.first(where: { $0.id == id }), !backgroundRunning.contains(id) else { return }
+        guard let m = rememberWindowSize(id), !backgroundRunning.contains(id) else { return }
         if let problem = backgroundProblem(m) {
             if !quietly { flash(problem); sound("Basso") }
             return

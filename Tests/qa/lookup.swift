@@ -508,5 +508,46 @@ check("…and do vary", Set(samples.map { ($0 * 1000).rounded() }).count > 50)
 check("no variation leaves waits exact, and zero stays zero", PlaybackOptions().varied(0.7) == 0.7 && vt.varied(0) == 0)
 check("older macros load with no variation", (try! JSONDecoder().decode(PlaybackOptions.self, from: Data("{}".utf8))).varyTiming == 0)
 
+// Scaling: a window shown smaller than when the picture was picked.
+func resizedPixels(_ p: ScreenReader.WindowPixels, by f: Double) -> ScreenReader.WindowPixels {
+    let w = Int(Double(p.width) * f), h = Int(Double(p.height) * f)
+    var out = [UInt8](repeating: 0, count: w * h * 4)
+    out.withUnsafeMutableBytes { buf in
+        let ctx = CGContext(data: buf.baseAddress, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+                            space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        ctx.interpolationQuality = .high
+        ctx.draw(p.cgImage!, in: CGRect(x: 0, y: 0, width: w, height: h))
+    }
+    return ScreenReader.WindowPixels(rgba: out, width: w, height: h)
+}
+let small = resizedPixels(px, by: 0.8)
+let claimBox = boxes["Claim reward"]!
+let claimRewardPic = pngOf(px, claimBox)
+var sizedStep = ImageStep(png: claimRewardPic.0, width: claimRewardPic.1, height: claimRewardPic.2, originX: 0, originY: 0)
+sizedStep.area = CGRect(x: claimBox.minX - 30, y: claimBox.minY - 30, width: claimBox.width + 60, height: claimBox.height + 60)
+let fullSize = CGSize(width: px.width, height: px.height)
+let scaledHit = Lookup(step: sizedStep, reference: fullSize)!.matchPicture(in: small)
+let expect = CGRect(x: claimBox.minX * 0.8, y: claimBox.minY * 0.8, width: claimBox.width * 0.8, height: claimBox.height * 0.8)
+check("a window at 80% size: the picture is still found, where it now is",
+      scaledHit.map { $0.score >= 0.8 && abs($0.rect.minX - expect.minX) <= 3 && abs($0.rect.minY - expect.minY) <= 3 } ?? false,
+      "\(String(describing: scaledHit)) vs \(expect)")
+let unscaled = Lookup(step: sizedStep)!.matchPicture(in: small)
+check("…which it wasn't without resizing", (unscaled?.score ?? 0) < 0.8 || !(unscaled.map { abs($0.rect.minX - expect.minX) <= 3 } ?? false),
+      "\(String(describing: unscaled))")
+var pickedStep = sizedStep; pickedStep.captureWindow = fullSize
+check("a picture picked at a known window size uses that size", Lookup(step: pickedStep, reference: CGSize(width: 10, height: 10))!.reference == fullSize)
+check("recorded positions resize with the window",
+      Player.scaled(.click(button: .left, x: 100, y: 50, count: 1), 0.5).point == CGPoint(x: 50, y: 25)
+      && Player.scaled(.wait, 0.5) == .wait)
+check("the window's scale: 1 when about the same size",
+      TargetOptions(windowSize: CGSize(width: 400, height: 800)).scale(for: CGSize(width: 404, height: 808)) == 1
+      && TargetOptions(windowSize: CGSize(width: 400, height: 800)).scale(for: CGSize(width: 500, height: 1000)) == 1.25)
+
+// Waiting for things to stop moving: the same place, give or take a few points.
+check("standing still counts as the same place", Player.samePlace(CGRect(x: 10, y: 10, width: 5, height: 5), CGRect(x: 13, y: 8, width: 5, height: 5)))
+check("sliding doesn't", !Player.samePlace(CGRect(x: 10, y: 10, width: 5, height: 5), CGRect(x: 30, y: 10, width: 5, height: 5)))
+check("older macros wait for things to stop moving", (try! JSONDecoder().decode(PlaybackOptions.self, from: Data("{}".utf8))).waitForStill)
+check("keep the screen on while running, by default", Preferences().screenAwake == .whileRunning)
+
 print(failures == 0 ? "ALL PASSED" : "\(failures) FAILED")
 exit(failures == 0 ? 0 : 1)

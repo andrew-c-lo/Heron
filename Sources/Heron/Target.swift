@@ -63,6 +63,16 @@ struct TargetOptions: Codable, Equatable {
     var pauseWhenInactive = false
     /// Jump & return only: wait for the user's mouse to be still this long before each jump.
     var jumpWhenStillMs: Double = 150
+    /// The app window's size (points) the macro was made for. When the window is a different size, pictures,
+    /// areas and positions are resized to match.
+    var windowSize: CGSize?
+
+    /// How much bigger (or smaller) the window is now than when the macro was made (1 = same size).
+    func scale(for current: CGSize?, reference: CGSize? = nil) -> Double {
+        guard let r = reference ?? windowSize, let c = current, r.width > 0, c.width > 0 else { return 1 }
+        let s = Double(c.width / r.width)
+        return abs(s - 1) < 0.02 ? 1 : s
+    }
 }
 
 struct TargetWindow {

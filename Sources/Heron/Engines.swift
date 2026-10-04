@@ -69,7 +69,7 @@ final class Player {
         // The killswitch watches on its own, for the whole run.
         let watch = CancelToken()
         let tripped = Tripwire()
-        if let kill = opts.stopWhen, let app = target.app, let lookup = Lookup(step: kill) {
+        if let kill = opts.stopWhen, let app = target.app, let lookup = Lookup(step: kill, reference: target.windowSize) {
             let what = kill.isText && !kill.usesPicture ? "“\(kill.text!.trimmingCharacters(in: .whitespaces))”" : "The stop picture"
             Thread.detachNewThread {
                 Self.watchKillswitch(lookup, resolver: TargetResolver(app: app), watch: watch) {
@@ -135,9 +135,12 @@ final class Player {
                                 t += 0.1
                             }
                         }
-                        if case .findImage(let pic) = step.action, pic.spotOnly, pic.mode == .click, let p = pic.spot {
+                        if case .findImage(let pic) = step.action, pic.spotOnly, pic.mode == .click, let p0 = pic.spot {
                             // Set to its spot: click there without looking.
-                            if let win = resolver?.window() { performer.route.origin = win.frame.origin }
+                            let win = resolver?.window()
+                            if let win { performer.route.origin = win.frame.origin }
+                            let ps = target.scale(for: win?.frame.size, reference: pic.captureWindow)
+                            let p = CGPoint(x: p0.x * ps, y: p0.y * ps)
                             performer.perform(.mouseDown(button: pic.button, x: Double(p.x), y: Double(p.y), clickCount: 1, flags: 0))
                             performer.perform(.mouseUp(button: pic.button, x: Double(p.x), y: Double(p.y), clickCount: 1, flags: 0))
                             let stepID = step.id
@@ -157,6 +160,7 @@ final class Player {
                             Task { @MainActor in waiting(looking) }
                             let stepID = step.id
                             let result = Self.runPictureStep(pic, performer: performer, resolver: resolver, token: token,
+                                                             reference: target.windowSize, waitForStill: opts.waitForStill,
                                                              onFound: { r in Task { @MainActor in clicked(stepID, r) } })
                             Task { @MainActor in waiting(nil) }
                             if pic.mode == .stop {
@@ -196,7 +200,8 @@ final class Player {
                             t = Timing.now()
                         } else if case .waitForColor(let x, let y, let hex, let tol, let timeout, let otherwise, _) = step.action {
                             Task { @MainActor in waiting(hex) }
-                            let result = Self.waitForColor(at: performer.route.absolute(x, y), hex: hex, tolerance: tol,
+                            let cs = target.scale(for: resolver?.window()?.frame.size)
+                            let result = Self.waitForColor(at: performer.route.absolute(x * cs, y * cs), hex: hex, tolerance: tol,
                                                            timeout: timeout, token: token)
                             Task { @MainActor in waiting(nil) }
                             switch result {
@@ -227,7 +232,7 @@ final class Player {
                                 repeatsLeft[step.id] = nil // ready for next time it's reached
                             }
                         } else {
-                            t += performer.perform(step.action)
+                            t += performer.perform(Self.scaled(step.action, target.scale(for: resolver?.window()?.frame.size)))
                         }
 
                         let now = Timing.now()
@@ -254,6 +259,20 @@ final class Player {
     func stop() {
         token?.cancel()
         token = nil
+    }
+
+    /// The same spot, give or take a few points (a match that isn't moving).
+    static func samePlace(_ a: CGRect, _ b: CGRect) -> Bool {
+        abs(a.minX - b.minX) <= 4 && abs(a.minY - b.minY) <= 4
+    }
+
+    /// An action with its window position resized for a window `s` times the size it was recorded in.
+    static func scaled(_ action: StepAction, _ s: Double) -> StepAction {
+        guard s != 1, let p = action.point else { return action }
+        if case .findImage = action { return action }
+        var a = action
+        a.point = CGPoint(x: p.x * s, y: p.y * s)
+        return a
     }
 
     /// Set once, from the killswitch thread.
@@ -312,17 +331,18 @@ final class Player {
         guard let resolver else { return "Picture steps need a target app. Choose one with the Target button." }
         struct Item { let index: Int; let step: ImageStep; let lookup: Lookup }
         let items: [Item] = steps.enumerated().compactMap { i, s in
-            guard case .findImage(let p) = s.action, p.mode == .click, !p.spotOnly, let l = Lookup(step: p) else { return nil }
+            guard case .findImage(let p) = s.action, p.mode == .click, !p.spotOnly,
+                  let l = Lookup(step: p, reference: target.windowSize) else { return nil }
             return Item(index: i, step: p, lookup: l)
         }
         // Stop conditions: the chain ends as soon as one of these shows up.
         var stops: [Item] = steps.enumerated().compactMap { i, s in
-            guard case .findImage(let p) = s.action, p.mode == .stop, let l = Lookup(step: p) else { return nil }
+            guard case .findImage(let p) = s.action, p.mode == .stop, let l = Lookup(step: p, reference: target.windowSize) else { return nil }
             return Item(index: i, step: p, lookup: l)
         }
         // The killswitch too, checked on every frame before anything is clicked (so it wins over a step that would
         // click on the same screen).
-        if let k = opts.stopWhen, let l = Lookup(step: k) { stops.insert(Item(index: -1, step: k, lookup: l), at: 0) }
+        if let k = opts.stopWhen, let l = Lookup(step: k, reference: target.windowSize) { stops.insert(Item(index: -1, step: k, lookup: l), at: 0) }
         guard !items.isEmpty else { return "“All at once” needs at least one picture step set to click." }
         let hasText = items.contains { $0.lookup.hasText } || stops.contains { $0.lookup.hasText }
         var lines: [TextFinder.Line] = []
@@ -341,6 +361,7 @@ final class Player {
 
         var frameNumber = 0
         var found: [Int: CGRect] = [:]
+        var still: Set<Int> = []
         var clicks = 0
         while !token.isCancelled {
             if opts.repeatMode == .duration, Timing.now() - began >= opts.repeatDuration { break }
@@ -359,6 +380,8 @@ final class Player {
                 frameNumber = frame.number
                 latest = frame.pixels
                 let scene = TemplateMatcher.Scene(rgba: frame.pixels.rgba, width: frame.pixels.width, height: frame.pixels.height)
+                let size = CGSize(width: frame.pixels.width, height: frame.pixels.height)
+                let before = found
                 found = [:]
                 // Pictures every frame; words from one shared read of the screen, a few times a second
                 // (reading text takes far longer than matching a picture).
@@ -367,7 +390,7 @@ final class Player {
                 for it in stops {
                     var seen = it.lookup.hasPicture && it.lookup.locatePicture(in: frame.pixels, scene: scene) != nil
                     if !seen, let text = it.lookup.text, !text.isEmpty {
-                        seen = TextFinder.find(text, in: lines, area: it.step.area) != nil
+                        seen = TextFinder.find(text, in: lines, area: it.lookup.scaledArea(for: size)) != nil
                     }
                     if seen {
                         let words = it.step.isText ? "“\(it.step.text!.trimmingCharacters(in: .whitespaces))”" : nil
@@ -381,12 +404,17 @@ final class Player {
                     if it.lookup.hasPicture, let r = it.lookup.locatePicture(in: frame.pixels, scene: scene) {
                         found[it.index] = r
                     } else if let text = it.lookup.text, !text.isEmpty {
-                        if readText { textFound[it.index] = TextFinder.find(text, in: lines, area: it.step.area) }
+                        if readText { textFound[it.index] = TextFinder.find(text, in: lines, area: it.lookup.scaledArea(for: size)) }
                         if let r = textFound[it.index] ?? nil { found[it.index] = r }
                     }
                 }
+                // Still: in the same place as in the previous frame (not sliding or animating in).
+                still = Set(found.keys.filter { k in before[k].map { Self.samePlace($0, found[k]!) } ?? false })
+            } else {
+                // Nothing changed on screen since the last look: whatever was found is standing still.
+                still = Set(found.keys)
             }
-            if let index = chooser.choose(found: Set(found.keys), now: tick),
+            if let index = chooser.choose(found: opts.waitForStill ? still : Set(found.keys), now: tick),
                let rect = found[index], let item = items.first(where: { $0.index == index }) {
                 let s = item.step
                 // Use the chain's delivery setting (e.g. Jump & return) and the window's current position.
@@ -415,8 +443,9 @@ final class Player {
                 case .failure(let e): return e.message
                 }
                 performer.route.origin = win.frame.origin
-                performer.perform(.mouseDown(button: .left, x: ix, y: iy, clickCount: 1, flags: 0))
-                performer.perform(.mouseUp(button: .left, x: ix, y: iy, clickCount: 1, flags: 0))
+                let ts = target.scale(for: win.frame.size)
+                performer.perform(.mouseDown(button: .left, x: ix * ts, y: iy * ts, clickCount: 1, flags: 0))
+                performer.perform(.mouseUp(button: .left, x: ix * ts, y: iy * ts, clickCount: 1, flags: 0))
                 lastAction = Timing.now()
                 if let screen = latest { Task { @MainActor in stuck(screen) } }
             }
@@ -427,8 +456,9 @@ final class Player {
 
     /// Looks for the picture in the target window and acts on it.
     static func runPictureStep(_ s: ImageStep, performer: Performer, resolver: TargetResolver, token: CancelToken,
+                               reference: CGSize? = nil, waitForStill: Bool = true,
                                onFound: (CGRect) -> Void = { _ in }) -> ColorResult {
-        guard let lookup = Lookup(step: s) else { return .unreadable }
+        guard let lookup = Lookup(step: s, reference: reference) else { return .unreadable }
         let deadline = s.timeout < 0 ? .infinity : Timing.now() + s.timeout
 
         enum Look { case found(CGRect, TargetWindow), missing, unreadable }
@@ -496,21 +526,32 @@ final class Player {
 
         // Wait for it to appear (and stay for `settle` seconds).
         var seenAt: Double?
+        var lastSeen: CGRect?
         var spot: (rect: CGRect, win: TargetWindow)?
         while spot == nil {
             if token.isCancelled { return .cancelled }
             switch look() {
             case .unreadable: return .unreadable
-            case .missing: seenAt = nil
+            case .missing: seenAt = nil; lastSeen = nil
             case .found(let r, let w):
+                // Wait until it stops moving: the same place on two checks in a row.
+                if waitForStill, !(lastSeen.map { Self.samePlace($0, r) } ?? false) {
+                    lastSeen = r
+                    seenAt = nil
+                    break
+                }
+                lastSeen = r
                 let since = seenAt ?? Timing.now()
                 seenAt = since
                 if Timing.now() - since >= s.settle { spot = (r, w); continue }
             }
             if Timing.now() >= deadline {
                 // Smart recording: not found, so click where it was when it was recorded.
-                if s.mode == .click, let fx = s.fallbackX, let fy = s.fallbackY {
-                    if let win = resolver.window() { performer.route.origin = win.frame.origin }
+                if s.mode == .click, let fx0 = s.fallbackX, let fy0 = s.fallbackY {
+                    let win = resolver.window()
+                    if let win { performer.route.origin = win.frame.origin }
+                    let fs = TargetOptions(windowSize: lookup.reference).scale(for: win?.frame.size)
+                    let fx = fx0 * fs, fy = fy0 * fs
                     performer.perform(.mouseDown(button: s.button, x: fx, y: fy, clickCount: 1, flags: 0))
                     performer.perform(.mouseUp(button: s.button, x: fx, y: fy, clickCount: 1, flags: 0))
                     return .matched

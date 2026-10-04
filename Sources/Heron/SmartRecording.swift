@@ -13,6 +13,8 @@ final class ClickReader: @unchecked Sendable {
         /// A small picture of the spot (PNG) and its size in points (with words too, the step finds either).
         var picture: Data?
         var size: CGSize = .zero
+        /// The window's size (points) when it was recorded.
+        var window: CGSize = .zero
         /// Where to look: around the click (always for pictures; for words, when the word appears more than once).
         var area: CGRect?
 
@@ -52,6 +54,7 @@ final class ClickReader: @unchecked Sendable {
             var press = Press(app: app, origin: win.frame.origin, label: nil)
             if let frame = FrameSource.shared.frame(for: win, after: 0, timeout: target == nil ? 0.3 : 0.05) {
                 press.label = Self.both(in: frame.pixels, at: local)
+                press.label?.window = CGSize(width: frame.pixels.width, height: frame.pixels.height)
             }
             lock.withLock { presses[id] = press }
         }
@@ -185,6 +188,7 @@ final class ClickReader: @unchecked Sendable {
                 continue
             }
             find.area = label.area
+            if label.window != .zero { find.captureWindow = label.window }
             find.otherwise = .continueAnyway
             find.fallbackX = Double(at.x)
             find.fallbackY = Double(at.y)
