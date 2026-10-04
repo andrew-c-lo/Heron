@@ -609,6 +609,7 @@ final class AppModel: ObservableObject {
             self?.saveStuck(screen, macro: macroID)
         }, finished: { [weak self] error in
             guard let self, !self.player.isRunning else { return }
+            self.saveRunReport(macroID)
             self.playingMacroID = nil
             self.playWaitingColor = nil
             if let error {
@@ -619,8 +620,9 @@ final class AppModel: ObservableObject {
     }
 
     func stopPlayback() {
-        guard playingMacroID != nil else { return }
+        guard let id = playingMacroID else { return }
         player.stop()
+        saveRunReport(id)
         playingMacroID = nil
         sound("Pop")
     }
@@ -651,9 +653,20 @@ final class AppModel: ObservableObject {
 
     private func resetHits(for m: Macro) {
         for s in m.steps { stepHits[s.id] = nil; stepFound[s.id] = nil }
+        runs[m.id] = RunLog(started: Date())
     }
 
+    /// What happened during a run, saved as a report when it ends (Heron/Runs) so it can be studied later.
+    private struct RunLog {
+        let started: Date
+        var events: [(t: Double, step: UUID?)] = [] // step nil = a “Tap when stuck” tap
+    }
+    private var runs: [UUID: RunLog] = [:]
+
     private func recordHit(_ step: UUID, _ found: CGRect?) {
+        if let macro = macros.first(where: { $0.steps.contains { $0.id == step } })?.id, runs[macro] != nil {
+            runs[macro]!.events.append((Date().timeIntervalSince(runs[macro]!.started), step))
+        }
         stepHits[step, default: 0] += 1
         if let found { stepFound[step] = stepFound[step].map { $0.union(found) } ?? found }
     }
@@ -674,7 +687,36 @@ final class AppModel: ObservableObject {
         stuckScreens[macro] = files.filter { $0.pathExtension == "png" }.sorted { $0.lastPathComponent > $1.lastPathComponent }
     }
 
+    /// Writes the report of a finished run: how often each step fired, where, and every click's time.
+    private func saveRunReport(_ macroID: UUID) {
+        guard let log = runs.removeValue(forKey: macroID), let m = macros.first(where: { $0.id == macroID }),
+              !log.events.isEmpty else { return }
+        let index = Dictionary(uniqueKeysWithValues: m.steps.enumerated().map { ($0.element.id, $0.offset + 1) })
+        let steps: [[String: Any]] = m.steps.enumerated().map { i, s in
+            var d: [String: Any] = ["step": i + 1, "hits": stepHits[s.id] ?? 0, "enabled": s.enabled]
+            if case .findImage(let p) = s.action {
+                d["looksFor"] = p.text.map { "text: \($0)" } ?? "picture \(Int(p.width))×\(Int(p.height))"
+            }
+            if let r = stepFound[s.id] { d["foundIn"] = [r.minX, r.minY, r.width, r.height].map { Int($0) } }
+            return d
+        }
+        let report: [String: Any] = [
+            "macro": m.name, "started": ISO8601DateFormatter().string(from: log.started),
+            "seconds": Int(Date().timeIntervalSince(log.started)),
+            "stuckTaps": log.events.filter { $0.step == nil }.count,
+            "steps": steps,
+            "clicks": log.events.map { ["t": (($0.t * 10).rounded() / 10), "step": $0.step.flatMap { index[$0] } ?? 0] },
+        ]
+        let dir = AppFolder.url.appendingPathComponent("Runs", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let stamp = ISO8601DateFormatter().string(from: log.started).replacingOccurrences(of: ":", with: "-")
+        if let data = try? JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys]) {
+            try? data.write(to: dir.appendingPathComponent("\(m.name) \(stamp).json"))
+        }
+    }
+
     private func saveStuck(_ screen: ScreenReader.WindowPixels, macro: UUID) {
+        if runs[macro] != nil { runs[macro]!.events.append((Date().timeIntervalSince(runs[macro]!.started), nil)) }
         let dir = Self.stuckFolder(macro)
         DispatchQueue.global(qos: .utility).async { [weak self] in
             try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -736,6 +778,7 @@ final class AppModel: ObservableObject {
             self?.saveStuck(screen, macro: id)
         }, finished: { [weak self, weak player] error in
             guard let self, player?.isRunning != true, self.backgroundPlayers[id] === player else { return }
+            self.saveRunReport(id)
             self.backgroundPlayers[id] = nil
             self.backgroundRunning.remove(id)
             let name = self.macros.first { $0.id == id }?.name ?? "Macro"
@@ -752,6 +795,7 @@ final class AppModel: ObservableObject {
     func stopBackground(_ id: UUID, quietly: Bool = false) {
         guard let player = backgroundPlayers.removeValue(forKey: id) else { return }
         player.stop()
+        saveRunReport(id)
         backgroundRunning.remove(id)
         if !quietly { sound("Pop") }
     }
