@@ -55,30 +55,42 @@ enum EventSynth {
         return unsafeBitCast(sym, to: SetWindowLocationFn.self)
     }()
 
-    /// Posts the event; returns its sequence number. Numbering and posting happen together so that
-    /// sequence order is the order events reach the system.
     /// Tests only: when set, events are handed here instead of being posted.
     nonisolated(unsafe) static var testSink: ((CGEvent) -> Void)?
 
+    /// Posts the event; returns its sequence number. Numbering and posting happen together so that
+    /// sequence order is the order events reach the system.
     @discardableResult
     private static func post(_ e: CGEvent, _ route: Route, keyboard: Bool = false) -> UInt32 {
         postLock.lock()
         defer { postLock.unlock() }
         sequence &+= 1
         e.setIntegerValueField(.eventSourceUserData, value: marker << 32 | Int64(sequence))
+        let toPid = route.pid != 0 && (keyboard || route.mode == .background)
+        if toPid && !keyboard && route.windowNumber != 0 { addressToWindow(e, route) }
         if let testSink { testSink(e); return sequence } // tests: record instead of clicking for real
-        if route.pid != 0 && (keyboard || route.mode == .background) {
-            if !keyboard && route.windowNumber != 0 {
-                e.setIntegerValueField(.mouseEventWindowUnderMousePointer, value: Int64(route.windowNumber))
-                e.setIntegerValueField(.mouseEventWindowUnderMousePointerThatCanHandleThisEvent, value: Int64(route.windowNumber))
-                let loc = e.location
-                setWindowLocation?(e, CGPoint(x: loc.x - route.origin.x, y: loc.y - route.origin.y))
-            }
+        if toPid {
             e.postToPid(route.pid)
         } else {
             e.post(tap: .cghidEventTap)
         }
         return sequence
+    }
+
+    /// The event's own window field (undocumented, no `CGEventField` name). AppKit takes `NSEvent.window`
+    /// from it, not from the "window under pointer" fields; without it a pid-posted click has no window,
+    /// so AppKit treats it as a screen-level click and buttons never see it.
+    private static let windowField = CGEventField(rawValue: 51)!
+
+    /// Fills in what the window server normally adds when it routes a mouse event to a window, for events
+    /// posted straight to the app: which window, and where in it (top-left window coordinates).
+    private static func addressToWindow(_ e: CGEvent, _ route: Route) {
+        let n = Int64(route.windowNumber)
+        e.setIntegerValueField(windowField, value: n)
+        e.setIntegerValueField(.mouseEventWindowUnderMousePointer, value: n)
+        e.setIntegerValueField(.mouseEventWindowUnderMousePointerThatCanHandleThisEvent, value: n)
+        let loc = e.location
+        setWindowLocation?(e, CGPoint(x: loc.x - route.origin.x, y: loc.y - route.origin.y))
     }
 
     @discardableResult
