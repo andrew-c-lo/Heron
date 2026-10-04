@@ -253,7 +253,7 @@ struct MacroDetailView: View {
         .frame(width: 380)
     }
 
-    /// “Stop when…”: a picture or words that end the run whenever they show up (a goal, like a level cap).
+    /// “Stop when…”: a picture or words that end the run whenever they show up (a goal, like a “Finished” message).
     private var killswitchControls: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
@@ -278,7 +278,7 @@ struct MacroDetailView: View {
                     if k.text != nil {
                         TextField("", text: Binding(get: { macro.playback.stopWhen?.text ?? "" },
                                                     set: { macro.playback.stopWhen?.text = $0 }),
-                                  prompt: Text("Lv 30"))
+                                  prompt: Text("Finished"))
                         if k.usesPicture {
                             Text("or").foregroundStyle(.secondary)
                             PictureThumbnail(png: k.png, maxWidth: 80, maxHeight: 30)
@@ -301,7 +301,7 @@ struct MacroDetailView: View {
             }
             Text(macro.target.app == nil
                  ? "Choose a target app first; Heron watches its window."
-                 : "Heron watches for it during the whole run and stops as soon as it shows up, like reaching level 30. A small area avoids look-alikes elsewhere on screen.")
+                 : "Heron watches for it during the whole run and stops as soon as it shows up, like a “Finished” message or a final screen. A small area avoids look-alikes elsewhere on screen.")
                 .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
         }
     }

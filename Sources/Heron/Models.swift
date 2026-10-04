@@ -255,7 +255,7 @@ struct PictureVariant: Codable, Equatable {
 
 struct ImageStep: Codable, Equatable {
     enum Mode: String, Codable, CaseIterable, Identifiable {
-        /// `stop`: when it shows up, the macro has done its job and stops (e.g. a level cap reached).
+        /// `stop`: when it shows up, the macro has done its job and stops (e.g. a “Finished” message).
         case click, appear, gone, stop
         var id: String { rawValue }
         var label: String {
