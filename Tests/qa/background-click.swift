@@ -42,5 +42,41 @@ screen.perform(.mouseDown(button: .left, x: 200, y: 300, clickCount: 1, flags: 0
 screen.perform(.mouseUp(button: .left, x: 200, y: 300, clickCount: 1, flags: 0))
 check("normal delivery: no window filled in", seen.count == 2 && seen.allSatisfy { $0.windowNumber == 0 })
 
+// Apps that only take input while active (iPhone Mirroring) are told they're active around each press,
+// and told they aren't any more right after, without anything really changing which app is in front.
+func describe(_ e: NSEvent) -> String {
+    switch (e.type, e.type == .appKitDefined ? e.subtype : nil) {
+    case (.appKitDefined, .applicationActivated?): "activated"
+    case (.appKitDefined, .applicationDeactivated?): "deactivated"
+    default: names[e.type] ?? "other \(e.type.rawValue)"
+    }
+}
+seen = []
+EventSynth.appActivation(true, pid: getpid(), window: win.windowNumber)
+EventSynth.appActivation(false, pid: getpid(), window: win.windowNumber)
+check("AppKit reads the activation events as application activated / deactivated",
+      seen.map(describe) == ["activated", "deactivated"], "\(seen.map(describe))")
+
+seen = []
+var mirroring = Route(mode: .background, pid: getpid(), windowNumber: win.windowNumber, origin: topLeft)
+mirroring.focusFlash = true
+let tapper = Performer(route: mirroring)
+tapper.perform(.mouseDown(button: .left, x: 200, y: 300, clickCount: 1, flags: 0))
+tapper.perform(.mouseUp(button: .left, x: 200, y: 300, clickCount: 1, flags: 0))
+check("a tap on such an app: activated, hover, down, up, deactivated",
+      seen.map(describe) == ["activated", "hover", "down", "up", "deactivated"], "\(seen.map(describe))")
+seen = []
+tapper.text("é", down: true)
+tapper.text("é", down: false)
+check("typing a character too: activated, key down, key up, deactivated",
+      seen.map { $0.type == .keyDown ? "keyDown" : $0.type == .keyUp ? "keyUp" : describe($0) }
+        == ["activated", "keyDown", "keyUp", "deactivated"],
+      "\(seen.map { $0.type.rawValue })")
+let plain = Performer(route: Route(mode: .background, pid: getpid(), windowNumber: win.windowNumber, origin: topLeft))
+seen = []
+plain.perform(.mouseDown(button: .left, x: 200, y: 300, clickCount: 1, flags: 0))
+plain.perform(.mouseUp(button: .left, x: 200, y: 300, clickCount: 1, flags: 0))
+check("other apps aren't told anything", seen.map(describe) == ["hover", "down", "up"], "\(seen.map(describe))")
+
 print(failures == 0 ? "ALL PASSED" : "\(failures) FAILED")
 exit(failures == 0 ? 0 : 1)

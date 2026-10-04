@@ -26,6 +26,12 @@ enum FocusFlash {
 
     static func needed(for bundleID: String?) -> Bool { bundleID.map(apps.contains) ?? false }
 
+    /// How the target is made to accept input. By default it's only *told* it's the active app (see
+    /// `EventSynth.appActivation`): nothing on screen changes and the keyboard stays with the user's app.
+    /// Fallback (`defaults write local.macroclicker.app FocusFlashBringForward -bool YES`), in case a macOS update
+    /// stops that working: really bring it forward for each press and hand the user's app back right after.
+    static var bringForward: Bool { UserDefaults.standard.bool(forKey: "FocusFlashBringForward") }
+
     /// One focus flash at a time across the whole app, so "the app that was in front" is never a flashed target.
     /// Also guards `parked`.
     static let lock = NSLock()
@@ -96,7 +102,7 @@ enum FocusFlash {
     /// Makes `pid` the active app with `window` (0 = its frontmost) as the key window. `raise`: false leaves the
     /// window stacking alone (the target only needs to be active, not on top).
     static func bringToFront(_ pid: pid_t, window: Int, raise: Bool = true) {
-        guard let getPSN, let setFront, let postRecord else {
+        guard let getPSN, let setFront else {
             NSRunningApplication(processIdentifier: pid)?.activate(options: [])
             return
         }
@@ -104,8 +110,16 @@ enum FocusFlash {
         guard getPSN(pid, &psn) == noErr else { return }
         let wid = UInt32(window != 0 ? window : frontWindow(of: pid))
         _ = setFront(&psn, wid, raise ? 0x200 : 0x400) // kCPSUserGenerated : kCPSNoWindows
-        guard wid != 0 else { return }
-        // Focus and key-window records for the window, as a real click on it would produce.
+        makeKey(pid, window: Int(wid))
+    }
+
+    /// Makes `window` the app's key window without activating the app, as a real click on it would.
+    static func makeKey(_ pid: pid_t, window: Int) {
+        guard window != 0, let getPSN, let postRecord else { return }
+        var psn = ProcessSerialNumber()
+        guard getPSN(pid, &psn) == noErr else { return }
+        let wid = UInt32(window)
+        // Focus and key-window records for the window.
         for kind: UInt8 in [1, 2] {
             var bytes = [UInt8](repeating: 0, count: 0xf8)
             bytes[0x04] = 0xf8
@@ -223,6 +237,17 @@ enum EventSynth {
         return post(e, route)
     }
 
+    /// Tells app `pid` that it has become (or stopped being) the active app, without changing which app really is.
+    /// It's the event the window server sends an app on a real switch: AppKit turns it into an
+    /// applicationActivated/Deactivated event and updates `NSApp.isActive`.
+    @discardableResult
+    static func appActivation(_ active: Bool, pid: pid_t, window: Int) -> UInt32? {
+        guard let e = CGEvent(source: nil) else { return nil }
+        e.type = unsafeBitCast(UInt32(active ? 20 : 19), to: CGEventType.self) // app activated / deactivated
+        e.setIntegerValueField(windowField, value: Int64(window))
+        return post(e, Route(mode: .background, pid: pid), keyboard: true) // straight to the app, as is
+    }
+
     static func key(_ code: UInt16, down: Bool, flags: UInt64, route: Route = .screen) {
         guard let e = CGEvent(keyboardEventSource: source, virtualKey: code, keyDown: down) else { return }
         e.flags = CGEventFlags(rawValue: flags)
@@ -312,6 +337,8 @@ final class Performer {
     /// Focus flash in progress: the app that was in front before the target was brought forward.
     private var flashReturn: NSRunningApplication?
     private var holdsFlashLock = false
+    /// The target has been told it's active (see `FocusFlash.bringForward`) until the current press is done.
+    private var faking = false
     /// Jump & return: wait until the physical mouse has been still this long before jumping (0 = don't wait).
     var stillThreshold: Double = 0
     var token: CancelToken?
@@ -375,7 +402,7 @@ final class Performer {
         // Plain moves are pointless when we put the cursor back anyway.
         if jump, action.isMouseMove, heldButtons.isEmpty { return 0 }
         let flash = background && route.focusFlash && route.pid != 0 && (isPointer(action) || isKeyboard(action))
-        if flash, !holdsFlashLock { waited += beginFlash() }
+        if flash, !holdsFlashLock, !faking { waited += beginFlash() }
         if jump, isPointer(action), jumpOrigin == nil {
             if !absolute { waited = waitForStillMouse() }
             Self.jumpLock.lock()
@@ -451,7 +478,7 @@ final class Performer {
             break
         }
 
-        if holdsFlashLock, heldButtons.isEmpty, heldKeys.isEmpty { endFlash() }
+        if holdsFlashLock || faking, heldButtons.isEmpty, heldKeys.isEmpty { endFlash() }
         if let seq, jumpOrigin != nil { lastPointerSeq = seq }
         if jump, heldButtons.isEmpty, let o = jumpOrigin, isPointer(action) {
             returnCursor(to: o, from: landed)
@@ -463,6 +490,15 @@ final class Performer {
     /// Brings the target app to the front (without moving the pointer) so it accepts the next press.
     /// Returns seconds spent waiting for the user to stop typing.
     private func beginFlash() -> Double {
+        if !FocusFlash.bringForward {
+            // Only tell the target it's active (activated event, then key window: in this order even the very
+            // first press is taken). Skipped when it really is in front: a "deactivated" afterwards would be wrong.
+            guard NSWorkspace.shared.frontmostApplication?.processIdentifier != route.pid else { return 0 }
+            EventSynth.appActivation(true, pid: route.pid, window: route.windowNumber)
+            FocusFlash.makeKey(route.pid, window: route.windowNumber)
+            faking = true
+            return 0
+        }
         let waited = waitForTypingPause()
         FocusFlash.lock.lock()
         holdsFlashLock = true
@@ -492,6 +528,14 @@ final class Performer {
     /// While the user is away, the target stays in front instead (see `FocusFlash.awayAfter`).
     /// `force`: put it back even then (the macro is stopping).
     private func endFlash(force: Bool = false) {
+        if faking {
+            // iPhone Mirroring passes a press on to the phone a moment after handling it, and only while it
+            // still thinks it's active.
+            usleep(30_000)
+            EventSynth.appActivation(false, pid: route.pid, window: route.windowNumber)
+            faking = false
+            return
+        }
         defer { holdsFlashLock = false; FocusFlash.lock.unlock() }
         guard let back = flashReturn else { return }
         flashReturn = nil
@@ -564,6 +608,14 @@ final class Performer {
         JumpLog.shared.add(entry)
     }
 
+    /// Types a character (see `EventSynth.text`), with the same focus handling as a key press.
+    func text(_ ch: String, down: Bool) {
+        let flash = route.mode == .background && route.focusFlash && route.pid != 0
+        if flash, down, !holdsFlashLock, !faking { _ = beginFlash() }
+        EventSynth.text(ch, down: down, route: route)
+        if !down, holdsFlashLock || faking, heldButtons.isEmpty, heldKeys.isEmpty { endFlash() }
+    }
+
     /// Never leave buttons or keys stuck down.
     func releaseAll() {
         let p = EventSynth.cursor
@@ -575,7 +627,7 @@ final class Performer {
         touchedModifiers = false
         if let o = jumpOrigin { EventSynth.warp(to: o); jumpOrigin = nil }
         releaseJumpLock()
-        if holdsFlashLock { endFlash(force: true) }
+        if holdsFlashLock || faking { endFlash(force: true) }
         if route.focusFlash { FocusFlash.lock.withLock { _ = FocusFlash.unpark(keeping: 0) } } // stopping: put the user's app back
     }
 }

@@ -297,9 +297,9 @@ final class Player {
                                     guard Timing.wait(until: Timing.now() + 0.03, token) else { break outer }
                                     performer.perform(.key(keyCode: code, down: false, flags: flags))
                                 case .text(let ch):
-                                    EventSynth.text(ch, down: true, route: performer.route)
+                                    performer.text(ch, down: true)
                                     guard Timing.wait(until: Timing.now() + 0.03, token) else { break outer }
-                                    EventSynth.text(ch, down: false, route: performer.route)
+                                    performer.text(ch, down: false)
                                 }
                                 guard Timing.wait(until: Timing.now() + 0.03, token) else { break outer }
                             }
