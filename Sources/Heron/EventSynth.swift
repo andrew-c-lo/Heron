@@ -26,6 +26,58 @@ enum FocusFlash {
 
     static func needed(for bundleID: String?) -> Bool { bundleID.map(apps.contains) ?? false }
 
+    /// One focus flash at a time across the whole app, so "the app that was in front" is never a flashed target.
+    /// Also guards `parked`.
+    static let lock = NSLock()
+    /// No flash until the user has stopped typing this long (seconds), so keystrokes never land in the target.
+    static let typingPause = 0.5
+    /// After this long without any input from the user, the target is left in front between presses (no flicker
+    /// while they're away); the previous app comes back the moment they touch the mouse or keyboard.
+    static let awayAfter = 3.0
+    nonisolated(unsafe) private static var parked: (back: NSRunningApplication, target: pid_t, since: Double)?
+    nonisolated(unsafe) private static var watching = false
+
+    static func secondsSinceTyping() -> Double {
+        min(CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: .keyDown),
+            CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: .flagsChanged))
+    }
+
+    static func secondsSinceUserInput() -> Double {
+        let types: [CGEventType] = [.keyDown, .flagsChanged, .mouseMoved, .leftMouseDown, .rightMouseDown, .otherMouseDown,
+                                    .leftMouseDragged, .rightMouseDragged, .scrollWheel]
+        return types.map { CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: $0) }.min() ?? .infinity
+    }
+
+    private static func frontPID() -> pid_t? { NSWorkspace.shared.frontmostApplication?.processIdentifier }
+
+    /// Call with `lock` held. Leaves `target` in front and remembers which app to put back.
+    static func park(back: NSRunningApplication, target: pid_t) {
+        parked = (back, target, Timing.now())
+        guard !watching else { return }
+        watching = true
+        Thread.detachNewThread {
+            while true {
+                Thread.sleep(forTimeInterval: 0.01)
+                lock.lock()
+                defer { lock.unlock() }
+                guard let p = parked else { watching = false; return }
+                // The user is back (any input since parking): give them their app.
+                if secondsSinceUserInput() < Timing.now() - p.since { _ = unpark(keeping: 0) }
+            }
+        }
+    }
+
+    /// Call with `lock` held. Ends any parking. If `target` is the parked app and still in front, returns the app
+    /// to put back later (the caller takes over); otherwise puts the previous app back now and returns nil.
+    static func unpark(keeping target: pid_t) -> NSRunningApplication? {
+        guard let p = parked else { return nil }
+        parked = nil
+        let front = frontPID()
+        if p.target == target, front == target || front == p.back.processIdentifier { return p.back }
+        if front == p.target { bringToFront(p.back.processIdentifier, window: 0) } // else: the user switched apps themselves
+        return nil
+    }
+
     // Private window-server calls (as used by window managers). Unlike `NSRunningApplication.activate`, they
     // still work while Heron itself is in the background, where macOS refuses ordinary activation requests.
     private typealias GetPSNFn = @convention(c) (pid_t, UnsafeMutablePointer<ProcessSerialNumber>) -> OSStatus
@@ -41,8 +93,9 @@ enum FocusFlash {
     private static let setFront = sym("_SLPSSetFrontProcessWithOptions").map { unsafeBitCast($0, to: SetFrontFn.self) }
     private static let postRecord = sym("SLPSPostEventRecordTo").map { unsafeBitCast($0, to: PostRecordFn.self) }
 
-    /// Makes `pid` the active app with `window` (0 = its frontmost) as the key window.
-    static func bringToFront(_ pid: pid_t, window: Int) {
+    /// Makes `pid` the active app with `window` (0 = its frontmost) as the key window. `raise`: false leaves the
+    /// window stacking alone (the target only needs to be active, not on top).
+    static func bringToFront(_ pid: pid_t, window: Int, raise: Bool = true) {
         guard let getPSN, let setFront, let postRecord else {
             NSRunningApplication(processIdentifier: pid)?.activate(options: [])
             return
@@ -50,7 +103,7 @@ enum FocusFlash {
         var psn = ProcessSerialNumber()
         guard getPSN(pid, &psn) == noErr else { return }
         let wid = UInt32(window != 0 ? window : frontWindow(of: pid))
-        _ = setFront(&psn, wid, 0x200) // kCPSUserGenerated
+        _ = setFront(&psn, wid, raise ? 0x200 : 0x400) // kCPSUserGenerated : kCPSNoWindows
         guard wid != 0 else { return }
         // Focus and key-window records for the window, as a real click on it would produce.
         for kind: UInt8 in [1, 2] {
@@ -250,8 +303,6 @@ final class Performer {
     private var holdsJumpLock = false
     /// Focus flash in progress: the app that was in front before the target was brought forward.
     private var flashReturn: NSRunningApplication?
-    /// One focus flash at a time across the whole app, so "the app that was in front" is never a flashed target.
-    private static let flashLock = NSLock()
     private var holdsFlashLock = false
     /// Jump & return: wait until the physical mouse has been still this long before jumping (0 = don't wait).
     var stillThreshold: Double = 0
@@ -316,7 +367,7 @@ final class Performer {
         // Plain moves are pointless when we put the cursor back anyway.
         if jump, action.isMouseMove, heldButtons.isEmpty { return 0 }
         let flash = background && route.focusFlash && route.pid != 0 && (isPointer(action) || isKeyboard(action))
-        if flash, !holdsFlashLock { beginFlash() }
+        if flash, !holdsFlashLock { waited += beginFlash() }
         if jump, isPointer(action), jumpOrigin == nil {
             if !absolute { waited = waitForStillMouse() }
             Self.jumpLock.lock()
@@ -402,23 +453,46 @@ final class Performer {
     }
 
     /// Brings the target app to the front (without moving the pointer) so it accepts the next press.
-    private func beginFlash() {
-        Self.flashLock.lock()
+    /// Returns seconds spent waiting for the user to stop typing.
+    private func beginFlash() -> Double {
+        let waited = waitForTypingPause()
+        FocusFlash.lock.lock()
         holdsFlashLock = true
+        // Still in front from the last press while the user is away: no need to bring it forward again.
+        flashReturn = FocusFlash.unpark(keeping: route.pid)
+        if flashReturn != nil { return waited }
         let front = NSWorkspace.shared.frontmostApplication
-        guard let front, front.processIdentifier != route.pid else { flashReturn = nil; return } // already in front
+        guard let front, front.processIdentifier != route.pid else { return waited } // already in front
         flashReturn = front
-        FocusFlash.bringToFront(route.pid, window: route.windowNumber)
+        FocusFlash.bringToFront(route.pid, window: route.windowNumber, raise: false)
+        return waited
+    }
+
+    /// Blocks until the user isn't typing or holding a mouse button (their input must not go to the target).
+    private func waitForTypingPause() -> Double {
+        let start = Timing.now()
+        while token?.isCancelled != true {
+            let held = CGEventSource.buttonState(.hidSystemState, button: .left)
+                || CGEventSource.buttonState(.hidSystemState, button: .right)
+            if FocusFlash.secondsSinceTyping() >= FocusFlash.typingPause && !held { break }
+            Thread.sleep(forTimeInterval: 0.01)
+        }
+        return Timing.now() - start
     }
 
     /// Puts the previous app back in front, unless the user has switched apps meanwhile.
-    private func endFlash() {
-        defer { holdsFlashLock = false; Self.flashLock.unlock() }
+    /// While the user is away, the target stays in front instead (see `FocusFlash.awayAfter`).
+    /// `force`: put it back even then (the macro is stopping).
+    private func endFlash(force: Bool = false) {
+        defer { holdsFlashLock = false; FocusFlash.lock.unlock() }
         guard let back = flashReturn else { return }
         flashReturn = nil
         usleep(30_000) // let the target take the press before it loses focus
         let front = NSWorkspace.shared.frontmostApplication?.processIdentifier
-        if front == route.pid || front == nil || front == back.processIdentifier {
+        guard front == route.pid || front == nil || front == back.processIdentifier else { return } // user switched apps
+        if !force && FocusFlash.secondsSinceUserInput() >= FocusFlash.awayAfter {
+            FocusFlash.park(back: back, target: route.pid)
+        } else {
             FocusFlash.bringToFront(back.processIdentifier, window: 0)
         }
     }
@@ -493,7 +567,8 @@ final class Performer {
         touchedModifiers = false
         if let o = jumpOrigin { EventSynth.warp(to: o); jumpOrigin = nil }
         releaseJumpLock()
-        if holdsFlashLock { endFlash() }
+        if holdsFlashLock { endFlash(force: true) }
+        if route.focusFlash { FocusFlash.lock.withLock { _ = FocusFlash.unpark(keeping: 0) } } // stopping: put the user's app back
     }
 }
 
