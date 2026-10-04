@@ -47,7 +47,8 @@ of the window, with a timeline, instead of hundreds of raw events.
 when a “finished” screen appears. Heron keeps the screen awake while it works and tells you how it went.
 
 **Runs in the background.** Switch on a macro that clicks pop-ups whenever they show up, while another
-macro plays or you keep working.
+macro plays or you keep working. With background delivery it doesn't even borrow your pointer: it taps
+straight into the app, iPhone Mirroring included, while you keep using your Mac.
 
 **And a proper auto clicker.** For plain fast clicking: set the speed, press a hotkey, done. Simple mode shrinks it to a small strip
 that stays on top.
@@ -203,9 +204,9 @@ With Apple Intelligence (macOS 26 or later), all on your Mac and never sent anyw
 
 - Jump & return (the default): the cursor jumps to each click and straight back, and waits until you've
   stopped moving the mouse
-- Background delivery for apps that accept it, without moving the cursor at all, including iPhone Mirroring:
-  it only takes taps while it thinks it's the active app, so Heron tells it so for each tap, without bringing it
-  forward or taking the keyboard from the app you're using
+- Background delivery: clicks, taps and typing go straight into the target app without moving the cursor,
+  in standard Mac apps and in iPhone Mirroring. Mirroring only takes input while it thinks it's the active app,
+  so Heron tells it so around each tap, without bringing it forward or taking the keyboard from your app
 - Positions are relative to the app's window, so moving the window doesn't break anything
 - Randomize click position: each click lands at a random spot near its target (or anywhere in a picture's
   click box)
@@ -234,6 +235,12 @@ It asks only for the permissions a feature needs:
   › Privacy & Security and add it again
 - **The cursor didn't come back after a click**: every jump and return is logged in
   `~/Library/Application Support/Heron/jump-log.txt`
+- **Background taps stopped reaching iPhone Mirroring** (say, after a macOS update): switch Heron to bringing
+  it forward for an instant per tap instead, then restart Heron. It waits while you type and hands your app
+  straight back:
+  ```bash
+  defaults write local.macroclicker.app FocusFlashBringForward -bool YES
+  ```
 - **A picture isn't found**: use **Test Now** to see how close the match is, crop the picture more tightly,
   or lower the match strictness a little
 
