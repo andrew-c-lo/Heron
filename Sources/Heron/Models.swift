@@ -44,6 +44,33 @@ enum MouseButton: String, Codable, CaseIterable, Identifiable {
 
 // MARK: - Macro steps
 
+/// Types the next item of a list each time the step runs (codes, names, numbers…).
+struct TypeList: Codable, Equatable {
+    enum WhenDone: String, Codable, CaseIterable, Identifiable {
+        case stop, startOver
+        var id: String { rawValue }
+        var label: String { self == .stop ? "Stop the macro" : "Start over from the first item" }
+    }
+    var items: [String] = []
+    var pressReturn = true
+    var whenDone: WhenDone = .stop
+    /// The next item to type (kept between runs, so a stopped run carries on where it left off).
+    var next = 0
+
+    /// The items worth typing (blank lines are skipped).
+    var entries: [String] { items.map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty } }
+
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        items = try c.decodeIfPresent([String].self, forKey: .items) ?? []
+        pressReturn = try c.decodeIfPresent(Bool.self, forKey: .pressReturn) ?? true
+        whenDone = try c.decodeIfPresent(WhenDone.self, forKey: .whenDone) ?? .stop
+        next = try c.decodeIfPresent(Int.self, forKey: .next) ?? 0
+    }
+}
+
 enum StepAction: Codable, Equatable {
     case move(x: Double, y: Double)
     case drag(button: MouseButton, x: Double, y: Double)
@@ -64,6 +91,8 @@ enum StepAction: Codable, Equatable {
                       immediate: Bool? = nil)
     /// Picture step: look for a picture in the target window, then click it / wait for it / wait for it to go.
     case findImage(ImageStep)
+    /// Type the next item of a list.
+    case typeList(TypeList)
     /// Counter: go back to an earlier step, `times` times, then carry on.
     case repeatFrom(step: UUID, times: Int)
 
@@ -138,6 +167,7 @@ enum StepAction: Codable, Equatable {
         case .waitForColor: "eyedropper"
         case .findImage(let s): s.mode.icon
         case .repeatFrom: "arrow.uturn.backward"
+        case .typeList: "list.bullet.rectangle"
         }
     }
 
@@ -168,6 +198,8 @@ enum StepAction: Codable, Equatable {
             return "Wait"
         case .findImage(let s):
             return s.mode.label
+        case .typeList(let l):
+            return "Type the next of \(l.entries.count) item\(l.entries.count == 1 ? "" : "s") from a list"
         case .repeatFrom(_, let n):
             return "Repeat from an earlier step, \(n)×"
         case .waitForColor(_, _, let hex, _, let timeout, _, _):
@@ -321,6 +353,14 @@ struct ImageStep: Codable, Equatable {
         get { captureWindowWidth.flatMap { w in captureWindowHeight.map { CGSize(width: w, height: $0) } } }
         set { captureWindowWidth = newValue.map { Double($0.width) }; captureWindowHeight = newValue.map { Double($0.height) } }
     }
+    /// With a value above `settle`: the wait before clicking is picked at random between the two each time it appears.
+    var settleMax: Double?
+
+    /// The wait before clicking for one appearance.
+    func pickSettle() -> Double {
+        guard let hi = settleMax, hi > settle else { return settle }
+        return Double.random(in: settle...hi)
+    }
     /// Click a fixed spot without looking (the picture and words are kept, so switching back is one click).
     var spotOnly = false
     /// That spot (window points).
@@ -402,6 +442,7 @@ extension ImageStep {
         variants = try c.decodeIfPresent([PictureVariant].self, forKey: .variants) ?? []
         alsoPicture = try c.decodeIfPresent(Bool.self, forKey: .alsoPicture) ?? false
         spotOnly = try c.decodeIfPresent(Bool.self, forKey: .spotOnly) ?? false
+        settleMax = try c.decodeIfPresent(Double.self, forKey: .settleMax)
         captureWindowWidth = try c.decodeIfPresent(Double.self, forKey: .captureWindowWidth)
         captureWindowHeight = try c.decodeIfPresent(Double.self, forKey: .captureWindowHeight)
         spotX = try c.decodeIfPresent(Double.self, forKey: .spotX)

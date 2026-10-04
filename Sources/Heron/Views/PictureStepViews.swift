@@ -179,8 +179,22 @@ struct PictureStepEditor: View {
                         }
                         .pickerStyle(.segmented)
                         if !s.spotOnly {
-                            seconds("Wait before clicking", "How long it must be visible first. Helps with things that animate in.",
-                                    step.settle)
+                            LabeledContent {
+                                HStack(spacing: 4) {
+                                    TextField("", value: step.settle, format: .number)
+                                        .multilineTextAlignment(.trailing).frame(width: 44)
+                                    Text("to").foregroundStyle(.secondary)
+                                    TextField("", value: Binding(get: { s.settleMax }, set: { step.wrappedValue.settleMax = $0 }),
+                                              format: .number, prompt: Text("–"))
+                                        .multilineTextAlignment(.trailing).frame(width: 44)
+                                    Text("s").foregroundStyle(.secondary)
+                                }
+                            } label: {
+                                Text("Wait before clicking")
+                                Text((s.settleMax ?? 0) > s.settle
+                                     ? "A different wait each time it appears, between the two. Helps with things that animate in."
+                                     : "How long it must be visible first. Add a second number to make it vary each time.")
+                            }
                             LabeledContent {
                                 HStack(spacing: 4) {
                                     Text("x").foregroundStyle(.secondary)

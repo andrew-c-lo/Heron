@@ -35,6 +35,7 @@ final class Player {
               waiting: @escaping @MainActor (_ color: String?) -> Void = { _ in },
               clicked: @escaping @MainActor (_ step: UUID, _ found: CGRect?) -> Void = { _, _ in },
               stuck: @escaping @MainActor (_ screen: ScreenReader.WindowPixels) -> Void = { _ in },
+              listAdvanced: @escaping @MainActor (_ step: UUID, _ next: Int) -> Void = { _, _ in },
               finished: @escaping @MainActor (_ error: String?) -> Void) {
         stop()
         let token = CancelToken()
@@ -66,6 +67,15 @@ final class Player {
             return map
         }()
 
+        // “Type from a list”: each item as key presses, worked out here (the keyboard layout is read on the main thread).
+        var listKeys: [UUID: [[(code: UInt16, shift: Bool)]]] = [:]
+        for st in steps {
+            if case .typeList(let l) = st.action {
+                listKeys[st.id] = l.entries.map { $0.compactMap { KeyText.key(for: $0) } }
+            }
+        }
+        let typingKeys = listKeys
+
         // The killswitch watches on its own, for the whole run.
         let watch = CancelToken()
         let tripped = Tripwire()
@@ -90,6 +100,9 @@ final class Player {
             var lastReport = 0.0
             var loop = 0
             let began = Timing.now()
+
+            // Where each list is up to (carried across loops, and saved back after each item).
+            var listNext: [UUID: Int] = [:]
 
             if opts.order == .allAtOnce {
                 error = Self.runAllAtOnce(steps, opts: opts, target: target, resolver: resolver, performer: performer,
@@ -231,6 +244,31 @@ final class Player {
                             } else {
                                 repeatsLeft[step.id] = nil // ready for next time it's reached
                             }
+                        } else if case .typeList(let l) = step.action {
+                            let items = typingKeys[step.id] ?? []
+                            var n = listNext[step.id] ?? l.next
+                            if n >= items.count {
+                                guard l.whenDone == .startOver, !items.isEmpty else {
+                                    error = Self.done(items.isEmpty ? "the list is empty" : "typed all \(items.count) items from the list")
+                                    break outer
+                                }
+                                n = 0
+                            }
+                            for k in items[n] {
+                                let flags: UInt64 = k.shift ? CGEventFlags.maskShift.rawValue : 0
+                                performer.perform(.key(keyCode: k.code, down: true, flags: flags))
+                                guard Timing.wait(until: Timing.now() + 0.03, token) else { break outer }
+                                performer.perform(.key(keyCode: k.code, down: false, flags: flags))
+                                guard Timing.wait(until: Timing.now() + 0.03, token) else { break outer }
+                            }
+                            if l.pressReturn {
+                                performer.perform(.key(keyCode: 36, down: true, flags: 0))
+                                performer.perform(.key(keyCode: 36, down: false, flags: 0))
+                            }
+                            listNext[step.id] = n + 1
+                            let id = step.id, after = n + 1
+                            Task { @MainActor in listAdvanced(id, after) }
+                            t = Timing.now()
                         } else {
                             t += performer.perform(Self.scaled(step.action, target.scale(for: resolver?.window()?.frame.size)))
                         }
@@ -354,7 +392,7 @@ final class Player {
         let began = Timing.now()
         var chooser = AllAtOnceChooser(rules: Dictionary(uniqueKeysWithValues: items.map {
             ($0.index, AllAtOnceChooser.Rule(settle: $0.step.settle, repeatUntilGone: $0.step.repeatUntilGone,
-                                            repeatEvery: $0.step.repeatEvery))
+                                            repeatEvery: $0.step.repeatEvery, settleMax: $0.step.settleMax))
         }), prioritized: opts.prioritized)
         var lastAction = began
         var latest: ScreenReader.WindowPixels?
@@ -527,12 +565,13 @@ final class Player {
         // Wait for it to appear (and stay for `settle` seconds).
         var seenAt: Double?
         var lastSeen: CGRect?
+        var settleWant: Double?
         var spot: (rect: CGRect, win: TargetWindow)?
         while spot == nil {
             if token.isCancelled { return .cancelled }
             switch look() {
             case .unreadable: return .unreadable
-            case .missing: seenAt = nil; lastSeen = nil
+            case .missing: seenAt = nil; lastSeen = nil; settleWant = nil
             case .found(let r, let w):
                 // Wait until it stops moving: the same place on two checks in a row.
                 if waitForStill, !(lastSeen.map { Self.samePlace($0, r) } ?? false) {
@@ -543,7 +582,9 @@ final class Player {
                 lastSeen = r
                 let since = seenAt ?? Timing.now()
                 seenAt = since
-                if Timing.now() - since >= s.settle { spot = (r, w); continue }
+                let want = settleWant ?? s.pickSettle()
+                settleWant = want
+                if Timing.now() - since >= want { spot = (r, w); continue }
             }
             if Timing.now() >= deadline {
                 // Smart recording: not found, so click where it was when it was recorded.
@@ -708,7 +749,11 @@ final class AutoClicker {
 /// last click goes first, one click per scan (a click usually changes the screen). Each picture is clicked once
 /// per appearance, or every `repeatEvery` seconds while showing if it should be clicked until gone.
 struct AllAtOnceChooser {
-    struct Rule { var settle: Double; var repeatUntilGone: Bool; var repeatEvery: Double }
+    struct Rule {
+        var settle: Double; var repeatUntilGone: Bool; var repeatEvery: Double
+        /// With a value above `settle`: a random wait between the two, picked each time it appears.
+        var settleMax: Double? = nil
+    }
 
     let rules: [Int: Rule]
     /// Higher in the list wins instead of taking turns.
@@ -716,6 +761,7 @@ struct AllAtOnceChooser {
     private var seenSince: [Int: Double] = [:]
     private var lastClick: [Int: Double] = [:]
     private var clickedThisAppearance = Set<Int>()
+    private var settleFor: [Int: Double] = [:]
 
     init(rules: [Int: Rule], prioritized: Bool = false) {
         self.rules = rules
@@ -727,12 +773,18 @@ struct AllAtOnceChooser {
         for (index, rule) in rules {
             guard found.contains(index) else {
                 seenSince[index] = nil
+                settleFor[index] = nil
                 clickedThisAppearance.remove(index)
                 continue
             }
             let since = seenSince[index] ?? now
             seenSince[index] = since
-            guard now - since + 0.01 >= rule.settle else { continue }
+            let settle = settleFor[index] ?? {
+                guard let hi = rule.settleMax, hi > rule.settle else { return rule.settle }
+                return Double.random(in: rule.settle...hi)
+            }()
+            settleFor[index] = settle
+            guard now - since + 0.01 >= settle else { continue }
             if clickedThisAppearance.contains(index) {
                 guard rule.repeatUntilGone, now - (lastClick[index] ?? 0) + 0.01 >= max(0.1, rule.repeatEvery) else { continue }
             }

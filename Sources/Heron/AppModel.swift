@@ -754,6 +754,15 @@ final class AppModel: ObservableObject {
         if playingMacroID != nil { stopPlayback() } else if let m = selectedMacro { play(m) }
     }
 
+    /// Saves where a “Type from a list” step is up to, so the next run carries on from there.
+    private func setListNext(_ stepID: UUID, _ next: Int) {
+        guard var m = macros.first(where: { $0.steps.contains { $0.id == stepID } }),
+              let i = m.steps.firstIndex(where: { $0.id == stepID }), case .typeList(var l) = m.steps[i].action else { return }
+        l.next = next
+        m.steps[i].action = .typeList(l)
+        update(m)
+    }
+
     /// Remembers the app window's size the first time a macro runs (older macros), so later runs can resize
     /// pictures and positions when the window is a different size.
     @discardableResult
@@ -791,6 +800,8 @@ final class AppModel: ObservableObject {
             self?.recordHit(step, found)
         }, stuck: { [weak self] screen in
             self?.saveStuck(screen, macro: macroID)
+        }, listAdvanced: { [weak self] step, next in
+            self?.setListNext(step, next)
         }, finished: { [weak self] error in
             guard let self, !self.player.isRunning else { return }
             self.saveRunReport(macroID)
@@ -1066,6 +1077,8 @@ final class AppModel: ObservableObject {
             self?.recordHit(step, found)
         }, stuck: { [weak self] screen in
             self?.saveStuck(screen, macro: id)
+        }, listAdvanced: { [weak self] step, next in
+            self?.setListNext(step, next)
         }, finished: { [weak self, weak player] error in
             guard let self, player?.isRunning != true, self.backgroundPlayers[id] === player else { return }
             self.saveRunReport(id)

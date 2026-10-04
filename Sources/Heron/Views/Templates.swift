@@ -156,3 +156,41 @@ struct TemplateChooser: View {
         }
     }
 }
+
+/// Settings for “Type from a list”: the items, and what happens after each and at the end.
+struct TypeListEditor: View {
+    @Binding var list: TypeList
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Items, one per line")
+            TextEditor(text: Binding(get: { list.items.joined(separator: "\n") },
+                                     set: { list.items = $0.components(separatedBy: "\n") }))
+                .font(.body.monospaced())
+                .frame(minHeight: 120)
+                .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(.separator))
+            Text("Each time this step runs, it types the next one. Blank lines are skipped.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+        Toggle("Press Return after each item", isOn: $list.pressReturn)
+        Picker("When the list runs out", selection: $list.whenDone) {
+            ForEach(TypeList.WhenDone.allCases) { Text($0.label).tag($0) }
+        }
+        let count = list.entries.count
+        LabeledContent {
+            HStack {
+                Text(count == 0 ? "No items yet" : list.next >= count ? "All \(count) typed" : "Item \(list.next + 1) of \(count)")
+                    .monospacedDigit().foregroundStyle(.secondary)
+                Stepper("", value: Binding(get: { min(list.next, max(0, count - 1)) }, set: { list.next = max(0, $0) }),
+                        in: 0...max(0, count - 1))
+                    .labelsHidden()
+                    .disabled(count == 0)
+                Button("Start Over") { list.next = 0 }
+                    .disabled(list.next == 0)
+            }
+        } label: {
+            Text("Next")
+            Text("Carries on where the last run stopped.")
+        }
+    }
+}

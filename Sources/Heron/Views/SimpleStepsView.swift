@@ -97,6 +97,22 @@ struct ActionEditing {
         g.actionIndex < steps.count ? steps[g.actionIndex].id : nil
     }
 
+    /// The list of a “Type from a list” action.
+    func typeListBinding(_ g: ActionGroup) -> Binding<TypeList>? {
+        guard g.actionIndex < steps.count, case .typeList(let initial) = steps[g.actionIndex].action else { return nil }
+        let id = steps[g.actionIndex].id
+        return Binding(
+            get: {
+                if let s = steps.first(where: { $0.id == id }), case .typeList(let v) = s.action { return v }
+                return initial
+            },
+            set: { v in
+                guard let i = steps.firstIndex(where: { $0.id == id }) else { return }
+                macro.wrappedValue.steps[i].action = .typeList(v)
+            }
+        )
+    }
+
     func imageBinding(stepID: UUID) -> Binding<ImageStep>? {
         guard let i = steps.firstIndex(where: { $0.id == stepID }), case .findImage(let initial) = steps[i].action else { return nil }
         return Binding(

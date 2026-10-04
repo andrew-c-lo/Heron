@@ -127,7 +127,7 @@ extension ActionGroup {
             return b == .left ? .blue : .orange
         case .drag: return .purple
         case .scroll: return .teal
-        case .keys: return .green
+        case .keys, .typeList: return .green
         case .wait: return .gray
         case .colorWait(_, let c): return Color(nsColor: RGB(hex: c.hex)?.nsColor ?? .gray)
         case .image: return .pink

@@ -121,6 +121,8 @@ struct StepInspector: View {
                 .foregroundStyle(.secondary)
         case .keys(let text):
             LabeledContent("Keys", value: text)
+        case .typeList:
+            if let list = editing.typeListBinding(g) { TypeListEditor(list: list) }
         case .drag(_, let from, let to):
             LabeledContent("From", value: "\(Int(from.x)), \(Int(from.y))")
             LabeledContent("To", value: "\(Int(to.x)), \(Int(to.y))")

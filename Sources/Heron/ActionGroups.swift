@@ -5,6 +5,7 @@ import Carbon.HIToolbox
 struct ActionGroup: Identifiable {
     enum Kind {
         case click(button: MouseButton, count: Int, at: CGPoint?, hold: Double)
+        case typeList(TypeList)
         case drag(button: MouseButton, from: CGPoint, to: CGPoint)
         case scroll(dx: Double, dy: Double, at: CGPoint?)
         case keys(String)
@@ -76,6 +77,9 @@ struct ActionGroup: Identifiable {
             case .click: return (touch ? "Tap" : "Click") + " the picture" + (s.repeatUntilGone ? " until it's gone" : "")
             case .appear, .gone, .stop: return s.mode.label
             }
+        case .typeList(let l):
+            let n = l.entries.count
+            return n == 0 ? "Type from a list" : "Type the next of \(n) item\(n == 1 ? "" : "s")" + (l.pressReturn ? ", then Return" : "")
         case .move: return "Move the mouse"
         case .repeatFrom(_, let n): return "Repeat from an earlier step, \(n)×"
         case .other(let s, _): return s
@@ -86,6 +90,10 @@ struct ActionGroup: Identifiable {
         switch kind {
         case .drag(_, let from, let to): "\(Self.fmt(from)) → \(Self.fmt(to))"
         case .scroll(_, _, let at?): "at \(Self.fmt(at))"
+        case .typeList(let l):
+            l.entries.isEmpty ? "add items in its settings"
+                : l.next >= l.entries.count ? "all \(l.entries.count) typed" + (l.whenDone == .startOver ? "; starts over next" : "")
+                : "next: item \(l.next + 1) of \(l.entries.count)"
         case .image(let s) where s.spotOnly && s.mode == .click:
             s.spot == nil ? "set to a spot: pick where to click" : "fixed spot, no looking · picture and words kept"
         case .image(let s) where s.mode == .stop:
@@ -122,6 +130,7 @@ struct ActionGroup: Identifiable {
         case .image(let s):
             if s.spotOnly && s.mode == .click { return "cursorarrow.click" }
             return s.isText && s.mode == .click ? "text.viewfinder" : s.mode.icon
+        case .typeList: return "list.bullet.rectangle"
         case .repeatFrom: return "arrow.uturn.backward"
         case .move: return "arrow.up.and.down.and.arrow.left.and.right"
         case .other(_, let icon): return icon
@@ -217,6 +226,8 @@ enum ActionGrouper {
                 kind = .image(s)
             case .repeatFrom(let target, let times):
                 kind = .repeatFrom(target: target, times: times)
+            case .typeList(let l):
+                kind = .typeList(l)
             case .mouseUp(let b, _, _, _, _):
                 kind = .other("Release the \(b.label.lowercased()) button", icon: "arrow.up.circle")
             case .drag(let b, _, _):

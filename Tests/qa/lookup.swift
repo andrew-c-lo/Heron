@@ -549,5 +549,43 @@ check("sliding doesn't", !Player.samePlace(CGRect(x: 10, y: 10, width: 5, height
 check("older macros wait for things to stop moving", (try! JSONDecoder().decode(PlaybackOptions.self, from: Data("{}".utf8))).waitForStill)
 check("keep the screen on while running, by default", Preferences().screenAwake == .whileRunning)
 
+// Type from a list: the next item each time, Return after, then done.
+func playList(_ l: TypeList, loops: Int) -> (keys: String, next: [Int], end: String?) {
+    var typed = ""
+    EventSynth.testSink = { e in
+        guard e.type == .keyDown else { return }
+        let code = UInt16(e.getIntegerValueField(.keyboardEventKeycode))
+        typed += code == 36 ? "⏎" : (KeyText.character(for: code, shift: e.flags.contains(.maskShift)) ?? "?")
+    }
+    var m = Macro(name: "list", steps: [MacroStep(delay: 0, action: .typeList(l))])
+    m.playback.repeatMode = .times; m.playback.loops = loops
+    var nexts: [Int] = [], end: String?, done = false
+    let p = Player()
+    p.play(m, progress: { _, _, _ in }, listAdvanced: { _, n in nexts.append(n) }, finished: { e in end = e; done = true })
+    let until = Date().addingTimeInterval(5)
+    while !done && Date() < until { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
+    RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+    EventSynth.testSink = nil
+    return (typed, nexts, end)
+}
+var codes = TypeList(); codes.items = ["ab", "", "c"]
+let listRun = playList(codes, loops: 3)
+check("each run types the next item and presses Return (blank lines skipped)", listRun.keys == "ab⏎c⏎", listRun.keys)
+check("…saving where it's up to", listRun.next == [1, 2], "\(listRun.next)")
+check("…and stops as done when the list runs out", listRun.end.map(Player.isDone) == true, listRun.end ?? "nil")
+var again = codes; again.whenDone = .startOver; again.pressReturn = false
+check("start over: back to the first item", playList(again, loops: 3).keys == "abcab", playList(again, loops: 3).keys)
+var resume = codes; resume.next = 1
+check("carries on from where the last run stopped", playList(resume, loops: 1).keys == "c⏎")
+let oldList = try! JSONDecoder().decode(TypeList.self, from: Data(#"{"items":["x"]}"#.utf8))
+check("a list saved with only its items loads with defaults", oldList.pressReturn && oldList.whenDone == .stop && oldList.next == 0)
+
+// A wait before clicking that varies each time.
+var rs = ImageStep(png: Data(), width: 0, height: 0, originX: 0, originY: 0); rs.settle = 0.2; rs.settleMax = 0.8
+let waits = (0..<300).map { _ in rs.pickSettle() }
+check("the wait before clicking lands between the two numbers", waits.allSatisfy { $0 >= 0.2 && $0 <= 0.8 } && Set(waits.map { ($0 * 100).rounded() }).count > 20)
+rs.settleMax = nil
+check("one number: a fixed wait", rs.pickSettle() == 0.2)
+
 print(failures == 0 ? "ALL PASSED" : "\(failures) FAILED")
 exit(failures == 0 ? 0 : 1)

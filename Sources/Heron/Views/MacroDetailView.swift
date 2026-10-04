@@ -605,6 +605,9 @@ struct MacroDetailView: View {
                         }
                     } label: { Label("Click a Spot… (hover, 3 s)", systemImage: "cursorarrow.click") }
                     Button { ui.showingType = true } label: { Label("Type Text…", systemImage: "keyboard") }
+                    Button { select(insert(.typeList(TypeList()), delay: 0.1)) } label: {
+                        Label("Type From a List", systemImage: "list.bullet.rectangle")
+                    }
                     Menu {
                         Button("Return") { insertKeyPress(36) }
                         Button("Space") { insertKeyPress(49) }
