@@ -521,8 +521,83 @@ struct Macro: Codable, Identifiable, Equatable {
     var runsInBackground = false
     /// Folder in the macro list (nil = not in a folder).
     var folder: String?
+    /// Starts on its own: at set times, every so often, or when its app opens.
+    var schedule: MacroSchedule?
 
     var duration: Double { steps.reduce(0) { $0 + $1.delay } }
+}
+
+/// When a macro starts on its own.
+struct MacroSchedule: Codable, Equatable {
+    enum Kind: String, Codable, CaseIterable, Identifiable {
+        case daily, interval, appOpens
+        var id: String { rawValue }
+        var label: String {
+            switch self {
+            case .daily: "Daily"
+            case .interval: "Every…"
+            case .appOpens: "When the app opens"
+            }
+        }
+    }
+
+    var enabled = true
+    var kind: Kind = .daily
+    /// Daily: start times, in minutes after midnight.
+    var times: [Int] = [9 * 60]
+    /// Daily: the days it runs (Calendar weekdays, 1 = Sunday … 7 = Saturday).
+    var weekdays: Set<Int> = Set(1...7)
+    /// Interval: minutes between starts.
+    var everyMinutes = 60
+    /// A scheduled run is stopped after this many minutes (0 = when the macro ends by itself).
+    var limitMinutes: Double = 30
+
+    /// The first start strictly after `date` (nil for “when the app opens”, or when no day is chosen).
+    func nextRun(after date: Date, lastRun: Date?, calendar: Calendar = .current) -> Date? {
+        switch kind {
+        case .appOpens:
+            return nil
+        case .interval:
+            let every = TimeInterval(max(1, everyMinutes) * 60)
+            guard let last = lastRun else { return date.addingTimeInterval(every) }
+            var next = last.addingTimeInterval(every)
+            // Missed starts (Mac asleep, Heron closed) aren't made up: the next one is in the future.
+            while next <= date { next = next.addingTimeInterval(every) }
+            return next
+        case .daily:
+            guard !weekdays.isEmpty, !times.isEmpty else { return nil }
+            let startOfDay = calendar.startOfDay(for: date)
+            for dayOffset in 0...7 {
+                guard let day = calendar.date(byAdding: .day, value: dayOffset, to: startOfDay),
+                      weekdays.contains(calendar.component(.weekday, from: day)) else { continue }
+                for t in times.sorted() {
+                    if let at = calendar.date(byAdding: .minute, value: t, to: day), at > date { return at }
+                }
+            }
+            return nil
+        }
+    }
+
+    /// “Daily at 9:00”, “Every 2 h”, “When TextEdit opens”.
+    func summary(appName: String?) -> String {
+        switch kind {
+        case .daily:
+            let t = times.sorted().map(Self.clock).joined(separator: ", ")
+            let days = weekdays.count == 7 ? "Daily" : weekdays == Set(2...6) ? "Weekdays" : weekdays == [1, 7] ? "Weekends"
+                : weekdays.sorted().map { Calendar.current.shortWeekdaySymbols[$0 - 1] }.joined(separator: " ")
+            return "\(days) at \(t)"
+        case .interval:
+            return everyMinutes % 60 == 0 ? "Every \(everyMinutes / 60) h" : "Every \(everyMinutes) min"
+        case .appOpens:
+            return "When \(appName ?? "the app") opens"
+        }
+    }
+
+    static func clock(_ minutes: Int) -> String {
+        var c = DateComponents(); c.hour = minutes / 60; c.minute = minutes % 60
+        let d = Calendar.current.date(from: c) ?? Date()
+        return d.formatted(date: .omitted, time: .shortened)
+    }
 }
 
 // MARK: - Auto clicker
@@ -584,6 +659,8 @@ struct Preferences: Codable, Equatable {
     var smartRecording = true
     /// Every single click is sent as a double click (everywhere: auto clicker, macros, chains, watchers).
     var doubleClickEverywhere = false
+    /// While a schedule is waiting, keep the Mac from going to sleep on its own.
+    var keepAwakeForSchedules = true
     /// While a macro plays, your own clicks in its app are noticed and offered as steps.
     var suggestFromMyPresses = true
 }

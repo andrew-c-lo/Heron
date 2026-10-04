@@ -104,6 +104,126 @@ final class AppModel: ObservableObject {
         permissionTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.refreshPermissions() }
         }
+        startScheduler()
+    }
+
+    // MARK: - Schedules
+
+    /// When each scheduled macro last started on its own (kept across launches).
+    @Published private(set) var scheduleLastRun: [UUID: Date] = [:]
+    private var scheduleTimer: Timer?
+    private var lastScheduleCheck = Date()
+    private let stayAwake = StayAwake()
+    /// Started by its schedule (gets a summary notification when it ends).
+    private var scheduledRuns: Set<UUID> = []
+    /// Due while something else was playing: started as soon as Heron is free (within 30 minutes).
+    private var pendingScheduled: [UUID: Date] = [:]
+    private var scheduleLimits: [UUID: DispatchWorkItem] = [:]
+    private var launchObserver: NSObjectProtocol?
+
+    private func startScheduler() {
+        let stored = Persist.load("scheduleLastRun", default: [String: Date]())
+        scheduleLastRun = Dictionary(uniqueKeysWithValues: stored.compactMap { k, v in UUID(uuidString: k).map { ($0, v) } })
+        scheduleTimer = Timer.scheduledTimer(withTimeInterval: 20, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.checkSchedules() }
+        }
+        launchObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didLaunchApplicationNotification, object: nil, queue: .main) { [weak self] note in
+            let bundle = (note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication)?.bundleIdentifier
+            Task { @MainActor in self?.appLaunched(bundle) }
+        }
+        checkSchedules()
+    }
+
+    /// When a scheduled macro starts next (nil when it waits for its app, or isn't scheduled).
+    func nextScheduledRun(_ m: Macro) -> Date? {
+        guard let s = m.schedule, s.enabled else { return nil }
+        return s.nextRun(after: Date(), lastRun: scheduleLastRun[m.id])
+    }
+
+    private func checkSchedules() {
+        let now = Date()
+        var waiting = false
+        for m in macros {
+            guard let s = m.schedule, s.enabled else { continue }
+            if s.kind != .appOpens { waiting = true }
+            if s.kind == .interval, scheduleLastRun[m.id] == nil {
+                // Counting starts when the schedule is first seen.
+                setLastRun(m.id, now)
+                continue
+            }
+            if let due = s.nextRun(after: lastScheduleCheck, lastRun: scheduleLastRun[m.id]), due <= now {
+                runScheduled(m.id)
+            }
+        }
+        // Retry the ones that were due while Heron was busy.
+        for (id, since) in pendingScheduled {
+            if now.timeIntervalSince(since) > 30 * 60 {
+                pendingScheduled[id] = nil
+                let name = macros.first { $0.id == id }?.name ?? "Macro"
+                Notifier.post(name, "Skipped its scheduled run: something else was playing for 30 minutes.", enabled: true)
+            } else {
+                runScheduled(id, retry: true)
+            }
+        }
+        lastScheduleCheck = now
+        stayAwake.set(waiting && prefs.keepAwakeForSchedules)
+    }
+
+    private func appLaunched(_ bundleID: String?) {
+        guard let bundleID else { return }
+        for m in macros where m.schedule?.enabled == true && m.schedule?.kind == .appOpens && m.target.app?.bundleID == bundleID {
+            let id = m.id
+            // Give the app a moment to show its window.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in self?.runScheduled(id) }
+        }
+    }
+
+    private func setLastRun(_ id: UUID, _ date: Date) {
+        scheduleLastRun[id] = date
+        Persist.save(Dictionary(uniqueKeysWithValues: scheduleLastRun.map { ($0.key.uuidString, $0.value) }), "scheduleLastRun")
+    }
+
+    /// Starts a macro because its schedule says so.
+    private func runScheduled(_ id: UUID, retry: Bool = false) {
+        guard let m = macros.first(where: { $0.id == id }), let s = m.schedule else { pendingScheduled[id] = nil; return }
+        if playingMacroID == id || backgroundRunning.contains(id) { pendingScheduled[id] = nil; return }
+        if SystemState.screenIsLocked {
+            pendingScheduled[id] = nil
+            if !retry { setLastRun(id, Date()) }
+            Notifier.post(m.name, "Skipped its scheduled run: the Mac was locked, so clicks can't reach apps.", enabled: true)
+            return
+        }
+        if !m.runsInBackground, playingMacroID != nil || isRecording || isAutoClicking || countdown != nil {
+            if pendingScheduled[id] == nil { pendingScheduled[id] = Date(); setLastRun(id, Date()) }
+            return
+        }
+        pendingScheduled[id] = nil
+        if !retry { setLastRun(id, Date()) }
+        SystemState.wakeDisplay()
+        scheduledRuns.insert(id)
+        if m.runsInBackground { startBackground(id, quietly: true) } else { play(m) }
+        guard playingMacroID == id || backgroundRunning.contains(id) else { scheduledRuns.remove(id); return }
+        flash("“\(m.name)” started on its schedule.")
+        scheduleLimits[id]?.cancel()
+        if s.limitMinutes > 0 {
+            let stop = DispatchWorkItem { [weak self] in
+                guard let self, self.scheduledRuns.contains(id) else { return }
+                if self.playingMacroID == id { self.stopPlayback() }
+                if self.backgroundRunning.contains(id) { self.stopBackground(id, quietly: true) }
+            }
+            scheduleLimits[id] = stop
+            DispatchQueue.main.asyncAfter(deadline: .now() + s.limitMinutes * 60, execute: stop)
+        }
+    }
+
+    /// Called when any run ends: scheduled ones get a summary notification.
+    private func finishScheduled(_ id: UUID, clicks: Int, seconds: Int) {
+        guard scheduledRuns.remove(id) != nil else { return }
+        scheduleLimits.removeValue(forKey: id)?.cancel()
+        let name = macros.first { $0.id == id }?.name ?? "Macro"
+        let time = seconds >= 60 ? "\(seconds / 60) min" : "\(seconds) s"
+        Notifier.post(name, "Scheduled run finished: \(clicks) click\(clicks == 1 ? "" : "s") in \(time).", enabled: true)
     }
 
     var isBusy: Bool { isAutoClicking || isRecording || playingMacroID != nil || countdown != nil || !backgroundRunning.isEmpty }
@@ -783,6 +903,11 @@ final class AppModel: ObservableObject {
     /// Writes the report of a finished run: how often each step fired, where, and every click's time.
     private func saveRunReport(_ macroID: UUID) {
         collectPresses(macroID)
+        if let log = runs[macroID] {
+            finishScheduled(macroID, clicks: log.events.count, seconds: Int(Date().timeIntervalSince(log.started)))
+        } else {
+            finishScheduled(macroID, clicks: 0, seconds: 0)
+        }
         guard let log = runs.removeValue(forKey: macroID), let m = macros.first(where: { $0.id == macroID }),
               !log.events.isEmpty else { return }
         let index = Dictionary(uniqueKeysWithValues: m.steps.enumerated().map { ($0.element.id, $0.offset + 1) })

@@ -162,6 +162,13 @@ struct MacroDetailView: View {
             .help("Which app it works in, and how clicks reach it")
             .popover(isPresented: $ui.showingTarget, arrowEdge: .bottom) { targetPanel }
 
+            Button { ui.showingSchedule = true } label: {
+                SettingsChip(icon: "calendar.badge.clock", title: "Schedule", value: scheduleSummary)
+            }
+            .buttonStyle(.plain)
+            .help("Start it on its own: at set times, every so often, or when its app opens")
+            .popover(isPresented: $ui.showingSchedule, arrowEdge: .bottom) { schedulePanel }
+
             Spacer(minLength: 8)
             buildControls
         }
@@ -193,6 +200,100 @@ struct MacroDetailView: View {
         }
         if pb.skipMouseMoves { parts.append("no moves") }
         return parts.joined(separator: " · ") + killswitchSummary
+    }
+
+    private var scheduleSummary: String {
+        guard let s = macro.schedule, s.enabled else { return "Off" }
+        return s.summary(appName: macro.target.app?.name)
+    }
+
+    private var schedulePanel: some View {
+        let on = Binding(get: { macro.schedule?.enabled == true }, set: { v in
+            if macro.schedule == nil { macro.schedule = MacroSchedule() }
+            macro.schedule?.enabled = v
+            if v { Notifier.requestPermission() }
+        })
+        let s = macro.schedule ?? MacroSchedule()
+        func set<T>(_ kp: WritableKeyPath<MacroSchedule, T>, _ v: T) {
+            var x = macro.schedule ?? MacroSchedule(); x[keyPath: kp] = v; macro.schedule = x
+        }
+        return VStack(alignment: .leading, spacing: 12) {
+            Text("Schedule").font(.headline)
+            Toggle(isOn: on) {
+                Text("Start on its own")
+                Text("Heron starts it at the times you choose, and stops it when it's done or the time limit is reached.")
+            }
+            if s.enabled {
+                Picker("Start", selection: Binding(get: { s.kind }, set: { set(\.kind, $0) })) {
+                    ForEach(MacroSchedule.Kind.allCases) { Text($0.label).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                switch s.kind {
+                case .daily:
+                    ForEach(Array(s.times.enumerated()), id: \.offset) { i, t in
+                        HStack {
+                            DatePicker("At", selection: Binding(
+                                get: { Calendar.current.date(byAdding: .minute, value: t, to: Calendar.current.startOfDay(for: Date())) ?? Date() },
+                                set: { d in
+                                    let c = Calendar.current.dateComponents([.hour, .minute], from: d)
+                                    var times = s.times; times[i] = (c.hour ?? 0) * 60 + (c.minute ?? 0); set(\.times, times)
+                                }), displayedComponents: .hourAndMinute)
+                            if s.times.count > 1 {
+                                Button { var times = s.times; times.remove(at: i); set(\.times, times) } label: { Image(systemName: "minus.circle") }
+                                    .buttonStyle(.borderless).help("Remove this time")
+                            }
+                        }
+                    }
+                    Button("Add a Time") { set(\.times, s.times + [min(23 * 60 + 59, (s.times.max() ?? 540) + 60)]) }
+                    HStack(spacing: 4) {
+                        ForEach(1...7, id: \.self) { d in
+                            let sym = Calendar.current.veryShortWeekdaySymbols[d - 1]
+                            Toggle(sym, isOn: Binding(get: { s.weekdays.contains(d) }, set: { v in
+                                var w = s.weekdays; if v { w.insert(d) } else { w.remove(d) }; set(\.weekdays, w)
+                            }))
+                            .toggleStyle(.button)
+                            .help(Calendar.current.weekdaySymbols[d - 1])
+                        }
+                    }
+                case .interval:
+                    HStack {
+                        Text("Every")
+                        TextField("", value: Binding(get: { s.everyMinutes }, set: { set(\.everyMinutes, max(1, $0)) }), format: .number)
+                            .frame(width: 60).multilineTextAlignment(.trailing)
+                        Text("minutes")
+                    }
+                case .appOpens:
+                    Text(macro.target.app.map { "Starts a few seconds after \($0.name) opens." }
+                         ?? "Choose a target app first (Target).")
+                        .font(.callout).foregroundStyle(macro.target.app == nil ? .orange : .secondary)
+                }
+                HStack {
+                    Text("Stop after")
+                    TextField("", value: Binding(get: { s.limitMinutes }, set: { set(\.limitMinutes, max(0, $0)) }), format: .number)
+                        .frame(width: 50).multilineTextAlignment(.trailing)
+                    Text("minutes (0 = when it ends by itself)")
+                        .foregroundStyle(.secondary)
+                }
+                if let next = model.nextScheduledRun(macro) {
+                    Label("Next: \(next.formatted(date: .abbreviated, time: .shortened))", systemImage: "clock")
+                        .foregroundStyle(.secondary)
+                }
+                Divider()
+                Toggle(isOn: Binding(get: { SystemState.opensAtLogin }, set: { v in
+                    if let e = SystemState.setOpensAtLogin(v) { model.flash(e) }
+                    ui.objectWillChange.send()
+                })) {
+                    Text("Open Heron at login")
+                    Text("So schedules keep working after a restart.")
+                }
+                Toggle(isOn: $model.prefs.keepAwakeForSchedules) {
+                    Text("Keep the Mac awake while waiting")
+                    Text("The screen can still turn off. Runs can't happen while the Mac is locked; Heron skips them and lets you know.")
+                }
+            }
+        }
+        .padding(16)
+        .frame(width: 380)
     }
 
     private var killswitchSummary: String {
@@ -822,6 +923,7 @@ final class DetailUIState: ObservableObject {
     @Published var describeText = ""
     @Published var describing = false
     @Published var showingStuck = false
+    @Published var showingSchedule = false
     @Published var showingPresses = false
     @Published var showingAutopilot = false
     /// Step to scroll to when the detailed list appears.
@@ -902,13 +1004,23 @@ struct SettingsChip: View {
     let title: String
     let value: String
 
+    /// With the summary when it fits; just the name when space is short (the details are one click away).
     var body: some View {
+        ViewThatFits(in: .horizontal) {
+            chip(showValue: true)
+            chip(showValue: false)
+        }
+    }
+
+    private func chip(showValue: Bool) -> some View {
         HStack(spacing: 6) {
             Image(systemName: icon).foregroundStyle(.secondary)
             Text(title).fontWeight(.medium)
-            Text(value).foregroundStyle(.secondary).lineLimit(1).truncationMode(.tail)
+            if showValue { Text(value).foregroundStyle(.secondary) }
             Image(systemName: "chevron.down").font(.caption2).foregroundStyle(.secondary)
         }
+        .lineLimit(1)
+        .fixedSize()
         .font(.callout)
         .padding(.horizontal, 10)
         .padding(.vertical, 5)

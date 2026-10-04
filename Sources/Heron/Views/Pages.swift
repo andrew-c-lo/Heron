@@ -84,16 +84,19 @@ private struct MacroList: View {
                 Text(subtitle(m)).font(.caption).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer(minLength: 4)
-            if m.runsInBackground {
-                let on = model.isRunningInBackground(m.id)
-                Toggle("", isOn: Binding(get: { on }, set: { if $0 != on { model.toggleBackground(m.id) } }))
-                    .toggleStyle(.switch)
-                    .controlSize(.mini)
-                    .labelsHidden()
-                    .help(on ? "Running in the background. Switch off to stop." : "Start running in the background")
-            } else if model.playingMacroID == m.id {
-                Circle().fill(.green).frame(width: 8, height: 8).help("Playing")
+            if let s = m.schedule, s.enabled {
+                Image(systemName: "calendar.badge.clock")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .help("Scheduled: \(s.summary(appName: m.target.app?.name))")
             }
+            RunDot(running: model.playingMacroID == m.id || model.isRunningInBackground(m.id)) {
+                if m.runsInBackground { model.toggleBackground(m.id) }
+                else if model.playingMacroID == m.id { model.stopPlayback() }
+                else { model.play(m) }
+            }
+            .help(model.playingMacroID == m.id || model.isRunningInBackground(m.id) ? "Running. Click to stop."
+                  : m.runsInBackground ? "Click to start it in the background" : "Click to play")
         }
         .padding(.vertical, 3)
         .tag(SidebarItem.macro(m.id))
@@ -203,5 +206,28 @@ struct SimpleStrip: View {
     private var cps: Binding<Double> {
         Binding(get: { AutoClickerView.clicksPerSecond(model.autoClick.intervalMs) },
                 set: { model.autoClick.intervalMs = 1000 / min(max($0, 0.1), 1000) })
+    }
+}
+
+
+/// A macro's run state at a glance: an empty ring when idle, green when running. Click to start or stop.
+struct RunDot: View {
+    let running: Bool
+    let action: () -> Void
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        Button(action: action) {
+            ZStack {
+                Circle().strokeBorder(running ? Color.green : Color.secondary.opacity(0.6), lineWidth: 1.5)
+                if running { Circle().fill(Color.green).padding(2.5) }
+            }
+            .frame(width: 12, height: 12)
+            .padding(4)
+            .contentShape(Rectangle())
+            .animation(Motion.snap(reduceMotion), value: running)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(running ? "Stop" : "Start")
     }
 }

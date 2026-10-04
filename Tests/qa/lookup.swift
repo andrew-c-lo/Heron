@@ -478,5 +478,27 @@ let ks2 = try! JSONDecoder().decode(PlaybackOptions.self, from: JSONEncoder().en
 check("the killswitch saves and loads", ks2.stopWhen?.text == "Lv 30" && ks2.stopWhen?.area == ksStep.area)
 check("older macros have no killswitch", (try! JSONDecoder().decode(PlaybackOptions.self, from: Data("{}".utf8))).stopWhen == nil)
 
+// Schedules: when a macro starts next.
+var cal = Calendar(identifier: .gregorian); cal.timeZone = TimeZone(identifier: "UTC")!
+func at(_ y: Int, _ mo: Int, _ d: Int, _ h: Int, _ mi: Int) -> Date { cal.date(from: DateComponents(year: y, month: mo, day: d, hour: h, minute: mi))! }
+var daily = MacroSchedule(); daily.times = [9 * 60, 21 * 60]   // 9:00 and 21:00
+check("daily: later today", daily.nextRun(after: at(2026, 10, 5, 8, 0), lastRun: nil, calendar: cal) == at(2026, 10, 5, 9, 0))
+check("daily: the second time of the day", daily.nextRun(after: at(2026, 10, 5, 9, 0), lastRun: nil, calendar: cal) == at(2026, 10, 5, 21, 0))
+check("daily: tomorrow morning after the last time", daily.nextRun(after: at(2026, 10, 5, 22, 0), lastRun: nil, calendar: cal) == at(2026, 10, 6, 9, 0))
+daily.weekdays = Set(2...6)   // weekdays; 2026-10-10 is a Saturday
+check("weekdays only: Friday night skips to Monday", daily.nextRun(after: at(2026, 10, 9, 22, 0), lastRun: nil, calendar: cal) == at(2026, 10, 12, 9, 0))
+daily.weekdays = []
+check("no days chosen: never", daily.nextRun(after: at(2026, 10, 5, 8, 0), lastRun: nil, calendar: cal) == nil)
+var every = MacroSchedule(); every.kind = .interval; every.everyMinutes = 90
+check("every 90 min after the last run", every.nextRun(after: at(2026, 10, 5, 10, 0), lastRun: at(2026, 10, 5, 9, 0), calendar: cal) == at(2026, 10, 5, 10, 30))
+check("missed runs aren't made up: the next one is ahead", every.nextRun(after: at(2026, 10, 5, 14, 0), lastRun: at(2026, 10, 5, 9, 0), calendar: cal) == at(2026, 10, 5, 15, 0))
+var opens = MacroSchedule(); opens.kind = .appOpens
+check("when the app opens: no clock time", opens.nextRun(after: Date(), lastRun: nil) == nil && opens.summary(appName: "Mail") == "When Mail opens")
+check("summaries read plainly", every.summary(appName: nil) == "Every 90 min" && { var e = every; e.everyMinutes = 120; return e.summary(appName: nil) == "Every 2 h" }())
+var sm = Macro(name: "s", steps: []); sm.schedule = daily
+let sm2 = try! JSONDecoder().decode(Macro.self, from: JSONEncoder().encode(sm))
+check("a schedule saves and loads with its macro", sm2.schedule == daily)
+check("older macros have no schedule", (try? JSONDecoder().decode(Macro.self, from: JSONEncoder().encode(Macro(name: "o", steps: []))))?.schedule == nil)
+
 print(failures == 0 ? "ALL PASSED" : "\(failures) FAILED")
 exit(failures == 0 ? 0 : 1)
