@@ -10,7 +10,7 @@ final class ClickReader: @unchecked Sendable {
     /// What was under one click.
     struct Label: Equatable {
         var text: String?
-        /// A small picture of the spot (PNG) and its size in points, when there were no words to read.
+        /// A small picture of the spot (PNG) and its size in points (with words too, the step finds either).
         var picture: Data?
         var size: CGSize = .zero
         /// Where to look: around the click (always for pictures; for words, when the word appears more than once).
@@ -51,9 +51,7 @@ final class ClickReader: @unchecked Sendable {
             } else { return }
             var press = Press(app: app, origin: win.frame.origin, label: nil)
             if let frame = FrameSource.shared.frame(for: win, after: 0, timeout: target == nil ? 0.3 : 0.05) {
-                press.label = Self.label(in: TextFinder.read(frame.pixels), at: local,
-                                         window: CGSize(width: frame.pixels.width, height: frame.pixels.height))
-                    ?? Self.picture(in: frame.pixels, at: local)
+                press.label = Self.both(in: frame.pixels, at: local)
             }
             lock.withLock { presses[id] = press }
         }
@@ -87,6 +85,16 @@ final class ClickReader: @unchecked Sendable {
         let labels = all.compactMapValues(\.label)
         let converted = Self.convert(steps, labels: labels)
         return Result(steps: converted.steps, app: app, words: converted.words, pictures: converted.pictures)
+    }
+
+    /// What's under `p`: its words and a picture of it when there are both (found by either when played back),
+    /// otherwise whichever there is.
+    static func both(in px: ScreenReader.WindowPixels, at p: CGPoint) -> Label? {
+        let words = label(in: TextFinder.read(px), at: p, window: CGSize(width: px.width, height: px.height))
+        let pic = picture(in: px, at: p)
+        guard var l = words else { return pic }
+        if let pic { l.picture = pic.picture; l.size = pic.size }
+        return l
     }
 
     /// The short label under `p`, if there is one.
@@ -138,24 +146,31 @@ final class ClickReader: @unchecked Sendable {
             .intersection(CGRect(origin: .zero, size: window)).integral
     }
 
-    /// Replaces single left clicks with “find it, then click” steps: words wait up to 5 s, pictures up to 3 s,
-    /// then the recorded spot is clicked.
+    /// Replaces left clicks with “find it, then click” steps: words wait up to 5 s, pictures up to 3 s, then the
+    /// recorded spot is clicked. Several quick taps on one spot become “keep tapping until it's gone”. The cursor
+    /// travel before a click is dropped (the step clicks wherever its target is), keeping its time as the step's delay.
     static func convert(_ steps: [MacroStep], labels: [UUID: Label]) -> (steps: [MacroStep], words: Int, pictures: Int) {
         guard !labels.isEmpty else { return (steps, 0, 0) }
         var out: [MacroStep] = []
         var words = 0, pictures = 0
         for g in ActionGrouper.groups(for: steps) {
-            guard case .click(.left, 1, let at?, let hold) = g.kind, hold < 0.5,
+            guard case .click(.left, let count, let at?, let hold) = g.kind, hold < 0.5,
                   g.actionIndex < g.range.upperBound,
                   let label = labels[steps[g.actionIndex].id] else {
                 out.append(contentsOf: steps[g.range])
                 continue
             }
-            // Keep the cursor travel before it (its timing), replace the press and release.
-            out.append(contentsOf: steps[g.range.lowerBound..<g.actionIndex])
             var find: ImageStep
             if let text = label.text {
-                find = ImageStep(png: Data(), width: 0, height: 0, originX: 0, originY: 0)
+                if let png = label.picture {
+                    // Both: the picture (quick, exact) or the words.
+                    find = ImageStep(png: png, width: label.size.width, height: label.size.height,
+                                     originX: Double(at.x) - label.size.width / 2, originY: Double(at.y) - label.size.height / 2)
+                    find.strictness = 0.85
+                    find.alsoPicture = true
+                } else {
+                    find = ImageStep(png: Data(), width: 0, height: 0, originX: 0, originY: 0)
+                }
                 find.text = text
                 find.timeout = 5
                 words += 1
@@ -173,7 +188,13 @@ final class ClickReader: @unchecked Sendable {
             find.otherwise = .continueAnyway
             find.fallbackX = Double(at.x)
             find.fallbackY = Double(at.y)
-            out.append(MacroStep(delay: steps[g.actionIndex].delay, action: .findImage(find)))
+            if count > 1 {
+                // Tapped several times: keep tapping until it's gone (a laggy button, or one that takes a few taps).
+                find.repeatUntilGone = true
+                find.repeatEvery = 0.4
+            }
+            let travel = steps[g.range.lowerBound...g.actionIndex].reduce(0) { $0 + $1.delay }
+            out.append(MacroStep(delay: travel, action: .findImage(find)))
         }
         return (out, words, pictures)
     }

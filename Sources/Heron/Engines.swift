@@ -418,7 +418,10 @@ final class Player {
 
         click(found.rect, found.win)
         if s.repeatUntilGone {
+            // Up to the step's time limit (at least 3 s), so something that never goes away doesn't hold up the macro.
+            let stopAt = s.timeout < 0 ? Double.infinity : Timing.now() + max(3, s.timeout)
             for _ in 0..<200 {
+                guard Timing.now() < stopAt else { return .matched }
                 guard pause(max(0.1, s.repeatEvery)) else { return .cancelled }
                 switch look() {
                 case .unreadable: return .unreadable

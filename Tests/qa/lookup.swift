@@ -146,11 +146,11 @@ let clickSteps = [MacroStep(delay: 0.5, action: .move(x: 10, y: 10)),
                   MacroStep(delay: 1.0, action: .mouseDown(button: .left, x: 300, y: 300, clickCount: 1, flags: 0)),
                   MacroStep(delay: 0.08, action: .mouseUp(button: .left, x: 300, y: 300, clickCount: 1, flags: 0))]
 let conv = ClickReader.convert(clickSteps, labels: [clickSteps[1].id: ClickReader.Label(text: "Daily login", area: nil)])
-if conv.steps.count == 4, case .findImage(let f) = conv.steps[1].action {
+if conv.steps.count == 3, case .findImage(let f) = conv.steps[0].action {
     check("a labelled click becomes a text step with the recorded spot as fallback",
           f.text == "Daily login" && f.fallbackX == 80 && f.fallbackY == 52 && f.mode == .click && f.timeout == 5)
-    check("…keeping its timing and the travel before it", conv.steps[1].delay == 0.2 && conv.steps[0].delay == 0.5)
-    check("…and other clicks stay as they were", { if case .mouseDown = conv.steps[2].action { return true }; return false }())
+    check("…the cursor travel before it is dropped, its time kept as the step's delay", abs(conv.steps[0].delay - 0.7) < 1e-9)
+    check("…and other clicks stay as they were", { if case .mouseDown = conv.steps[1].action { return true }; return false }())
 } else {
     check("a labelled click becomes a text step", false, "\(conv.steps.map(\.action))")
 }
@@ -371,6 +371,25 @@ let bigMs = Date().timeIntervalSince(bigT0) * 1000
 check("a big picture is found exactly", bigFound.map { abs($0.rect.minX - 40) <= 1 && abs($0.rect.minY - 40) <= 1 && $0.score > 0.95 } ?? false,
       "\(String(describing: bigFound))")
 check("…in well under a second", bigMs < 300, String(format: "%.0f ms", bigMs))
+
+// Recording: quick repeated taps (as iPhone Mirroring often records them) still become find steps.
+let multi = [MacroStep(delay: 0.3, action: .move(x: 200, y: 670)),
+             MacroStep(delay: 0.03, action: .mouseDown(button: .left, x: 212, y: 680, clickCount: 1, flags: 0)),
+             MacroStep(delay: 0.03, action: .mouseUp(button: .left, x: 212, y: 680, clickCount: 1, flags: 0)),
+             MacroStep(delay: 0.05, action: .mouseDown(button: .left, x: 212, y: 680, clickCount: 2, flags: 0)),
+             MacroStep(delay: 0.03, action: .drag(button: .left, x: 206, y: 684)),
+             MacroStep(delay: 0.03, action: .mouseUp(button: .left, x: 206, y: 685, clickCount: 0, flags: 0))]
+var bothLabel = ClickReader.Label(text: "Start", area: nil)
+bothLabel.picture = claimPic.0; bothLabel.size = CGSize(width: claimPic.1, height: claimPic.2)
+let mconv = ClickReader.convert(multi, labels: [multi[1].id: bothLabel])
+if mconv.steps.count == 1, case .findImage(let f) = mconv.steps[0].action {
+    check("a double tap with a wobble becomes one find step that keeps tapping until it's gone",
+          f.repeatUntilGone && f.fallbackX == 212 && f.fallbackY == 680, "\(f.repeatUntilGone)")
+    check("…looking for both the picture and the words", f.text == "Start" && f.alsoPicture && f.usesPicture)
+    check("…counted once in the summary", mconv.words == 1 && mconv.pictures == 0)
+} else { check("a double tap becomes one find step", false, "\(mconv.steps.map(\.action))") }
+let words = ClickReader.both(in: px, at: CGPoint(x: boxes["Settings"]!.midX, y: boxes["Settings"]!.midY))
+check("a click on a word keeps the word (and a picture when the spot has detail)", words?.text == "Settings")
 
 print(failures == 0 ? "ALL PASSED" : "\(failures) FAILED")
 exit(failures == 0 ? 0 : 1)

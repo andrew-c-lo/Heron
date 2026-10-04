@@ -30,7 +30,14 @@ struct PressSuggestion: Identifiable {
     func step(inOrder: Bool) -> ImageStep {
         var s: ImageStep
         if let text = label.text {
-            s = ImageStep(png: Data(), width: 0, height: 0, originX: 0, originY: 0)
+            if let png = label.picture {
+                s = ImageStep(png: png, width: label.size.width, height: label.size.height,
+                              originX: Double(point.x - label.size.width / 2), originY: Double(point.y - label.size.height / 2))
+                s.strictness = 0.85
+                s.alsoPicture = true
+            } else {
+                s = ImageStep(png: Data(), width: 0, height: 0, originX: 0, originY: 0)
+            }
             s.text = text
         } else {
             s = ImageStep(png: label.picture ?? Data(), width: label.size.width, height: label.size.height,
@@ -149,7 +156,8 @@ final class PressWatcher: @unchecked Sendable {
         }) { return nil }
         let lines = TextFinder.read(px)
         let size = CGSize(width: px.width, height: px.height)
-        if let label = ClickReader.label(in: lines, at: p, window: size) {
+        if var label = ClickReader.label(in: lines, at: p, window: size) {
+            if let pic = ClickReader.picture(in: px, at: p) { label.picture = pic.picture; label.size = pic.size }
             let covered = lookups.contains { l in
                 guard let t = l.text, l.hasText else { return false }
                 return TextFinder.find(t, in: lines, area: l.area)?.insetBy(dx: -8, dy: -8).contains(p) ?? false
