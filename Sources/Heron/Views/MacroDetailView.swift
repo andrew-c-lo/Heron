@@ -309,9 +309,15 @@ struct MacroDetailView: View {
     }
 
     private var killswitchSummary: String {
-        guard let k = macro.playback.stopWhen else { return "" }
-        if let t = k.text, !t.trimmingCharacters(in: .whitespaces).isEmpty { return " · stops at “\(t)”" }
-        return k.png.isEmpty ? "" : " · stops at a picture"
+        let pb = macro.playback
+        var out = ""
+        if pb.stopAfterStep != nil { out += " · stops after \(pb.stopAfterCount)×" }
+        if let k = pb.stopWhen {
+            if let n = pb.stopAtNumber, k.text != nil { out += " · stops at \(n)" }
+            else if let t = k.text, !t.trimmingCharacters(in: .whitespaces).isEmpty { out += " · stops at “\(t)”" }
+            else if !k.png.isEmpty { out += " · stops at a picture" }
+        }
+        return out
     }
 
     private var targetSummary: String {
@@ -393,8 +399,22 @@ struct MacroDetailView: View {
                 }
             }
             if let k = macro.playback.stopWhen {
+                if k.text != nil && !k.usesPicture {
+                    Picker("", selection: Binding(get: { macro.playback.stopAtNumber != nil },
+                                                  set: { macro.playback.stopAtNumber = $0 ? (macro.playback.stopAtNumber ?? 10) : nil })) {
+                        Text("These words").tag(false)
+                        Text("A number reaching").tag(true)
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                }
                 HStack(spacing: 8) {
-                    if k.text != nil {
+                    if k.text != nil && !k.usesPicture, let n = macro.playback.stopAtNumber {
+                        Text("At least").foregroundStyle(.secondary)
+                        TextField("", value: Binding(get: { n }, set: { macro.playback.stopAtNumber = max(0, $0) }), format: .number)
+                            .frame(width: 70)
+                        Text("in the area below").foregroundStyle(.secondary)
+                    } else if k.text != nil {
                         TextField("", text: Binding(get: { macro.playback.stopWhen?.text ?? "" },
                                                     set: { macro.playback.stopWhen?.text = $0 }),
                                   prompt: Text("Finished"))
@@ -420,8 +440,38 @@ struct MacroDetailView: View {
             }
             Text(macro.target.app == nil
                  ? "Choose a target app first; Heron watches its window."
+                 : macro.playback.stopAtNumber != nil
+                 ? "Heron reads the numbers in the area during the whole run and stops once one reaches your number, like a score or a level. Choose a small area around it."
                  : "Heron watches for it during the whole run and stops as soon as it shows up, like a “Finished” message or a final screen. A small area avoids look-alikes elsewhere on screen.")
                 .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            Divider()
+            // After a step has happened a number of times (one per appearance), e.g. 5 runs.
+            let choices = editing.stepChoices()
+            Toggle(isOn: Binding(get: { macro.playback.stopAfterStep != nil },
+                                 set: { macro.playback.stopAfterStep = $0 ? choices.first?.id : nil })) {
+                Text("Stop after a step happens a number of times")
+                Text("Pick the step that happens once per round, like a Start button, to stop after that many rounds. Repeat taps and pop-ups don't count.")
+            }
+            .disabled(choices.isEmpty)
+            if macro.playback.stopAfterStep != nil {
+                HStack {
+                    Picker("", selection: Binding(get: { macro.playback.stopAfterStep }, set: { macro.playback.stopAfterStep = $0 })) {
+                        ForEach(choices, id: \.id) { c in Text(c.title).tag(Optional(c.id)) }
+                    }
+                    .labelsHidden()
+                    TextField("", value: $macro.playback.stopAfterCount, format: .number).frame(width: 50)
+                    Text("times").foregroundStyle(.secondary)
+                }
+            }
+            Divider()
+            Toggle(isOn: Binding(get: { macro.playback.stopIfIdleMinutes > 0 },
+                                 set: { macro.playback.stopIfIdleMinutes = $0 ? 5 : 0 })) {
+                Text("Stop if nothing happens for a while")
+                Text("A safety net for unattended runs: stops and notifies you if no step has happened for this long.")
+            }
+            if macro.playback.stopIfIdleMinutes > 0 {
+                NumberField(title: "For", value: $macro.playback.stopIfIdleMinutes, unit: "min")
+            }
         }
     }
 

@@ -33,6 +33,9 @@ struct PressSuggestionsView: View {
                 Text("Things a step already finds aren't listed. Heron's own clicks are ignored.")
                     .font(.caption).foregroundStyle(.secondary)
                 Spacer()
+                Button("Clear All") { model.clearPressSuggestions(macro: macroID) }
+                    .disabled(items.isEmpty)
+                    .help("Dismiss all of these")
                 Button("Done", action: onDone).keyboardShortcut(.defaultAction)
             }
             .padding(12)

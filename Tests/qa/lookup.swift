@@ -217,9 +217,10 @@ EventSynth.testSink = { e in if e.type == .leftMouseDown { presses.append(Double
 DoubleClickEverywhere.configure(enabled: false)
 ClickSpread.configure(enabled: false, radius: 0)
 let stepA = MacroStep(delay: 0, action: .click(button: .left, x: 11, y: 11, count: 1))
-let loopMacro = Macro(name: "loop", steps: [stepA,
+var loopMacro = Macro(name: "loop", steps: [stepA,
                                             MacroStep(delay: 0, action: .repeatFrom(step: stepA.id, times: 2)),
                                             MacroStep(delay: 0, action: .click(button: .left, x: 22, y: 22, count: 1))])
+loopMacro.target.delivery = .normal // no jump-and-return confirmation waits in tests
 let player = Player()
 var finishedRun = false
 player.play(loopMacro, progress: { _, _, _ in }, finished: { _ in finishedRun = true })
@@ -445,8 +446,10 @@ var spotPresses: [CGPoint] = []
 EventSynth.testSink = { e in if e.type == .leftMouseDown { spotPresses.append(e.location) } }
 let spotPlayer = Player()
 var spotDone = false
-spotPlayer.play(Macro(name: "spot", steps: [MacroStep(delay: 0, action: .findImage(picked)),
-                                            MacroStep(delay: 0, action: .click(button: .left, x: 7, y: 7, count: 1))]),
+var spotMacro = Macro(name: "spot", steps: [MacroStep(delay: 0, action: .findImage(picked)),
+                                            MacroStep(delay: 0, action: .click(button: .left, x: 7, y: 7, count: 1))])
+spotMacro.target.delivery = .normal
+spotPlayer.play(spotMacro,
                 progress: { _, _, _ in }, finished: { _ in spotDone = true })
 let spotDeadline = Date().addingTimeInterval(5)
 while !spotDone && Date() < spotDeadline { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
@@ -559,6 +562,7 @@ func playList(_ l: TypeList, loops: Int) -> (keys: String, next: [Int], end: Str
     }
     var m = Macro(name: "list", steps: [MacroStep(delay: 0, action: .typeList(l))])
     m.playback.repeatMode = .times; m.playback.loops = loops
+    m.target.delivery = .normal
     var nexts: [Int] = [], end: String?, done = false
     let p = Player()
     p.play(m, progress: { _, _, _ in }, listAdvanced: { _, n in nexts.append(n) }, finished: { e in end = e; done = true })
@@ -611,6 +615,43 @@ pf.perform(.mouseUp(button: .left, x: 50, y: 60, clickCount: 1, flags: 0))
 ClickSpread.configure(enabled: false, radius: 0)
 EventSynth.testSink = nil
 check("a spot picked in a box isn't spread a second time", spotDowns.first == CGPoint(x: 50, y: 60), "\(spotDowns)")
+
+// Stop conditions: after a step has happened N times; if nothing happens for a while; when a number is reached.
+func playUntilDone(_ m: Macro, timeout: Double = 6) -> (presses: Int, end: String?) {
+    var m = m
+    m.target.delivery = .normal
+    var presses = 0, end: String?, done = false
+    EventSynth.testSink = { e in if e.type == .leftMouseDown { presses += 1 } }
+    let p = Player()
+    p.play(m, progress: { _, _, _ in }, finished: { e in end = e; done = true })
+    let until = Date().addingTimeInterval(timeout)
+    while !done && Date() < until { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
+    p.stop()
+    EventSynth.testSink = nil
+    return (presses, end)
+}
+let tapStep = MacroStep(delay: 0.05, action: .click(button: .left, x: 5, y: 5, count: 1))
+var counted = Macro(name: "count", steps: [tapStep, MacroStep(delay: 0.05, action: .wait)])
+counted.playback.repeatMode = .untilStopped
+counted.playback.stopAfterStep = tapStep.id; counted.playback.stopAfterCount = 3
+let countRun = playUntilDone(counted)
+check("stops after the chosen step has happened 3 times", countRun.presses == 3 && countRun.end.map(Player.isDone) == true,
+      "\(countRun.presses) presses, \(countRun.end ?? "nil")")
+var idleMacro = Macro(name: "idle", steps: [MacroStep(delay: 5, action: .wait)])
+idleMacro.playback.stopIfIdleMinutes = 0.02   // 1.2 s
+let idleStart = Date()
+let idleRun = playUntilDone(idleMacro)
+check("stops (as a problem) when nothing happens for a while",
+      idleRun.end?.hasPrefix("Stopped: nothing happened") == true && !Player.isDone(idleRun.end ?? "") && Date().timeIntervalSince(idleStart) < 3,
+      idleRun.end ?? "nil")
+let numberLines = [TextFinder.Line(text: "Lv. 31", rect: CGRect(x: 10, y: 10, width: 50, height: 10), words: []),
+                   TextFinder.Line(text: "x1,250", rect: CGRect(x: 10, y: 100, width: 50, height: 10), words: []),
+                   TextFinder.Line(text: "Rank 99", rect: CGRect(x: 300, y: 10, width: 50, height: 10), words: [])]
+check("numbers are read, with thousands separators", Lookup.largestNumber(in: numberLines, area: nil) == 1250)
+check("…only inside the area", Lookup.largestNumber(in: numberLines, area: CGRect(x: 0, y: 0, width: 100, height: 50)) == 31)
+check("…and none when there's no number", Lookup.largestNumber(in: [TextFinder.Line(text: "OK", rect: .zero, words: [])], area: nil) == nil)
+let stopOpts = try! JSONDecoder().decode(PlaybackOptions.self, from: Data("{}".utf8))
+check("older macros have none of these stop conditions", stopOpts.stopAfterStep == nil && stopOpts.stopAtNumber == nil && stopOpts.stopIfIdleMinutes == 0)
 
 print(failures == 0 ? "ALL PASSED" : "\(failures) FAILED")
 exit(failures == 0 ? 0 : 1)

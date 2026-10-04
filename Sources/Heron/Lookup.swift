@@ -111,6 +111,22 @@ struct Lookup {
             .map { TemplateMatcher.Match(rect: $0, score: 1) }
     }
 
+    /// The biggest whole number read inside the search area (“x35”, “1,250” and “Lv. 31” all count).
+    func largestNumber(in px: ScreenReader.WindowPixels) -> Int? {
+        Self.largestNumber(in: TextFinder.read(px), area: scaledArea(for: CGSize(width: px.width, height: px.height)))
+    }
+
+    static func largestNumber(in lines: [TextFinder.Line], area: CGRect?) -> Int? {
+        var best: Int?
+        for l in lines where area.map({ $0.contains(CGPoint(x: l.rect.midX, y: l.rect.midY)) }) ?? true {
+            let digits = l.text.replacingOccurrences(of: ",", with: "")
+            for part in digits.split(whereSeparator: { !$0.isNumber }) {
+                if let n = Int(part), n < 1_000_000_000 { best = max(best ?? n, n) }
+            }
+        }
+        return best
+    }
+
     /// The picture, if it's on screen and meets the strictness.
     func locatePicture(in px: ScreenReader.WindowPixels, scene: TemplateMatcher.Scene? = nil) -> CGRect? {
         guard let m = matchPicture(in: px, scene: scene), m.score >= strictness else { return nil }

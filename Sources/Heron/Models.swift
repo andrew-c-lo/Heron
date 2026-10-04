@@ -536,6 +536,13 @@ struct PlaybackOptions: Codable, Equatable {
     /// Real seconds between loops (not affected by speed).
     /// Killswitch: whenever this picture or these words show up during a run, the macro has done its job and stops.
     var stopWhen: ImageStep?
+    /// With words: instead of matching them, stop when a number read in the killswitch's area is at least this.
+    var stopAtNumber: Int?
+    /// Stop after this step has happened this many times (one count per appearance, not per repeat tap).
+    var stopAfterStep: UUID?
+    var stopAfterCount = 5
+    /// Stop (as a problem) when nothing has happened for this many minutes (0 = never).
+    var stopIfIdleMinutes: Double = 0
     /// Each wait between steps is stretched or shortened at random by up to this share (0.2 = ±20%).
     var varyTiming: Double = 0
     /// Only click something once it has stopped moving (seen in the same place twice in a row).
@@ -582,6 +589,10 @@ extension PlaybackOptions {
         idleTapY = try c.decodeIfPresent(Double.self, forKey: .idleTapY)
         maxClicks = try c.decodeIfPresent(Int.self, forKey: .maxClicks) ?? 0
         stopWhen = try c.decodeIfPresent(ImageStep.self, forKey: .stopWhen)
+        stopAtNumber = try c.decodeIfPresent(Int.self, forKey: .stopAtNumber)
+        stopAfterStep = try c.decodeIfPresent(UUID.self, forKey: .stopAfterStep)
+        stopAfterCount = try c.decodeIfPresent(Int.self, forKey: .stopAfterCount) ?? 5
+        stopIfIdleMinutes = try c.decodeIfPresent(Double.self, forKey: .stopIfIdleMinutes) ?? 0
         varyTiming = try c.decodeIfPresent(Double.self, forKey: .varyTiming) ?? 0
         waitForStill = try c.decodeIfPresent(Bool.self, forKey: .waitForStill) ?? true
     }

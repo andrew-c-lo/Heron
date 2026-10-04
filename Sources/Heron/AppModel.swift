@@ -875,6 +875,10 @@ final class AppModel: ObservableObject {
         }
     }
 
+    func clearPressSuggestions(macro: UUID) {
+        pressSuggestions[macro] = nil
+    }
+
     func dismissPressSuggestion(_ id: UUID, macro: UUID) {
         pressSuggestions[macro]?.removeAll { $0.id == id }
         if pressSuggestions[macro]?.isEmpty == true { pressSuggestions[macro] = nil }

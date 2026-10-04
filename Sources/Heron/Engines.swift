@@ -79,12 +79,27 @@ final class Player {
         // The killswitch watches on its own, for the whole run.
         let watch = CancelToken()
         let tripped = Tripwire()
-        if let kill = opts.stopWhen, let app = target.app, let lookup = Lookup(step: kill, reference: target.windowSize) {
-            let what = kill.isText && !kill.usesPicture ? "“\(kill.text!.trimmingCharacters(in: .whitespaces))”" : "The stop picture"
+        if let kill = opts.stopWhen, let app = target.app, let lookup = Self.killswitchLookup(kill, opts, target) {
+            let what = opts.stopAtNumber.map { "the number reached \($0)" }
+                ?? (kill.isText && !kill.usesPicture ? "“\(kill.text!.trimmingCharacters(in: .whitespaces))” appeared" : "the stop picture appeared")
             Thread.detachNewThread {
-                Self.watchKillswitch(lookup, resolver: TargetResolver(app: app), watch: watch) {
-                    tripped.message = Self.done("\(what) appeared")
+                Self.watchKillswitch(lookup, atLeast: opts.stopAtNumber, resolver: TargetResolver(app: app), watch: watch) {
+                    tripped.message = Self.done(what.prefix(1).uppercased() + what.dropFirst())
                     token.cancel()
+                }
+            }
+        }
+        // Nothing happening for too long: stop, as a problem.
+        let idle = IdleClock()
+        if opts.stopIfIdleMinutes > 0 {
+            let limit = opts.stopIfIdleMinutes * 60, minutes = opts.stopIfIdleMinutes
+            Thread.detachNewThread {
+                while Timing.wait(until: Timing.now() + 1, watch) {
+                    if Timing.now() - idle.last > limit {
+                        tripped.message = "Stopped: nothing happened for \(minutes.formatted()) minute\(minutes == 1 ? "" : "s")."
+                        token.cancel()
+                        return
+                    }
                 }
             }
         }
@@ -103,10 +118,13 @@ final class Player {
 
             // Where each list is up to (carried across loops, and saved back after each item).
             var listNext: [UUID: Int] = [:]
+            // “Stop after it happens N times” counts across loops; a step that times out doesn't count.
+            var timesSoFar = 0
+            var stepMissed = false
 
             if opts.order == .allAtOnce {
                 error = Self.runAllAtOnce(steps, opts: opts, target: target, resolver: resolver, performer: performer,
-                                          pauseable: pauseable, token: token, progress: progress, waiting: waiting,
+                                          pauseable: pauseable, token: token, idle: idle, progress: progress, waiting: waiting,
                                           clicked: clicked, stuck: stuck)
             } else {
                 outer: while true {
@@ -128,11 +146,13 @@ final class Player {
                     var skipUntil = -1
                     // Steps go by index so “Go to step” and “Repeat from” can jump; counters restart each loop.
                     var repeatsLeft: [UUID: Int] = [:]
+                    var timesHappened = timesSoFar
                     var i = 0
                     while i < steps.count {
                         let step = steps[i]
                         var next = i + 1
                         defer { i = next }
+                        stepMissed = false
                         if i < skipUntil { continue }
                         t += opts.varied(delays[i]) / speed
                         guard Timing.wait(until: t, token) else { break outer }
@@ -189,6 +209,7 @@ final class Player {
                                     break outer
                                 case .timedOut:
                                     t = Timing.now()
+                                    stepMissed = true
                                     continue
                                 }
                             }
@@ -199,6 +220,7 @@ final class Player {
                                 break outer
                             case .matched: break
                             case .timedOut:
+                                stepMissed = true
                                 switch pic.otherwise {
                                 case .continueAnyway: break
                                 case .skipNext: skipUntil = nextActionEnd[i]
@@ -273,6 +295,20 @@ final class Player {
                             t += performer.perform(Self.scaled(step.action, target.scale(for: resolver?.window()?.frame.size)))
                         }
 
+                        // Counted toward “stop after it happens N times” (a step that timed out didn't happen).
+                        if !stepMissed {
+                            idle.touch()
+                            if step.id == opts.stopAfterStep {
+                                timesHappened += 1
+                                timesSoFar = timesHappened
+                                if timesHappened >= opts.stopAfterCount {
+                                    error = Self.done("\(Self.stepName(step, i)) happened \(opts.stopAfterCount) time\(opts.stopAfterCount == 1 ? "" : "s")")
+                                    break outer
+                                }
+                            }
+                        }
+                        stepMissed = false
+
                         let now = Timing.now()
                         if now - lastReport > 0.05 || i == steps.count - 1 {
                             lastReport = now
@@ -297,6 +333,14 @@ final class Player {
     func stop() {
         token?.cancel()
         token = nil
+    }
+
+    /// How a step is named in messages: its words, or its number.
+    static func stepName(_ step: MacroStep, _ index: Int) -> String {
+        if case .findImage(let p) = step.action, p.isText, !p.usesPicture, let t = p.text {
+            return "“\(t.trimmingCharacters(in: .whitespaces))”"
+        }
+        return "Step \(index + 1)"
     }
 
     /// The same spot, give or take a few points (a match that isn't moving).
@@ -324,7 +368,24 @@ final class Player {
     }
 
     /// Looks for the killswitch a few times a second (words about twice a second) until it shows up or the run ends.
-    static func watchKillswitch(_ lookup: Lookup, resolver: TargetResolver, watch: CancelToken, found: () -> Void) {
+    /// The killswitch as a lookup: its picture and words, or (for “a number reaches”) just its area.
+    static func killswitchLookup(_ kill: ImageStep, _ opts: PlaybackOptions, _ target: TargetOptions) -> Lookup? {
+        guard opts.stopAtNumber != nil else { return Lookup(step: kill, reference: target.windowSize) }
+        var l = Lookup(png: nil, width: 0, height: 0, text: "0", area: kill.area, strictness: kill.strictness)
+        l?.reference = kill.captureWindow ?? target.windowSize
+        return l
+    }
+
+    /// Something happened (a step ran or clicked): resets the “nothing happened for a while” timer.
+    final class IdleClock: @unchecked Sendable {
+        private let lock = NSLock()
+        private var at = Timing.now()
+        var last: Double { lock.withLock { at } }
+        func touch() { lock.withLock { at = Timing.now() } }
+    }
+
+    static func watchKillswitch(_ lookup: Lookup, atLeast: Int? = nil, resolver: TargetResolver, watch: CancelToken,
+                                found: () -> Void) {
         var lastText = -Double.infinity
         var frameNumber = 0
         while !watch.isCancelled {
@@ -335,7 +396,9 @@ final class Player {
             if frame.number == frameNumber && !readText { continue }
             frameNumber = frame.number
             if readText { lastText = Timing.now() }
-            if lookup.locate(in: frame.pixels, readText: readText) != nil {
+            if let n = atLeast {
+                if readText, let v = lookup.largestNumber(in: frame.pixels), v >= n { found(); return }
+            } else if lookup.locate(in: frame.pixels, readText: readText) != nil {
                 found()
                 return
             }
@@ -361,7 +424,7 @@ final class Player {
     /// Runs until stopped (or for the set duration).
     static func runAllAtOnce(_ steps: [MacroStep], opts: PlaybackOptions, target: TargetOptions, resolver: TargetResolver?,
                              performer: Performer,
-                             pauseable: Bool, token: CancelToken,
+                             pauseable: Bool, token: CancelToken, idle: IdleClock = IdleClock(),
                              progress: @escaping @MainActor (Int, Int, Double?) -> Void,
                              waiting: @escaping @MainActor (String?) -> Void,
                              clicked: @escaping @MainActor (UUID, CGRect?) -> Void = { _, _ in },
@@ -380,7 +443,7 @@ final class Player {
         }
         // The killswitch too, checked on every frame before anything is clicked (so it wins over a step that would
         // click on the same screen).
-        if let k = opts.stopWhen, let l = Lookup(step: k, reference: target.windowSize) { stops.insert(Item(index: -1, step: k, lookup: l), at: 0) }
+        if let k = opts.stopWhen, let l = killswitchLookup(k, opts, target) { stops.insert(Item(index: -1, step: k, lookup: l), at: 0) }
         guard !items.isEmpty else { return "“All at once” needs at least one picture step set to click." }
         let hasText = items.contains { $0.lookup.hasText } || stops.contains { $0.lookup.hasText }
         var lines: [TextFinder.Line] = []
@@ -400,6 +463,7 @@ final class Player {
         var frameNumber = 0
         var found: [Int: CGRect] = [:]
         var still: Set<Int> = []
+        var timesHappened = 0
         var clicks = 0
         while !token.isCancelled {
             if opts.repeatMode == .duration, Timing.now() - began >= opts.repeatDuration { break }
@@ -426,6 +490,12 @@ final class Player {
                 let readText = hasText && tick - lastTextRead >= 0.2
                 if readText { lines = TextFinder.read(frame.pixels); lastTextRead = tick }
                 for it in stops {
+                    if it.index < 0, let n = opts.stopAtNumber {
+                        if let v = Lookup.largestNumber(in: lines, area: it.lookup.scaledArea(for: size)), v >= n {
+                            return Self.done("The number reached \(n)")
+                        }
+                        continue
+                    }
                     var seen = it.lookup.hasPicture && it.lookup.locatePicture(in: frame.pixels, scene: scene) != nil
                     if !seen, let text = it.lookup.text, !text.isEmpty {
                         seen = TextFinder.find(text, in: lines, area: it.lookup.scaledArea(for: size)) != nil
@@ -469,7 +539,15 @@ final class Player {
                 performer.perform(.mouseUp(button: s.button, x: x, y: y, clickCount: 1, flags: 0))
                 performer.spreadBounds = nil
                 performer.spreadPicked = false
+                let firstThisTime = chooser.isFirstClick(index)
                 chooser.clicked(index, at: Timing.now())
+                idle.touch()
+                if firstThisTime, steps[index].id == opts.stopAfterStep {
+                    timesHappened += 1
+                    if timesHappened >= opts.stopAfterCount {
+                        return Self.done("\(Self.stepName(steps[index], index)) happened \(opts.stopAfterCount) time\(opts.stopAfterCount == 1 ? "" : "s")")
+                    }
+                }
                 clicks += 1
                 lastAction = Timing.now()
                 let id = steps[index].id
@@ -797,6 +875,9 @@ struct AllAtOnceChooser {
         if prioritized { return ready.min() }
         return ready.min { (lastClick[$0] ?? -1, $0) < (lastClick[$1] ?? -1, $1) }
     }
+
+    /// Whether the next click is the first since it appeared (repeat taps on the same appearance aren't).
+    func isFirstClick(_ index: Int) -> Bool { !clickedThisAppearance.contains(index) }
 
     mutating func clicked(_ index: Int, at time: Double) {
         lastClick[index] = time
