@@ -14,17 +14,19 @@ final class WatcherUIState: ObservableObject {
 /// "Look for: Picture | Text". Text mode is `text != nil`, so an empty box stays in text mode.
 struct LookForPicker: View {
     @Binding var text: String?
-    /// Offers “Both” (picture or words, whichever is found) when given.
-    var alsoPicture: Binding<Bool>? = nil
+    /// Offers “Both” (picture or words, whichever is found) when given. The two values are set together
+    /// (separate writes through a step binding would undo each other).
+    var alsoPicture: Bool? = nil
+    var setBoth: ((String?, Bool) -> Void)? = nil
 
     private enum Choice { case picture, text, both }
 
     var body: some View {
         Picker("Look for", selection: Binding<Choice>(
-            get: { text == nil ? .picture : (alsoPicture?.wrappedValue == true ? .both : .text) },
+            get: { text == nil ? .picture : (alsoPicture == true ? .both : .text) },
             set: { c in
-                text = c == .picture ? nil : (text ?? "")
-                alsoPicture?.wrappedValue = c == .both
+                let t = c == .picture ? nil : (text ?? "")
+                if let setBoth { setBoth(t, c == .both) } else { text = t }
             })) {
             Text("Picture").tag(Choice.picture)
             Text("Text").tag(Choice.text)

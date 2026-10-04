@@ -51,7 +51,12 @@ struct PictureStepEditor: View {
     private var form: some View {
         Form {
             Section("Look for") {
-                LookForPicker(text: step.text, alsoPicture: step.alsoPicture)
+                LookForPicker(text: step.text, alsoPicture: s.alsoPicture) { t, both in
+                    var v = step.wrappedValue
+                    v.text = t
+                    v.alsoPicture = both
+                    step.wrappedValue = v
+                }
                 if s.text != nil && s.alsoPicture {
                     Text("Found when either the picture or the words show up. The picture is checked first, since it's quicker.")
                         .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
