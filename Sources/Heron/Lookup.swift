@@ -63,12 +63,11 @@ struct Lookup {
         return m.map { TemplateMatcher.Match(rect: $0.rect.offsetBy(dx: offset.x, dy: offset.y), score: $0.score) }
     }
 
-    /// The words, if they're on screen (window coordinates).
+    /// The words, if they're on screen (window coordinates). The whole window is read and only words inside the
+    /// search area count: text recognition misreads tight crops (a big “31” came back as “LE”).
     func matchText(in px: ScreenReader.WindowPixels) -> TemplateMatcher.Match? {
         guard let text, !text.isEmpty else { return nil }
-        let (pixels, offset) = searchPixels(px)
-        return TextFinder.find(text, in: pixels)
-            .map { TemplateMatcher.Match(rect: $0.rect.offsetBy(dx: offset.x, dy: offset.y), score: $0.score) }
+        return TextFinder.find(text, in: TextFinder.read(px), area: area).map { TemplateMatcher.Match(rect: $0, score: 1) }
     }
 
     /// The picture, if it's on screen and meets the strictness.

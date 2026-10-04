@@ -279,6 +279,11 @@ struct MacroDetailView: View {
                         TextField("", text: Binding(get: { macro.playback.stopWhen?.text ?? "" },
                                                     set: { macro.playback.stopWhen?.text = $0 }),
                                   prompt: Text("Lv 30"))
+                        if k.usesPicture {
+                            Text("or").foregroundStyle(.secondary)
+                            PictureThumbnail(png: k.png, maxWidth: 80, maxHeight: 30)
+                                .help("Stops when either the words or this picture show up")
+                        }
                     } else {
                         PictureThumbnail(png: k.png, maxWidth: 140, maxHeight: 40)
                         Spacer()

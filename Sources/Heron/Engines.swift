@@ -316,10 +316,13 @@ final class Player {
             return Item(index: i, step: p, lookup: l)
         }
         // Stop conditions: the chain ends as soon as one of these shows up.
-        let stops: [Item] = steps.enumerated().compactMap { i, s in
+        var stops: [Item] = steps.enumerated().compactMap { i, s in
             guard case .findImage(let p) = s.action, p.mode == .stop, let l = Lookup(step: p) else { return nil }
             return Item(index: i, step: p, lookup: l)
         }
+        // The killswitch too, checked on every frame before anything is clicked (so it wins over a step that would
+        // click on the same screen).
+        if let k = opts.stopWhen, let l = Lookup(step: k) { stops.insert(Item(index: -1, step: k, lookup: l), at: 0) }
         guard !items.isEmpty else { return "“All at once” needs at least one picture step set to click." }
         let hasText = items.contains { $0.lookup.hasText } || stops.contains { $0.lookup.hasText }
         var lines: [TextFinder.Line] = []
@@ -367,7 +370,9 @@ final class Player {
                         seen = TextFinder.find(text, in: lines, area: it.step.area) != nil
                     }
                     if seen {
-                        let what = it.step.isText && !it.step.usesPicture ? "“\(it.step.text!.trimmingCharacters(in: .whitespaces))”" : "Step \(it.index + 1)'s picture"
+                        let words = it.step.isText ? "“\(it.step.text!.trimmingCharacters(in: .whitespaces))”" : nil
+                        let what = it.index < 0 ? (words ?? "The stop picture")
+                            : it.step.usesPicture ? "Step \(it.index + 1)'s picture" : words ?? "Step \(it.index + 1)"
                         return Self.done("\(what) appeared")
                     }
                 }
