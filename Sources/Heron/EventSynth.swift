@@ -305,7 +305,7 @@ final class Performer {
         case .flags(let code, let f):
             EventSynth.flagsChanged(code, flags: f, route: route)
             touchedModifiers = true
-        case .wait, .waitForColor, .findImage: // control flow, handled by the player
+        case .wait, .waitForColor, .findImage, .repeatFrom: // control flow, handled by the player
             break
         }
 

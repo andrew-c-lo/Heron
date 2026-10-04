@@ -25,7 +25,7 @@ struct Hotkey: Codable, Equatable {
 }
 
 enum HotkeyAction: String, Codable, CaseIterable, Identifiable {
-    case toggleAutoClick, toggleRecording, togglePlayback, stopAll, capturePoint, toggleWatchers
+    case toggleAutoClick, toggleRecording, togglePlayback, stopAll, capturePoint, toggleWatchers, toggleDoubleClick
 
     var id: String { rawValue }
 
@@ -37,6 +37,7 @@ enum HotkeyAction: String, Codable, CaseIterable, Identifiable {
         case .stopAll: "Stop everything (panic)"
         case .capturePoint: "Add a spot at the pointer"
         case .toggleWatchers: "Start / stop background macros"
+        case .toggleDoubleClick: "Turn Double-click everywhere on / off"
         }
     }
 
@@ -49,6 +50,7 @@ enum HotkeyAction: String, Codable, CaseIterable, Identifiable {
         case .stopAll: return Hotkey(keyCode: UInt32(kVK_ANSI_X), modifiers: ctrlOpt)
         case .capturePoint: return Hotkey(keyCode: UInt32(kVK_ANSI_A), modifiers: ctrlOpt)
         case .toggleWatchers: return Hotkey(keyCode: UInt32(kVK_ANSI_W), modifiers: ctrlOpt)
+        case .toggleDoubleClick: return Hotkey(keyCode: UInt32(kVK_ANSI_D), modifiers: ctrlOpt)
         }
     }
 

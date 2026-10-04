@@ -95,7 +95,13 @@ final class Player {
                     }
                     var t = Timing.now()
                     var skipUntil = -1
-                    for (i, step) in steps.enumerated() {
+                    // Steps go by index so “Go to step” and “Repeat from” can jump; counters restart each loop.
+                    var repeatsLeft: [UUID: Int] = [:]
+                    var i = 0
+                    while i < steps.count {
+                        let step = steps[i]
+                        var next = i + 1
+                        defer { i = next }
                         if i < skipUntil { continue }
                         t += delays[i] / speed
                         guard Timing.wait(until: t, token) else { break outer }
@@ -137,6 +143,8 @@ final class Player {
                                 case .continueAnyway: break
                                 case .skipNext: skipUntil = nextActionEnd[i]
                                 case .nextLoop: t = Timing.now(); loop += 1; continue outer
+                                case .goToStep:
+                                    if let target = pic.goToStep, let j = steps.firstIndex(where: { $0.id == target }) { next = j }
                                 case .stopMacro:
                                     error = "Stopped: step \(i + 1)'s \(pic.text != nil ? "text" : "picture") didn't \(pic.mode == .gone ? "go away" : "appear") in time."
                                     break outer
@@ -160,12 +168,21 @@ final class Player {
                                 case .continueAnyway: break
                                 case .skipNext: skipUntil = nextActionEnd[i]
                                 case .nextLoop: t = Timing.now(); loop += 1; continue outer
+                                case .goToStep: break // picture and text steps only
                                 case .stopMacro:
                                     error = "Stopped: \(hex) didn't appear at (\(Int(x)), \(Int(y)))."
                                     break outer
                                 }
                             }
                             t = Timing.now() // waiting shifts the rest of the schedule
+                        } else if case .repeatFrom(let target, let times) = step.action {
+                            let left = repeatsLeft[step.id] ?? times
+                            if left > 0, let j = steps.firstIndex(where: { $0.id == target }), j < i {
+                                repeatsLeft[step.id] = left - 1
+                                next = j
+                            } else {
+                                repeatsLeft[step.id] = nil // ready for next time it's reached
+                            }
                         } else {
                             t += performer.perform(step.action)
                         }

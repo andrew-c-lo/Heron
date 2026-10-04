@@ -210,5 +210,22 @@ if case .findImage(let f) = picConv.steps.last?.action {
           f.text == nil && !f.png.isEmpty && f.fallbackX == 300 && f.timeout == 3 && picConv.pictures == 1)
 } else { check("an icon click becomes a picture step", false) }
 
+// Counters: “Repeat from” plays the steps again, then carries on.
+var presses: [Double] = []
+EventSynth.testSink = { e in if e.type == .leftMouseDown { presses.append(Double(e.location.x)) } }
+DoubleClickEverywhere.configure(enabled: false)
+ClickSpread.configure(enabled: false, radius: 0)
+let stepA = MacroStep(delay: 0, action: .click(button: .left, x: 11, y: 11, count: 1))
+let loopMacro = Macro(name: "loop", steps: [stepA,
+                                            MacroStep(delay: 0, action: .repeatFrom(step: stepA.id, times: 2)),
+                                            MacroStep(delay: 0, action: .click(button: .left, x: 22, y: 22, count: 1))])
+let player = Player()
+var finishedRun = false
+player.play(loopMacro, progress: { _, _, _ in }, finished: { _ in finishedRun = true })
+let deadline = Date().addingTimeInterval(5)
+while !finishedRun && Date() < deadline { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
+check("repeat from: the step runs 3 times, then the next one once", presses == [11, 11, 11, 22], "\(presses)")
+EventSynth.testSink = nil
+
 print(failures == 0 ? "ALL PASSED" : "\(failures) FAILED")
 exit(failures == 0 ? 0 : 1)

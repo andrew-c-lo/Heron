@@ -109,6 +109,20 @@ struct ActionEditing {
         )
     }
 
+    /// Changes a “Repeat from” step.
+    func setRepeat(_ g: ActionGroup, target: UUID, times: Int) {
+        guard g.actionIndex < steps.count else { return }
+        macro.wrappedValue.steps[g.actionIndex].action = .repeatFrom(step: target, times: times)
+    }
+
+    /// The step id an action starts at, for choosing jump targets.
+    func stepChoices(before g: ActionGroup? = nil) -> [(id: UUID, title: String)] {
+        groups.enumerated().compactMap { i, e in
+            guard let id = actionStepID(e), g.map({ e.range.upperBound <= $0.range.lowerBound }) ?? true else { return nil }
+            return (id, "\(i + 1). \(e.title(touch: isTouch))")
+        }
+    }
+
     /// Switching an action off switches off all of its raw steps (and its wait), so playback skips it whole.
     func enabledBinding(_ g: ActionGroup) -> Binding<Bool> {
         Binding(
@@ -433,7 +447,7 @@ struct ColorWaitControls: View {
                     .help("Seconds to keep checking. 0 = check once.")
                 Text("s").foregroundStyle(.secondary)
                 Picker("", selection: wait.otherwise) {
-                    ForEach(ColorFallback.allCases) { Text("else " + $0.shortLabel).tag($0) }
+                    ForEach(ColorFallback.allCases.filter { $0 != .goToStep }) { Text("else " + $0.shortLabel).tag($0) }
                 }
                 .labelsHidden()
                 .fixedSize()

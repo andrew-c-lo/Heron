@@ -64,6 +64,8 @@ enum StepAction: Codable, Equatable {
                       immediate: Bool? = nil)
     /// Picture step: look for a picture in the target window, then click it / wait for it / wait for it to go.
     case findImage(ImageStep)
+    /// Counter: go back to an earlier step, `times` times, then carry on.
+    case repeatFrom(step: UUID, times: Int)
 
     var isMouseMove: Bool {
         if case .move = self { return true }
@@ -135,6 +137,7 @@ enum StepAction: Codable, Equatable {
         case .wait: "clock"
         case .waitForColor: "eyedropper"
         case .findImage(let s): s.mode.icon
+        case .repeatFrom: "arrow.uturn.backward"
         }
     }
 
@@ -165,6 +168,8 @@ enum StepAction: Codable, Equatable {
             return "Wait"
         case .findImage(let s):
             return s.mode.label
+        case .repeatFrom(_, let n):
+            return "Repeat from an earlier step, \(n)×"
         case .waitForColor(_, _, let hex, _, let timeout, _, _):
             return "Wait for \(hex)" + (timeout < 0 ? " (until it appears)" : timeout > 0 ? " (up to \(timeout.formatted())s)" : "")
         }
@@ -190,6 +195,8 @@ extension StepAction {
 
 enum ColorFallback: String, Codable, CaseIterable, Identifiable {
     case skipNext, nextLoop, stopMacro, continueAnyway
+    /// Picture and text steps only: jump to another step (`ImageStep.goToStep`).
+    case goToStep
     var id: String { rawValue }
     var label: String {
         switch self {
@@ -197,6 +204,7 @@ enum ColorFallback: String, Codable, CaseIterable, Identifiable {
         case .nextLoop: "Start the next loop"
         case .stopMacro: "Stop the macro"
         case .continueAnyway: "Continue anyway"
+        case .goToStep: "Go to another step"
         }
     }
     var shortLabel: String {
@@ -205,6 +213,7 @@ enum ColorFallback: String, Codable, CaseIterable, Identifiable {
         case .nextLoop: "next loop"
         case .stopMacro: "stop"
         case .continueAnyway: "continue"
+        case .goToStep: "go to step"
         }
     }
 }
@@ -287,6 +296,8 @@ struct ImageStep: Codable, Equatable {
     /// Smart recording: if it isn't found in time, click here instead (window points), where it was recorded.
     var fallbackX: Double?
     var fallbackY: Double?
+    /// With `otherwise == .goToStep`: the step to continue from (branching).
+    var goToStep: UUID?
     /// Look for this text instead of the picture (nil = picture).
     var text: String?
     /// Only search inside this part of the window (window points; nil = whole window).
@@ -329,6 +340,7 @@ extension ImageStep {
         repeatEvery = try c.decodeIfPresent(Double.self, forKey: .repeatEvery) ?? 0.5
         fallbackX = try c.decodeIfPresent(Double.self, forKey: .fallbackX)
         fallbackY = try c.decodeIfPresent(Double.self, forKey: .fallbackY)
+        goToStep = try c.decodeIfPresent(UUID.self, forKey: .goToStep)
         text = try c.decodeIfPresent(String.self, forKey: .text)
         area = try c.decodeIfPresent(CGRect.self, forKey: .area)
     }
@@ -448,6 +460,8 @@ struct Macro: Codable, Identifiable, Equatable {
     /// Runs on its own, alongside whatever else is playing, with its own on/off switch
     /// (what used to be a "watcher").
     var runsInBackground = false
+    /// Folder in the macro list (nil = not in a folder).
+    var folder: String?
 
     var duration: Double { steps.reduce(0) { $0 + $1.delay } }
 }

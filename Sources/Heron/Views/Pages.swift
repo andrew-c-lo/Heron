@@ -40,36 +40,11 @@ private struct MacroList: View {
 
     var body: some View {
         List(selection: $model.sidebar) {
-            ForEach(model.macros) { m in
-                HStack(spacing: 8) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(m.name).lineLimit(1)
-                        Text(subtitle(m)).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                    }
-                    Spacer(minLength: 4)
-                    if m.runsInBackground {
-                        let on = model.isRunningInBackground(m.id)
-                        Toggle("", isOn: Binding(get: { on }, set: { if $0 != on { model.toggleBackground(m.id) } }))
-                            .toggleStyle(.switch)
-                            .controlSize(.mini)
-                            .labelsHidden()
-                            .help(on ? "Running in the background. Switch off to stop." : "Start running in the background")
-                    } else if model.playingMacroID == m.id {
-                        Circle().fill(.green).frame(width: 8, height: 8).help("Playing")
-                    }
-                }
-                .padding(.vertical, 3)
-                .tag(SidebarItem.macro(m.id))
-                .contextMenu {
-                    if m.runsInBackground {
-                        Button(model.isRunningInBackground(m.id) ? "Stop" : "Start") { model.toggleBackground(m.id) }
-                    } else {
-                        Button("Play") { model.play(m) }
-                    }
-                    Button("Duplicate") { model.duplicate(m) }
-                    Button("Export…") { model.export(m) }
-                    Divider()
-                    Button("Delete", role: .destructive) { model.delete(m) }
+            ForEach(model.macros.filter { $0.folder == nil }) { m in row(m) }
+            // Folders: collapsible sections (hover a header to fold it).
+            ForEach(model.folders, id: \.self) { folder in
+                Section(folder) {
+                    ForEach(model.macros.filter { $0.folder == folder }) { m in row(m) }
                 }
             }
         }
@@ -100,6 +75,65 @@ private struct MacroList: View {
             .buttonStyle(.borderless)
             .help(help)
             .accessibilityLabel(help)
+    }
+
+    private func row(_ m: Macro) -> some View {
+        HStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(m.name).lineLimit(1)
+                Text(subtitle(m)).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            }
+            Spacer(minLength: 4)
+            if m.runsInBackground {
+                let on = model.isRunningInBackground(m.id)
+                Toggle("", isOn: Binding(get: { on }, set: { if $0 != on { model.toggleBackground(m.id) } }))
+                    .toggleStyle(.switch)
+                    .controlSize(.mini)
+                    .labelsHidden()
+                    .help(on ? "Running in the background. Switch off to stop." : "Start running in the background")
+            } else if model.playingMacroID == m.id {
+                Circle().fill(.green).frame(width: 8, height: 8).help("Playing")
+            }
+        }
+        .padding(.vertical, 3)
+        .tag(SidebarItem.macro(m.id))
+        .contextMenu {
+            if m.runsInBackground {
+                Button(model.isRunningInBackground(m.id) ? "Stop" : "Start") { model.toggleBackground(m.id) }
+            } else {
+                Button("Play") { model.play(m) }
+            }
+            Menu("Move to Folder") {
+                ForEach(model.folders.filter { $0 != m.folder }, id: \.self) { f in
+                    Button(f) { model.setFolder(f, for: m.id) }
+                }
+                if !model.folders.isEmpty { Divider() }
+                Button("New Folder…") { if let name = askFolderName() { model.setFolder(name, for: m.id) } }
+                if m.folder != nil {
+                    Divider()
+                    Button("Remove from Folder") { model.setFolder(nil, for: m.id) }
+                }
+            }
+            Button("Duplicate") { model.duplicate(m) }
+            Button("Export…") { model.export(m) }
+            Divider()
+            Button("Delete", role: .destructive) { model.delete(m) }
+        }
+    }
+
+    private func askFolderName() -> String? {
+        let alert = NSAlert()
+        alert.messageText = "New Folder"
+        alert.informativeText = "Name the folder for this macro."
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
+        field.placeholderString = "Daily"
+        alert.accessoryView = field
+        alert.addButton(withTitle: "Create")
+        alert.addButton(withTitle: "Cancel")
+        alert.window.initialFirstResponder = field
+        guard alert.runModal() == .alertFirstButtonReturn else { return nil }
+        let name = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        return name.isEmpty ? nil : name
     }
 
     private func subtitle(_ m: Macro) -> String {

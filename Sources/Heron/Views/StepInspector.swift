@@ -72,7 +72,8 @@ struct StepInspector: View {
                     .background(RoundedRectangle(cornerRadius: 8).fill(Color.accentColor.opacity(0.1)))
                     .padding(.horizontal, 10).padding(.top, 8)
                 }
-                PictureStepEditor(step: binding, app: app, touch: touch, allAtOnce: allAtOnce)
+                PictureStepEditor(step: binding, app: app, touch: touch, allAtOnce: allAtOnce,
+                                  stepChoices: editing.stepChoices().filter { $0.id != id })
             } else {
                 Form {
                     Section { specific(g) }
@@ -127,6 +128,19 @@ struct StepInspector: View {
             LabeledContent("Amount", value: "\(Int(dy)) up, \(Int(dx)) left")
         case .move(let to):
             LabeledContent("To", value: "\(Int(to.x)), \(Int(to.y))")
+        case .repeatFrom(let target, let times):
+            let earlier = editing.groups.enumerated().filter { $0.element.range.upperBound <= g.range.lowerBound }
+            Picker("Go back to", selection: Binding(get: { target }, set: { editing.setRepeat(g, target: $0, times: times) })) {
+                ForEach(earlier, id: \.element.id) { i, e in
+                    Text("\(i + 1). \(e.title(touch: editing.isTouch))").tag(editing.actionStepID(e) ?? e.id)
+                }
+            }
+            LabeledContent("Times") {
+                Stepper("\(times)", value: Binding(get: { times }, set: { editing.setRepeat(g, target: target, times: max(1, $0)) }),
+                        in: 1...10_000)
+            }
+            Text("Runs the steps from there to here again, then carries on with the next step.")
+                .font(.caption).foregroundStyle(.secondary)
         case .image, .other:
             Text(g.detail ?? "").foregroundStyle(.secondary)
         }

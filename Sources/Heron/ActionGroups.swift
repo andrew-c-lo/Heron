@@ -11,6 +11,7 @@ struct ActionGroup: Identifiable {
         case wait
         case colorWait(at: CGPoint, ColorWait)
         case image(ImageStep)
+        case repeatFrom(target: UUID, times: Int)
         case move(to: CGPoint)
         case other(String, icon: String)
     }
@@ -71,6 +72,7 @@ struct ActionGroup: Identifiable {
             case .appear, .gone: return s.mode.label
             }
         case .move: return "Move the mouse"
+        case .repeatFrom(_, let n): return "Repeat from an earlier step, \(n)×"
         case .other(let s, _): return s
         }
     }
@@ -107,6 +109,7 @@ struct ActionGroup: Identifiable {
         case .wait: return "clock"
         case .colorWait: return "eyedropper"
         case .image(let s): return s.isText && s.mode == .click ? "text.viewfinder" : s.mode.icon
+        case .repeatFrom: return "arrow.uturn.backward"
         case .move: return "arrow.up.and.down.and.arrow.left.and.right"
         case .other(_, let icon): return icon
         }
@@ -199,6 +202,8 @@ enum ActionGrouper {
                 kind = .colorWait(at: CGPoint(x: x, y: y), steps[first].action.colorWait!)
             case .findImage(let s):
                 kind = .image(s)
+            case .repeatFrom(let target, let times):
+                kind = .repeatFrom(target: target, times: times)
             case .mouseUp(let b, _, _, _, _):
                 kind = .other("Release the \(b.label.lowercased()) button", icon: "arrow.up.circle")
             case .drag(let b, _, _):

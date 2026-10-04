@@ -131,7 +131,7 @@ extension ActionGroup {
         case .colorWait(_, let c): return Color(nsColor: RGB(hex: c.hex)?.nsColor ?? .gray)
         case .image: return .pink
         case .move: return .secondary
-        case .other: return .brown
+        case .other, .repeatFrom: return .brown
         }
     }
 }

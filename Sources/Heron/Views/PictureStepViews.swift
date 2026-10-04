@@ -16,6 +16,8 @@ struct PictureStepEditor: View {
     let app: TargetApp?
     let touch: Bool
     var allAtOnce = false
+    /// Steps it can jump to with “Go to another step”.
+    var stepChoices: [(id: UUID, title: String)] = []
     @StateObject private var ui = WatcherUIState()
 
     /// Shown in the macro editor's details panel; the screenshot cropper opens as a sheet.
@@ -129,6 +131,12 @@ struct PictureStepEditor: View {
                     seconds("Give up after", "", step.timeout)
                     Picker("Then", selection: step.otherwise) {
                         ForEach(ColorFallback.allCases) { Text($0.label).tag($0) }
+                    }
+                    if s.otherwise == .goToStep {
+                        Picker("Step", selection: Binding(get: { s.goToStep }, set: { step.wrappedValue.goToStep = $0 })) {
+                            Text("Choose…").tag(UUID?.none)
+                            ForEach(stepChoices, id: \.id) { c in Text(c.title).tag(Optional(c.id)) }
+                        }
                     }
                 }
             }

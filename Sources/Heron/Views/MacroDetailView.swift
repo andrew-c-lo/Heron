@@ -386,6 +386,12 @@ struct MacroDetailView: View {
                 Button("Click Wherever the Pointer Is") { select(insert(.click(button: .left, x: nil, y: nil, count: 1))) }
                 Button("Double-Click Wherever the Pointer Is") { select(insert(.click(button: .left, x: nil, y: nil, count: 2))) }
                 Button("Right-Click Wherever the Pointer Is") { select(insert(.click(button: .right, x: nil, y: nil, count: 1))) }
+                Button("Repeat From an Earlier Step") {
+                    if let first = editing.groups.first.flatMap(editing.actionStepID) {
+                        select(insert(.repeatFrom(step: first, times: 2), delay: 0))
+                    }
+                }
+                .disabled(macro.steps.isEmpty)
                 Divider()
                 Button("Scroll Down") { select(insert(.scroll(dx: 0, dy: -100))) }
                 Button("Scroll Up") { select(insert(.scroll(dx: 0, dy: 100))) }

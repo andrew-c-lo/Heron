@@ -83,6 +83,11 @@ final class AppModel: ObservableObject {
             if loadedHotkeys[.toggleWatchers] == nil, !loadedHotkeys.values.contains(hk) { loadedHotkeys[.toggleWatchers] = hk }
             UserDefaults.standard.set(2, forKey: "hotkeysVersion")
         }
+        if UserDefaults.standard.integer(forKey: "hotkeysVersion") < 3 {
+            let hk = HotkeyAction.toggleDoubleClick.defaultHotkey
+            if loadedHotkeys[.toggleDoubleClick] == nil, !loadedHotkeys.values.contains(hk) { loadedHotkeys[.toggleDoubleClick] = hk }
+            UserDefaults.standard.set(3, forKey: "hotkeysVersion")
+        }
         hotkeys = loadedHotkeys
         macros = store.loadAll()
         selectedMacroID = macros.first?.id
@@ -180,6 +185,10 @@ final class AppModel: ObservableObject {
         case .stopAll: stopAll()
         case .capturePoint: addPoint(EventSynth.cursor)
         case .toggleWatchers: toggleAllBackground()
+        case .toggleDoubleClick:
+            prefs.doubleClickEverywhere.toggle()
+            flash(prefs.doubleClickEverywhere ? "Double-click everywhere is on." : "Double-click everywhere is off.")
+            sound(prefs.doubleClickEverywhere ? "Tink" : "Pop")
         }
     }
 
@@ -891,6 +900,15 @@ final class AppModel: ObservableObject {
         }
         pendingSaves[m.id] = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: work)
+    }
+
+    /// Folder names in the macro list, sorted.
+    var folders: [String] { Array(Set(macros.compactMap(\.folder))).sorted { $0.localizedStandardCompare($1) == .orderedAscending } }
+
+    func setFolder(_ folder: String?, for id: UUID) {
+        guard var m = macros.first(where: { $0.id == id }) else { return }
+        m.folder = folder
+        update(m)
     }
 
     /// An empty macro meant to be built from picture steps.
