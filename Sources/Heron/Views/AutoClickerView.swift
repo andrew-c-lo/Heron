@@ -106,7 +106,7 @@ struct AutoClickerView: View {
                     NumberField(title: "By up to", value: s.jitterMs, unit: "ms")
                 }
                 Toggle(isOn: $model.prefs.clickSpread) {
-                    Text("Spread the position")
+                    Text("Randomize click position")
                     Text("Within \(Int(model.prefs.clickSpreadRadius)) points of the target. Applies to macros too.")
                 }
                 NumberField(title: "Hold each click for", value: s.holdMs, unit: "ms")

@@ -44,7 +44,7 @@ struct MacroDetailView: View {
                     StepInspector(editing: editing, app: macro.target.app, allAtOnce: allAtOnce,
                                   onShowRaw: showRawSteps, onAddColorCheck: addColorCheck,
                                   onSampleColor: sampleColor, onDelete: deleteSelected)
-                        .frame(width: 300)
+                        .frame(width: ui.inspectorWidth)
                 }
             }
             .clipShape(RoundedRectangle(cornerRadius: 8))
@@ -120,6 +120,12 @@ struct MacroDetailView: View {
                 }
                 .help("Screens where “Tap when stuck” had to step in. Turn them into steps.")
             }
+            if mode == .raw {
+                Button { viewMode = Mode.actions.rawValue } label: {
+                    Label("Raw events", systemImage: "xmark.circle.fill")
+                }
+                .help("Showing every recorded event. Click to go back to Actions.")
+            } else {
             Picker("View", selection: Binding(get: { mode.rawValue }, set: { viewMode = $0 })) {
                 Text("Visual").tag("visual")
                 Text("Actions").tag("actions")
@@ -128,6 +134,7 @@ struct MacroDetailView: View {
             .labelsHidden()
             .fixedSize()
             .help("Visual: where and when things happen. Actions: a readable list.")
+            }
             ControlGroup {
                 Button { undoManager?.undo() } label: { Image(systemName: "arrow.uturn.backward") }
                     .help("Undo (⌘Z)")
@@ -841,6 +848,9 @@ struct MacroDetailView: View {
     }
 
     private func updateCompact(_ width: CGFloat) {
+        // The settings panel takes about a third of a wide editor (300 to 400 points).
+        let inspector = min(400, max(300, (width * 0.3).rounded()))
+        if ui.inspectorWidth != inspector { ui.inspectorWidth = inspector }
         let compact = width < 700
         if ui.compactAdd != compact { ui.compactAdd = compact }
     }
@@ -987,6 +997,7 @@ final class DetailUIState: ObservableObject {
     @Published var showingType = false
     /// The editor is too narrow for labelled Add buttons.
     @Published var compactAdd = false
+    @Published var inspectorWidth: CGFloat = 300
     @Published var showingDescribe = false
     @Published var describeText = ""
     @Published var describing = false

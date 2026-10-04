@@ -84,7 +84,7 @@ struct ClickAreaEditor: View {
     private var caption: String {
         if area != nil { return "Each click lands on a different spot in the box." }
         if spread > 0 {
-            return "Clicks land within \(Int(spread.rounded())) points of the middle (Spread the position, in Settings). Drag a box to use more of the picture."
+            return "Clicks land within \(Int(spread.rounded())) points of the middle (Randomize click position, in Settings). Drag a box to use more of the picture."
         }
         return "Clicks land in the middle. Drag a box to spread them over part of the picture."
     }

@@ -114,7 +114,7 @@ struct GeneralSettingsView: View {
             Section("Clicking") {
                 Toggle(isOn: $model.prefs.clickSpread) {
                     Text("Randomize click position")
-                    Text("Each click lands at a random spot within this distance of its target instead of the exact same point every time. Applies everywhere: auto clicker points, macros and picture steps. Clicks on a found picture stay inside it.")
+                    Text("Each click lands at a random spot within this distance of its target instead of the exact same point every time. Applies everywhere: auto clicker points, macros and picture steps. A picture step with a click box uses the whole box instead.")
                 }
                 if model.prefs.clickSpread {
                     LabeledContent {

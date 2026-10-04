@@ -444,7 +444,8 @@ struct ActionRow: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text(group.title(touch: touch))
                     .fontWeight(.medium)
-                    .lineLimit(1)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
                     .truncationMode(.tail)
                 if let color {
                     ColorWaitControls(wait: color, onSampleColor: onSampleColor)
