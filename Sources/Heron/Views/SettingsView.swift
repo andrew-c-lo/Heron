@@ -47,6 +47,10 @@ struct RecordingSettingsView: View {
                     Text("Remember what you click")
                     Text("Clicks on a word, like “Claim”, or on an icon find it wherever it is when played back, and click the recorded spot if it isn't there. Works when every click goes to one app.")
                 }
+                Toggle(isOn: $model.prefs.suggestFromMyPresses) {
+                    Text("Suggest steps from my own presses")
+                    Text("While a macro plays, things you click yourself in its app are offered as steps afterwards. Heron's own clicks are ignored.")
+                }
                 if model.prefs.smartRecording, !model.hasScreenRecording {
                     Label("Needs Screen Recording permission (Permissions tab).", systemImage: "exclamationmark.triangle.fill")
                         .font(.caption).foregroundStyle(.orange)

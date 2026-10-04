@@ -293,5 +293,61 @@ check("both saves and loads", both2.alsoPicture && both2.text == "Claim" && both
 check("both title names the picture and the words", ActionGroup(id: UUID(), range: 0..<1, lead: 0...0, wait: 0, start: 0,
       kind: .image(both)).title(touch: false).contains("the picture or “Claim”"))
 
+// Your own presses during a run become suggestions, unless a step already finds them.
+let pressLines = TextFinder.read(px)
+let onSettings = CGPoint(x: boxes["Settings"]!.midX, y: boxes["Settings"]!.midY)
+let sug = PressWatcher.suggestion(in: px, at: onSettings, lookups: [])
+check("a press on a label is suggested as that label", sug?.label.text == "Settings", "\(String(describing: sug?.label.text))")
+var settingsText = ImageStep(png: Data(), width: 0, height: 0, originX: 0, originY: 0); settingsText.text = "Settings"
+check("…but not when a text step already finds it",
+      PressWatcher.suggestion(in: px, at: onSettings, lookups: [Lookup(step: settingsText)!]) == nil)
+let settingsPicStep = ImageStep(png: settingsPic.0, width: settingsPic.1, height: settingsPic.2, originX: 0, originY: 0)
+check("…or a picture step already finds it",
+      PressWatcher.suggestion(in: px, at: onSettings, lookups: [Lookup(step: settingsPicStep)!]) == nil)
+_ = pressLines
+if let sug {
+    let twice = PressSuggestion.merge([sug], [PressSuggestion(label: sug.label, point: onSettings)])
+    check("pressing the same thing again counts it twice", twice.count == 1 && twice[0].count == 2)
+    let st = sug.step(inOrder: true)
+    check("a suggestion becomes a text step that won't hold up an in-order run",
+          st.text == "Settings" && st.timeout == 3 && st.otherwise == .continueAnyway)
+    check("…and in All at once it waits as usual", sug.step(inOrder: false).untilAppears)
+}
+
+// Live: the press listener counts a real press and ignores one tagged as Heron's own.
+do {
+    let screen = NSScreen.screens[0].frame
+    // A small window of our own in the bottom-left corner, on top of everything, so the presses land on it.
+    let pw = NSWindow(contentRect: NSRect(x: screen.minX + 4, y: screen.minY + 4, width: 60, height: 60),
+                      styleMask: [.borderless], backing: .buffered, defer: false)
+    pw.level = .screenSaver
+    pw.orderFrontRegardless()
+    let target = CGPoint(x: screen.minX + 30, y: screen.height - 34) // top-left based
+    let back = CGEvent(source: nil)?.location ?? .zero
+    let watcher = PressWatcher(app: TargetApp(bundleID: "test.none", name: "None"), steps: [])
+    var seen: [CGPoint] = []
+    let seenLock = NSLock()
+    watcher.onPress = { p in seenLock.withLock { seen.append(p) } }
+    if watcher.start() {
+        func press(ours: Bool) {
+            for t in [CGEventType.leftMouseDown, .leftMouseUp] {
+                let e = CGEvent(mouseEventSource: nil, mouseType: t, mouseCursorPosition: target, mouseButton: .left)!
+                if ours { e.setIntegerValueField(.eventSourceUserData, value: EventSynth.marker << 32) }
+                e.post(tap: .cghidEventTap)
+            }
+        }
+        press(ours: true)
+        press(ours: false)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.5))
+        _ = watcher.finish()
+        CGWarpMouseCursorPosition(back)
+        let n = seenLock.withLock { seen.count }
+        check("the press listener counts your press and ignores Heron's own", n == 1, "\(n) seen")
+    } else {
+        print("SKIP live press listener (no Input Monitoring for the test runner)")
+    }
+    pw.orderOut(nil)
+}
+
 print(failures == 0 ? "ALL PASSED" : "\(failures) FAILED")
 exit(failures == 0 ? 0 : 1)

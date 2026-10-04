@@ -60,6 +60,11 @@ struct MacroDetailView: View {
                 .onChange(of: g.size.width) { _, w in updateCompact(w) }
         })
         .onAppear { model.loadStuck(for: macro.id); model.loadFoundHistory(for: macro) }
+        .sheet(isPresented: $ui.showingPresses) {
+            PressSuggestionsView(macroID: macro.id, inOrder: macro.playback.order != .allAtOnce, onAdd: { step in
+                select(insert(.findImage(step), delay: 0.1))
+            }, onDone: { ui.showingPresses = false })
+        }
         .sheet(isPresented: $ui.showingStuck) {
             StuckScreensView(macroID: macro.id, onAdd: { step in
                 select(insert(.findImage(step), delay: 0.1))
@@ -89,6 +94,12 @@ struct MacroDetailView: View {
                 Text(stats).font(.caption).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer(minLength: 8)
+            if let n = model.pressSuggestions[macro.id]?.count, n > 0 {
+                Button { ui.showingPresses = true } label: {
+                    Label("You pressed \(n)", systemImage: "hand.tap")
+                }
+                .help("Things you pressed yourself while it played. Add them as steps.")
+            }
             if let n = model.stuckScreens[macro.id]?.count, n > 0 {
                 Button { ui.showingStuck = true } label: {
                     Label("Stuck \(n)×", systemImage: "exclamationmark.triangle")
@@ -677,6 +688,7 @@ final class DetailUIState: ObservableObject {
     @Published var describeText = ""
     @Published var describing = false
     @Published var showingStuck = false
+    @Published var showingPresses = false
     @Published var showingAutopilot = false
     /// Step to scroll to when the detailed list appears.
     var scrollTarget: UUID?

@@ -48,6 +48,9 @@ final class AppModel: ObservableObject {
     @Published private(set) var stepFound: [UUID: CGRect] = [:]
     /// Screens where the idle tap had to step in, per macro (newest first).
     @Published private(set) var stuckScreens: [UUID: [URL]] = [:]
+    /// Things you pressed yourself while a macro played, per macro (most pressed first).
+    @Published private(set) var pressSuggestions: [UUID: [PressSuggestion]] = [:]
+    private var pressWatchers: [UUID: PressWatcher] = [:]
     /// Smart recording, while a recording is in progress.
     private var clickReader: ClickReader?
     @Published private(set) var hasAccessibility = false
@@ -654,6 +657,31 @@ final class AppModel: ObservableObject {
     private func resetHits(for m: Macro) {
         for s in m.steps { stepHits[s.id] = nil; stepFound[s.id] = nil }
         runs[m.id] = RunLog(started: Date())
+        _ = pressWatchers.removeValue(forKey: m.id)?.finish()
+        if prefs.suggestFromMyPresses, hasInputMonitoring, let app = m.target.app {
+            let w = PressWatcher(app: app, steps: m.steps)
+            if w.start() { pressWatchers[m.id] = w }
+        }
+    }
+
+    /// Stops noticing your presses for a macro and offers what you pressed.
+    private func collectPresses(_ macroID: UUID) {
+        guard let w = pressWatchers.removeValue(forKey: macroID) else { return }
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            let found = w.finish()
+            guard !found.isEmpty else { return }
+            Task { @MainActor in
+                guard let self else { return }
+                self.pressSuggestions[macroID] = PressSuggestion.merge(self.pressSuggestions[macroID] ?? [], found)
+                let n = found.count
+                self.flash("You pressed \(n) thing\(n == 1 ? "" : "s") yourself during the run. See “You pressed” to add \(n == 1 ? "it" : "them") as steps.")
+            }
+        }
+    }
+
+    func dismissPressSuggestion(_ id: UUID, macro: UUID) {
+        pressSuggestions[macro]?.removeAll { $0.id == id }
+        if pressSuggestions[macro]?.isEmpty == true { pressSuggestions[macro] = nil }
     }
 
     /// What happened during a run, saved as a report when it ends (Heron/Runs) so it can be studied later.
@@ -733,6 +761,7 @@ final class AppModel: ObservableObject {
 
     /// Writes the report of a finished run: how often each step fired, where, and every click's time.
     private func saveRunReport(_ macroID: UUID) {
+        collectPresses(macroID)
         guard let log = runs.removeValue(forKey: macroID), let m = macros.first(where: { $0.id == macroID }),
               !log.events.isEmpty else { return }
         let index = Dictionary(uniqueKeysWithValues: m.steps.enumerated().map { ($0.element.id, $0.offset + 1) })

@@ -554,6 +554,8 @@ struct Preferences: Codable, Equatable {
     var smartRecording = true
     /// Every single click is sent as a double click (everywhere: auto clicker, macros, chains, watchers).
     var doubleClickEverywhere = false
+    /// While a macro plays, your own clicks in its app are noticed and offered as steps.
+    var suggestFromMyPresses = true
 }
 
 // MARK: - Formatting
