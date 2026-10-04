@@ -425,5 +425,46 @@ check("a stop step reads “Stop when “Lv 30” appears”", stopGroup.title(t
 check("…looks briefly, then carries on", stopGroup.detail?.hasPrefix("looks for 1s, then carries on") ?? false, stopGroup.detail ?? "")
 check("a done message is told apart from an error", Player.isDone(Player.done("“Lv 30” appeared")) && !Player.isDone("Stopped: oops"))
 
+// Spot: a find step can click fixed coordinates instead, and switch back without losing anything.
+var rec = ImageStep(png: settingsPic.0, width: settingsPic.1, height: settingsPic.2, originX: 100, originY: 200)
+rec.text = "Start!"; rec.alsoPicture = true; rec.fallbackX = 387; rec.fallbackY = 854
+rec.setSpotOnly(true)
+check("a recorded step's spot is where it was recorded", rec.spotOnly && rec.spot == CGPoint(x: 387, y: 854))
+let recGroup = ActionGroup(id: UUID(), range: 0..<1, lead: 0...0, wait: 0, start: 0, kind: .image(rec))
+check("…and reads “Tap the spot 387, 854”", recGroup.title(touch: true) == "Tap the spot 387, 854", recGroup.title(touch: true))
+rec.setSpotOnly(false)
+check("switching back keeps the picture and words", !rec.spotOnly && rec.text == "Start!" && rec.alsoPicture && !rec.png.isEmpty)
+var picked = ImageStep(png: settingsPic.0, width: 40, height: 20, originX: 100, originY: 200)
+picked.setSpotOnly(true)
+check("a picked picture's spot is its middle", picked.spot == CGPoint(x: 120, y: 210))
+let spot2 = try! JSONDecoder().decode(ImageStep.self, from: JSONEncoder().encode(picked))
+check("spot steps save and load", spot2.spotOnly && spot2.spotX == 120 && spot2.spotY == 210)
+
+// …and playing one clicks that spot without looking (no target app or screen needed).
+var spotPresses: [CGPoint] = []
+EventSynth.testSink = { e in if e.type == .leftMouseDown { spotPresses.append(e.location) } }
+let spotPlayer = Player()
+var spotDone = false
+spotPlayer.play(Macro(name: "spot", steps: [MacroStep(delay: 0, action: .findImage(picked)),
+                                            MacroStep(delay: 0, action: .click(button: .left, x: 7, y: 7, count: 1))]),
+                progress: { _, _, _ in }, finished: { _ in spotDone = true })
+let spotDeadline = Date().addingTimeInterval(5)
+while !spotDone && Date() < spotDeadline { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
+check("a spot step clicks its spot, then the macro carries on",
+      spotPresses.map { [Int($0.x), Int($0.y)] } == [[120, 210], [7, 7]], "\(spotPresses)")
+EventSynth.testSink = nil
+
+// Bulk switch from the menu: every selected clicking step, other kinds left alone.
+var bulk = Macro(name: "b", steps: [MacroStep(delay: 0, action: .findImage(rec)), MacroStep(delay: 0, action: .findImage(stopStep)),
+                                    MacroStep(delay: 0, action: .wait)])
+let bui = DetailUIState()
+let bedit = ActionEditing(macro: Binding(get: { bulk }, set: { bulk = $0 }), ui: bui)
+bui.selection = Set(bulk.steps.map(\.id))
+bedit.setSpotOnly(nil, true)
+func spotOf(_ i: Int) -> Bool { if case .findImage(let s) = bulk.steps[i].action { return s.spotOnly }; return false }
+check("Click Selected Steps' Spots switches the clicking steps only", spotOf(0) && !spotOf(1))
+bedit.setSpotOnly(nil, false)
+check("…and Find Again switches them back", !spotOf(0))
+
 print(failures == 0 ? "ALL PASSED" : "\(failures) FAILED")
 exit(failures == 0 ? 0 : 1)

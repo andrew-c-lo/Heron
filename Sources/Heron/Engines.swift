@@ -121,7 +121,15 @@ final class Player {
                                 t += 0.1
                             }
                         }
-                        if case .findImage(let pic) = step.action {
+                        if case .findImage(let pic) = step.action, pic.spotOnly, pic.mode == .click, let p = pic.spot {
+                            // Set to its spot: click there without looking.
+                            if let win = resolver?.window() { performer.route.origin = win.frame.origin }
+                            performer.perform(.mouseDown(button: pic.button, x: Double(p.x), y: Double(p.y), clickCount: 1, flags: 0))
+                            performer.perform(.mouseUp(button: pic.button, x: Double(p.x), y: Double(p.y), clickCount: 1, flags: 0))
+                            let stepID = step.id
+                            Task { @MainActor in clicked(stepID, nil) }
+                            t = Timing.now()
+                        } else if case .findImage(let pic) = step.action {
                             guard let resolver else {
                                 error = "Picture steps need a target app. Choose one with the Target button."
                                 break outer
@@ -260,7 +268,7 @@ final class Player {
         guard let resolver else { return "Picture steps need a target app. Choose one with the Target button." }
         struct Item { let index: Int; let step: ImageStep; let lookup: Lookup }
         let items: [Item] = steps.enumerated().compactMap { i, s in
-            guard case .findImage(let p) = s.action, p.mode == .click, let l = Lookup(step: p) else { return nil }
+            guard case .findImage(let p) = s.action, p.mode == .click, !p.spotOnly, let l = Lookup(step: p) else { return nil }
             return Item(index: i, step: p, lookup: l)
         }
         // Stop conditions: the chain ends as soon as one of these shows up.

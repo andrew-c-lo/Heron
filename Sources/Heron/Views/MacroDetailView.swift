@@ -464,6 +464,10 @@ struct MacroDetailView: View {
                 Button("Select All") { selection = Set(macro.steps.map(\.id)) }
                 Button("Combine Selected Pictures into One Step") { editing.combinePictures() }
                     .disabled(editing.combinablePictures.count < 2)
+                Button("Click Selected Steps' Spots Instead") { editing.setSpotOnly(nil, true) }
+                    .disabled(editing.clickFinders(nil).isEmpty)
+                Button("Find Selected Steps' Pictures Again") { editing.setSpotOnly(nil, false) }
+                    .disabled(editing.clickFinders(nil).isEmpty)
                 Menu("Move Selected Steps") {
                     Button("To Top  ⌥⇧⌘↑") { editing.move(nil, .top) }.disabled(!editing.canMove(nil, .top))
                     Button("Up  ⌥⌘↑") { editing.move(nil, .up) }.disabled(!editing.canMove(nil, .up))

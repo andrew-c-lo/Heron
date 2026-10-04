@@ -17,20 +17,25 @@ struct LookForPicker: View {
     /// Offers “Both” (picture or words, whichever is found) when given. The two values are set together
     /// (separate writes through a step binding would undo each other).
     var alsoPicture: Bool? = nil
-    var setBoth: ((String?, Bool) -> Void)? = nil
+    /// Offers “Spot” (click fixed coordinates without looking) when given.
+    var spotOnly: Bool? = nil
+    /// Sets the words, “Both” and “Spot” together.
+    var set: ((_ text: String?, _ both: Bool, _ spot: Bool) -> Void)? = nil
 
-    private enum Choice { case picture, text, both }
+    private enum Choice { case picture, text, both, spot }
 
     var body: some View {
         Picker("Look for", selection: Binding<Choice>(
-            get: { text == nil ? .picture : (alsoPicture == true ? .both : .text) },
+            get: { spotOnly == true ? .spot : text == nil ? .picture : (alsoPicture == true ? .both : .text) },
             set: { c in
+                if c == .spot { set?(text, alsoPicture ?? false, true); return }
                 let t = c == .picture ? nil : (text ?? "")
-                if let setBoth { setBoth(t, c == .both) } else { text = t }
+                if let set { set(t, c == .both, false) } else { text = t }
             })) {
             Text("Picture").tag(Choice.picture)
             Text("Text").tag(Choice.text)
             if alsoPicture != nil { Text("Both").tag(Choice.both) }
+            if spotOnly != nil { Text("Spot").tag(Choice.spot) }
         }
         .pickerStyle(.segmented)
         .labelsHidden() // the section is already titled "Look for"

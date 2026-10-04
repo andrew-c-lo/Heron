@@ -86,6 +86,7 @@ struct ActionEditing {
     func allAtOnceDetail(_ g: ActionGroup) -> String? {
         guard macro.wrappedValue.playback.order == .allAtOnce, case .image(let s) = g.kind else { return nil }
         if s.mode == .stop { return "Stops the chain as soon as it appears" }
+        if s.spotOnly { return "Skipped in All at once (set to a fixed spot)" }
         guard s.mode == .click else { return "Skipped in All at once (only steps that click or stop are used)" }
         let how = s.repeatUntilGone ? "every \(s.repeatEvery.formatted())s while it's showing" : "once each time it appears"
         return "Whenever it appears, \(how)" + (!s.usesPicture ? "" : " · \(Int((s.strictness * 100).rounded()))% match")
@@ -170,6 +171,24 @@ struct ActionEditing {
         guard g.range.upperBound <= steps.count else { return }
         macro.wrappedValue.steps.removeSubrange(g.range)
         ui.selection.removeAll()
+    }
+
+    /// Picture/text steps that click, among the selection (or just `g` when it isn't selected).
+    func clickFinders(_ g: ActionGroup?) -> [ActionGroup] {
+        let gs = groups
+        let chosen = g.map { isSelected($0) ? gs.filter(isSelected) : [$0] } ?? gs.filter(isSelected)
+        return chosen.filter { if case .image(let s) = $0.kind { return s.mode == .click }; return false }
+    }
+
+    /// Switches steps between clicking their fixed spot and finding their picture or words.
+    func setSpotOnly(_ g: ActionGroup?, _ on: Bool) {
+        var steps = self.steps
+        for c in clickFinders(g) {
+            guard c.actionIndex < steps.count, case .findImage(var s) = steps[c.actionIndex].action else { continue }
+            s.setSpotOnly(on)
+            steps[c.actionIndex].action = .findImage(s)
+        }
+        macro.wrappedValue.steps = steps
     }
 
     enum MoveDirection { case top, up, down, bottom }
@@ -331,6 +350,15 @@ struct ActionMenu: View {
             Button("Show Settings") { onEditPicture(group) }
         }
         Toggle("On", isOn: editing.enabledBinding(group))
+        if case .image(let s) = group.kind, s.mode == .click {
+            let n = editing.clickFinders(group).count
+            let many = n > 1 ? " (\(n) Steps)" : ""
+            if s.spotOnly {
+                Button("Find It Instead" + many) { editing.setSpotOnly(group, false) }
+            } else {
+                Button("Click Its Spot Instead" + many) { editing.setSpotOnly(group, true) }
+            }
+        }
         if editing.combinablePictures.count >= 2 && editing.isSelected(group) {
             Button("Combine \(editing.combinablePictures.count) Pictures into One Step") { editing.combinePictures() }
         }
@@ -408,6 +436,7 @@ struct ActionRow: View {
                     HStack(spacing: 8) {
                         if pic.usesPicture {
                             PictureThumbnail(png: pic.png, maxWidth: 110, maxHeight: 26)
+                                .opacity(pic.spotOnly ? 0.35 : 1)
                             if !pic.variants.isEmpty {
                                 Text("+\(pic.variants.count)")
                                     .font(.caption2.weight(.semibold))

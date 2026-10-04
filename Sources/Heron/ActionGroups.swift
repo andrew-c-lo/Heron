@@ -58,6 +58,9 @@ struct ActionGroup: Identifiable {
         case .wait: return "Pause"
         case .colorWait(_, let c):
             return "Wait for \(c.hex)"
+        case .image(let s) where s.spotOnly && s.mode == .click && s.spot != nil:
+            let p = s.spot!
+            return (touch ? "Tap" : "Click") + " the spot \(Int(p.x)), \(Int(p.y))"
         case .image(let s):
             if s.text != nil {
                 let words = s.isText ? "“\(s.text!.trimmingCharacters(in: .whitespaces))”" : "some words"
@@ -83,6 +86,8 @@ struct ActionGroup: Identifiable {
         switch kind {
         case .drag(_, let from, let to): "\(Self.fmt(from)) → \(Self.fmt(to))"
         case .scroll(_, _, let at?): "at \(Self.fmt(at))"
+        case .image(let s) where s.spotOnly && s.mode == .click:
+            s.spot == nil ? "set to a spot: pick where to click" : "fixed spot, no looking · picture and words kept"
         case .image(let s) where s.mode == .stop:
             (s.untilAppears ? "keeps looking until it does" : "looks for \(s.timeout.formatted())s, then carries on")
                 + (!s.usesPicture ? "" : " · \(Int((s.strictness * 100).rounded()))% match")
@@ -114,7 +119,9 @@ struct ActionGroup: Identifiable {
         case .keys: return "keyboard"
         case .wait: return "clock"
         case .colorWait: return "eyedropper"
-        case .image(let s): return s.isText && s.mode == .click ? "text.viewfinder" : s.mode.icon
+        case .image(let s):
+            if s.spotOnly && s.mode == .click { return "cursorarrow.click" }
+            return s.isText && s.mode == .click ? "text.viewfinder" : s.mode.icon
         case .repeatFrom: return "arrow.uturn.backward"
         case .move: return "arrow.up.and.down.and.arrow.left.and.right"
         case .other(_, let icon): return icon

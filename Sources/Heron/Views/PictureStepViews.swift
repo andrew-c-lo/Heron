@@ -51,12 +51,19 @@ struct PictureStepEditor: View {
     private var form: some View {
         Form {
             Section("Look for") {
-                LookForPicker(text: step.text, alsoPicture: s.alsoPicture) { t, both in
+                LookForPicker(text: step.text, alsoPicture: s.alsoPicture,
+                              spotOnly: s.mode == .click ? s.spotOnly : nil) { t, both, spot in
                     var v = step.wrappedValue
                     v.text = t
                     v.alsoPicture = both
+                    v.setSpotOnly(spot)
                     step.wrappedValue = v
                 }
+                if s.spotOnly && s.mode == .click {
+                    Text("Clicks this spot without looking: quick and predictable when the button never moves. The picture and words are kept, so you can switch back anytime.")
+                        .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    spotRow
+                } else {
                 if s.text != nil && s.alsoPicture {
                     Text("Found when either the picture or the words show up. The picture is checked first, since it's quicker.")
                         .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
@@ -98,6 +105,7 @@ struct PictureStepEditor: View {
                     Text("Raise it if look-alikes get matched.")
                 }
                 }
+                }
             }
 
             Section("What to do") {
@@ -118,6 +126,12 @@ struct PictureStepEditor: View {
                         ForEach(MouseButton.allCases) { Text($0.label).tag($0) }
                     }
                     .pickerStyle(.segmented)
+                    if allAtOnce && s.spotOnly {
+                        Label("All at once only clicks things it finds, so a step set to a spot is skipped. Switch Look for back to Picture, Text or Both.",
+                              systemImage: "exclamationmark.triangle.fill")
+                            .font(.callout).foregroundStyle(.orange)
+                    }
+                    if !s.spotOnly {
                     seconds("Wait before clicking", "How long it must be visible first. Helps with things that animate in.",
                             step.settle)
                     Toggle(isOn: step.repeatUntilGone) {
@@ -138,6 +152,7 @@ struct PictureStepEditor: View {
                         Text("Click offset")
                         Text("Shift the \(touch ? "tap" : "click") away from the \(s.text == nil ? "picture" : s.alsoPicture ? "match" : "text")'s center, in points.")
                     }
+                    }
                 }
             }
 
@@ -151,7 +166,7 @@ struct PictureStepEditor: View {
                     seconds("Look for", "Then the macro carries on with the next step.", step.timeout)
                 }
             }
-            } else if !allAtOnce {
+            } else if !allAtOnce && !(s.spotOnly && s.mode == .click) {
             Section("If it doesn't happen") {
                 Picker("Wait", selection: step.untilAppears) {
                     Text("As long as it takes").tag(true)
@@ -173,6 +188,30 @@ struct PictureStepEditor: View {
             }
         }
         .formStyle(.grouped)
+    }
+
+    /// The fixed spot, in window points, and a way to point at it.
+    private var spotRow: some View {
+        LabeledContent {
+            HStack(spacing: 4) {
+                Text("x").foregroundStyle(.secondary)
+                TextField("", value: Binding(get: { s.spotX ?? 0 }, set: { step.wrappedValue.spotX = $0 }), format: .number)
+                    .multilineTextAlignment(.trailing).frame(width: 54)
+                Text("y").foregroundStyle(.secondary)
+                TextField("", value: Binding(get: { s.spotY ?? 0 }, set: { step.wrappedValue.spotY = $0 }), format: .number)
+                    .multilineTextAlignment(.trailing).frame(width: 54)
+                Button("Pick…") {
+                    model.captureSpot(in: app) { p, _ in
+                        step.wrappedValue.spotX = Double(p.x.rounded())
+                        step.wrappedValue.spotY = Double(p.y.rounded())
+                    }
+                }
+                .help("Hover over the spot; it's set after a 3 second countdown")
+            }
+        } label: {
+            Text("Spot")
+            Text("In the window, in points.")
+        }
     }
 
     private func seconds(_ title: String, _ detail: String, _ value: Binding<Double>) -> some View {

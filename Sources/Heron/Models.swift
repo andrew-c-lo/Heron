@@ -313,6 +313,11 @@ struct ImageStep: Codable, Equatable {
     var variants: [PictureVariant] = []
     /// With text set: the picture counts too (“Both”), whichever is found first.
     var alsoPicture = false
+    /// Click a fixed spot without looking (the picture and words are kept, so switching back is one click).
+    var spotOnly = false
+    /// That spot (window points).
+    var spotX: Double?
+    var spotY: Double?
     /// Where in the picture to click, as fractions of its width and height (nil = the middle, spread over all of it).
     var clickArea: CGRect?
     /// Look for this text instead of the picture (nil = picture).
@@ -323,6 +328,21 @@ struct ImageStep: Codable, Equatable {
     var isText: Bool { !(text ?? "").trimmingCharacters(in: .whitespaces).isEmpty }
     /// Whether the picture is looked for (Picture, or Both with a picture picked).
     var usesPicture: Bool { (text == nil || alsoPicture) && !png.isEmpty }
+
+    /// The fixed spot to click: the one set, else where it was recorded, else the middle of the picture where it
+    /// was picked.
+    var spot: CGPoint? {
+        if let x = spotX, let y = spotY { return CGPoint(x: x, y: y) }
+        if let x = fallbackX, let y = fallbackY { return CGPoint(x: x, y: y) }
+        if !png.isEmpty, width > 0 { return CGPoint(x: originX + width / 2, y: originY + height / 2) }
+        return nil
+    }
+
+    /// Switches between clicking the spot and finding the picture or words (keeping both).
+    mutating func setSpotOnly(_ on: Bool) {
+        if on, spotX == nil, let p = spot { spotX = Double(p.x); spotY = Double(p.y) }
+        spotOnly = on
+    }
 
     init(png: Data, width: Double, height: Double, originX: Double, originY: Double) {
         self.png = png
@@ -373,6 +393,9 @@ extension ImageStep {
         goToStep = try c.decodeIfPresent(UUID.self, forKey: .goToStep)
         variants = try c.decodeIfPresent([PictureVariant].self, forKey: .variants) ?? []
         alsoPicture = try c.decodeIfPresent(Bool.self, forKey: .alsoPicture) ?? false
+        spotOnly = try c.decodeIfPresent(Bool.self, forKey: .spotOnly) ?? false
+        spotX = try c.decodeIfPresent(Double.self, forKey: .spotX)
+        spotY = try c.decodeIfPresent(Double.self, forKey: .spotY)
         clickArea = try c.decodeIfPresent(CGRect.self, forKey: .clickArea)
         text = try c.decodeIfPresent(String.self, forKey: .text)
         area = try c.decodeIfPresent(CGRect.self, forKey: .area)

@@ -102,6 +102,7 @@ extension ActionGroup {
     var points: [CGPoint] {
         switch kind {
         case .click(_, _, let at?, _), .scroll(_, _, let at?), .colorWait(let at, _), .move(let at): [at]
+        case .image(let s) where s.spotOnly && s.spot != nil: [s.spot!]
         case .image(let s) where !s.usesPicture:
             if let x = s.fallbackX, let y = s.fallbackY { [CGPoint(x: x, y: y)] }
             else { s.area.map { [CGPoint(x: $0.midX, y: $0.midY)] } ?? [] }
@@ -279,7 +280,7 @@ struct ActionMap: View {
         switch g.kind {
         case .scroll: "scroll"
         case .colorWait: "eyedropper"
-        case .image(let s): s.isText && s.mode == .click ? "text.viewfinder" : s.mode.icon
+        case .image(let s): s.spotOnly && s.mode == .click ? "cursorarrow.click" : s.isText && s.mode == .click ? "text.viewfinder" : s.mode.icon
         default: nil
         }
     }
