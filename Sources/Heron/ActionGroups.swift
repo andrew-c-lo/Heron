@@ -38,10 +38,11 @@ struct ActionGroup: Identifiable {
 
     // MARK: Presentation (touch = target is a phone, so say "tap"/"swipe")
 
-    /// “picture”, or “"OK" picture” when words were read from inside it.
+    /// “picture”, “"OK" picture” when words were read from inside it, or “red picture” when it has none.
     static func pictureNoun(_ s: ImageStep) -> String {
-        guard let w = s.pictureWords?.trimmingCharacters(in: .whitespaces), !w.isEmpty else { return "picture" }
-        return "“\(w)” picture"
+        if let w = s.pictureWords?.trimmingCharacters(in: .whitespaces), !w.isEmpty { return "“\(w)” picture" }
+        if let c = s.pictureColor, !c.isEmpty { return "\(c) picture" }
+        return "picture"
     }
 
     /// The step's name if it has one, otherwise what it does.
@@ -90,7 +91,9 @@ struct ActionGroup: Identifiable {
             }
             switch s.mode {
             case .click: return (touch ? "Tap" : "Click") + " the \(Self.pictureNoun(s))" + (s.repeatUntilGone ? " until it's gone" : "")
-            case .appear, .gone, .stop: return s.mode.label
+            case .appear: return "Wait for the \(Self.pictureNoun(s))"
+            case .gone: return "Wait until the \(Self.pictureNoun(s)) is gone"
+            case .stop: return "Stop when the \(Self.pictureNoun(s)) appears"
             }
         case .typeList(let l):
             let n = l.entries.count

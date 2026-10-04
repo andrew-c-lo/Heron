@@ -90,6 +90,17 @@ final class Player {
                 }
             }
         }
+        // Stops › After a set time: the whole run, however it started.
+        if opts.stopAfterMinutes > 0 {
+            let limit = opts.stopAfterMinutes * 60, start = Timing.now()
+            Thread.detachNewThread {
+                while Timing.now() - start < limit {
+                    guard Timing.wait(until: min(start + limit, Timing.now() + 1), watch) else { return }
+                }
+                tripped.message = Self.done("ran for \(formatDuration(limit))")
+                token.cancel()
+            }
+        }
         // Nothing happening for too long: stop, as a problem.
         let idle = IdleClock()
         if opts.stopIfIdleMinutes > 0 {
@@ -115,7 +126,6 @@ final class Player {
             var error: String?
             var lastReport = 0.0
             var loop = 0
-            let began = Timing.now()
 
             // Where each list is up to (carried across loops, and saved back after each item).
             var listNext: [UUID: Int] = [:]
@@ -130,7 +140,6 @@ final class Player {
             } else {
                 outer: while true {
                     if let n = opts.loopCount, loop >= n { break }
-                    if opts.repeatMode == .duration, loop > 0, Timing.now() - began >= opts.repeatDuration { break }
 
                     var pause = startDelay
                     if loop > 0 {
@@ -470,7 +479,6 @@ final class Player {
         var timesHappened = 0
         var clicks = 0
         while !token.isCancelled {
-            if opts.repeatMode == .duration, Timing.now() - began >= opts.repeatDuration { break }
             if opts.maxClicks > 0, clicks >= opts.maxClicks { break }
             let tick = Timing.now()
             guard let win = resolver.window() else { return "Can't find \(resolver.app.name)'s window." }

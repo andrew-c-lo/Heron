@@ -653,5 +653,46 @@ check("…and none when there's no number", Lookup.largestNumber(in: [TextFinder
 let stopOpts = try! JSONDecoder().decode(PlaybackOptions.self, from: Data("{}".utf8))
 check("older macros have none of these stop conditions", stopOpts.stopAfterStep == nil && stopOpts.stopAtNumber == nil && stopOpts.stopIfIdleMinutes == 0)
 
+// One home for time limits: Stops › After a set time.
+var timed = Macro(name: "timed", steps: [tapStep, MacroStep(delay: 0.2, action: .wait)])
+timed.playback.repeatMode = .untilStopped
+timed.playback.stopAfterMinutes = 0.02   // 1.2 s
+let timedStart = Date()
+let timedRun = playUntilDone(timed)
+let timedTook = Date().timeIntervalSince(timedStart)
+check("stops after a set time, as done", timedRun.end.map(Player.isDone) == true && timedTook > 1.0 && timedTook < 2.5,
+      "\(timedRun.end ?? "nil") after \(String(format: "%.1f", timedTook))s")
+let oldDuration = try! JSONDecoder().decode(PlaybackOptions.self,
+                                            from: Data(#"{"repeatMode":"duration","repeatDuration":900}"#.utf8))
+check("an old “for a duration” becomes until it stops + after 15 min",
+      oldDuration.repeatMode == .untilStopped && oldDuration.stopAfterMinutes == 15)
+var oldScheduled = Macro(name: "old", steps: [])
+var oldSchedule = MacroSchedule(); oldSchedule.limitMinutes = 45
+oldScheduled.schedule = oldSchedule
+let migratedMacro = oldScheduled.migrated()
+check("an old schedule limit moves into Stops", migratedMacro.playback.stopAfterMinutes == 45 && migratedMacro.schedule?.limitMinutes == 0)
+oldScheduled.playback.stopAfterMinutes = 10
+check("…without overriding a time already in Stops", oldScheduled.migrated().playback.stopAfterMinutes == 10)
+
+// Wordless pictures are named by colour.
+func solid(_ r: UInt8, _ g: UInt8, _ b: UInt8, w: Int = 20, h: Int = 20) -> ScreenReader.WindowPixels {
+    ScreenReader.WindowPixels(rgba: (0..<(w * h)).flatMap { _ in [r, g, b, 255] }, width: w, height: h)
+}
+let colourCases: [(ScreenReader.WindowPixels, String)] = [
+    (solid(220, 30, 30), "red"), (solid(30, 180, 60), "green"), (solid(40, 90, 230), "blue"),
+    (solid(245, 200, 20), "yellow"), (solid(250, 250, 250), "white"), (solid(15, 15, 15), "black"),
+    (solid(150, 60, 200), "purple"), (solid(240, 130, 20), "orange"),
+]
+let colourNames = colourCases.map { PictureColor.name($0.0) }
+check("pictures are named by their main colour", colourNames == colourCases.map(\.1), colourNames.joined(separator: ", "))
+var mostlyGrey = solid(128, 128, 128, w: 20, h: 20)
+var greyBytes = mostlyGrey.rgba
+for i in 0..<20 { greyBytes[i * 4] = 230; greyBytes[i * 4 + 1] = 20; greyBytes[i * 4 + 2] = 20 }   // 5% red
+mostlyGrey = ScreenReader.WindowPixels(rgba: greyBytes, width: 20, height: 20)
+check("…a speck of colour doesn't win over a grey picture", PictureColor.name(mostlyGrey).contains("grey"), PictureColor.name(mostlyGrey))
+var redStep = ImageStep(png: Data(), width: 1, height: 1, originX: 0, originY: 0)
+redStep.pictureWords = ""; redStep.pictureColor = "red"
+check("…and the step's title says so", ActionGroup.pictureNoun(redStep) == "red picture")
+
 print(failures == 0 ? "ALL PASSED" : "\(failures) FAILED")
 exit(failures == 0 ? 0 : 1)

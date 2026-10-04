@@ -34,6 +34,7 @@ struct PictureStepEditor: View {
                     } else if let c = PictureCrop.crop(rect, from: item.image) {
                         step.wrappedValue.png = c.png
                         step.wrappedValue.pictureWords = nil // read again for the new picture
+                        step.wrappedValue.pictureColor = nil
                         step.wrappedValue.width = c.width
                         step.wrappedValue.height = c.height
                         step.wrappedValue.originX = Double(rect.minX)

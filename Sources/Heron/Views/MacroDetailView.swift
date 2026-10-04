@@ -62,6 +62,12 @@ struct MacroDetailView: View {
                 .onAppear { updateCompact(g.size.width) }
                 .onChange(of: g.size.width) { _, w in updateCompact(w) }
         })
+        .focusedSceneValue(\.macroPanels, MacroPanels { panel in
+            ui.showingTarget = panel == .target
+            ui.showingPlayback = panel == .playback
+            ui.showingStops = panel == .stops
+            ui.showingSchedule = panel == .schedule
+        })
         .onAppear { model.loadStuck(for: macro.id); model.loadFoundHistory(for: macro) }
         .onChange(of: model.recordedInto) { _, _ in finishTemplate() }
         .onChange(of: macro.steps.isEmpty) { _, empty in if empty { ui.blankChosen = false } }
@@ -231,34 +237,35 @@ struct MacroDetailView: View {
     private var toolbarRow: some View {
         HStack(spacing: 8) {
             Button { ui.showingTarget = true } label: {
-                SettingsChip(icon: "scope", title: "Target", value: macro.target.app?.name ?? "Whole screen")
+                SettingsChip(icon: "scope", title: "Target", value: macro.target.app?.name ?? "Whole screen", isSet: macro.target.app != nil)
             }
             .buttonStyle(.plain)
-            .help("Which app it works in, and how clicks reach it: \(targetSummary)")
+            .help("Which app it works in, and how clicks reach it (⌘1): \(targetSummary)")
             .popover(isPresented: $ui.showingTarget, arrowEdge: .bottom) { targetPanel }
             .layoutPriority(3)
 
             Button { ui.showingPlayback = true } label: {
-                SettingsChip(icon: "repeat", title: "Playback", value: playbackShort)
+                SettingsChip(icon: "repeat", title: "Playback", value: playbackShort,
+                             isSet: macro.runsInBackground || allAtOnce || macro.playback.repeatMode != .once)
             }
             .buttonStyle(.plain)
-            .help("How it runs: \(playbackSummary)")
+            .help("How it runs (⌘2): \(playbackSummary)")
             .popover(isPresented: $ui.showingPlayback, arrowEdge: .bottom) { playbackPanel }
             .layoutPriority(2)
 
             Button { ui.showingStops = true } label: {
-                SettingsChip(icon: "stop.circle", title: "Stops", value: stopsSummary)
+                SettingsChip(icon: "stop.circle", title: "Stops", value: stopsSummary, isSet: hasAutoStop)
             }
             .buttonStyle(.plain)
-            .help("When a run ends on its own (after a number of rounds, when something appears, or if nothing happens): \(stopsSummary.lowercased())")
+            .help("When a run ends on its own (after a number of rounds, when something appears, after a set time, or if nothing happens) (⌘3): \(stopsSummary.lowercased())")
             .popover(isPresented: $ui.showingStops, arrowEdge: .bottom) { stopsPanel }
             .layoutPriority(1)
 
             Button { ui.showingSchedule = true } label: {
-                SettingsChip(icon: "calendar.badge.clock", title: "Schedule", value: scheduleShort)
+                SettingsChip(icon: "calendar.badge.clock", title: "Schedule", value: scheduleShort, isSet: macro.schedule?.enabled == true)
             }
             .buttonStyle(.plain)
-            .help("Start it on its own (at set times, every so often, or when its app opens): \(scheduleSummary)")
+            .help("Start it on its own (at set times, every so often, or when its app opens) (⌘4): \(scheduleSummary)")
             .popover(isPresented: $ui.showingSchedule, arrowEdge: .bottom) { schedulePanel }
             .layoutPriority(0)
 
@@ -277,15 +284,13 @@ struct MacroDetailView: View {
         let pb = macro.playback
         let bg = macro.runsInBackground ? "in the background · " : ""
         if pb.order == .allAtOnce {
-            return bg + "all at once · " + (pb.repeatMode == .duration ? "for \(formatDuration(pb.repeatDuration))" : "until stopped")
-
+            return bg + "all at once · until it stops"
         }
         var parts = [bg + "\(pb.speed.formatted())×"]
         switch pb.repeatMode {
         case .once: parts.append("once")
         case .times: parts.append("\(pb.loops) times")
-        case .untilStopped: parts.append("until stopped")
-        case .duration: parts.append("for \(formatDuration(pb.repeatDuration))")
+        case .untilStopped, .duration: parts.append("until it stops")
         }
         if pb.repeatMode != .once, pb.loopDelay > 0 || pb.loopDelayRandom > 0 {
             let hi = pb.loopDelay + pb.loopDelayRandom
@@ -309,12 +314,11 @@ struct MacroDetailView: View {
     private var playbackShort: String {
         let pb = macro.playback
         if macro.runsInBackground { return "In the background" }
-        if pb.order == .allAtOnce { return pb.repeatMode == .duration ? "All at once, \(formatDuration(pb.repeatDuration))" : "All at once" }
+        if pb.order == .allAtOnce { return "All at once" }
         switch pb.repeatMode {
         case .once: return "Once"
         case .times: return "\(pb.loops) times"
-        case .untilStopped: return "Until stopped"
-        case .duration: return "For \(formatDuration(pb.repeatDuration))"
+        case .untilStopped, .duration: return "Until it stops"
         }
     }
 
@@ -327,7 +331,11 @@ struct MacroDetailView: View {
         let on = Binding(get: { macro.schedule?.enabled == true }, set: { v in
             if macro.schedule == nil { macro.schedule = MacroSchedule() }
             macro.schedule?.enabled = v
-            if v { Notifier.requestPermission() }
+            if v {
+                Notifier.requestPermission()
+                // Unattended runs that could go on forever get a time limit to start with (changeable in Stops).
+                if canRunForever, macro.playback.stopAfterMinutes == 0 { macro.playback.stopAfterMinutes = 30 }
+            }
         })
         let s = macro.schedule ?? MacroSchedule()
         func set<T>(_ kp: WritableKeyPath<MacroSchedule, T>, _ v: T) {
@@ -337,7 +345,7 @@ struct MacroDetailView: View {
             Text("Schedule").font(.headline)
             Toggle(isOn: on) {
                 Text("Start on its own")
-                Text("Heron starts it at the times you choose, and stops it when it's done or the time limit is reached.")
+                Text("Heron starts it at the times you choose. Each run ends the way Stops says.")
             }
             if s.enabled {
                 Picker("Start", selection: Binding(get: { s.kind }, set: { set(\.kind, $0) })) {
@@ -384,11 +392,11 @@ struct MacroDetailView: View {
                         .font(.callout).foregroundStyle(macro.target.app == nil ? .orange : .secondary)
                 }
                 HStack {
-                    Text("Stop after")
-                    TextField("", value: Binding(get: { s.limitMinutes }, set: { set(\.limitMinutes, max(0, $0)) }), format: .number)
-                        .frame(width: 50).multilineTextAlignment(.trailing)
-                    Text("minutes (0 = when it ends by itself)")
-                        .foregroundStyle(.secondary)
+                    Label("Each run stops: \(stopsSummary.prefix(1).lowercased() + stopsSummary.dropFirst())", systemImage: "stop.circle")
+                        .foregroundStyle(canRunForever && !hasAutoStop ? .orange : .secondary)
+                    Spacer()
+                    Button("Stops…") { ui.showingSchedule = false; DispatchQueue.main.async { ui.showingStops = true } }
+                        .help("Change how each run ends (⌘3)")
                 }
                 if let next = model.nextScheduledRun(macro) {
                     Label("Next: \(next.formatted(date: .abbreviated, time: .shortened))", systemImage: "clock")
@@ -437,21 +445,11 @@ struct MacroDetailView: View {
                 }
                 .pickerStyle(.segmented)
                 Text(allAtOnce
-                     ? "Every picture step is watched together, and whichever appears gets clicked. Order, waits and time limits don't apply."
+                     ? "Every picture step is watched together, and whichever appears gets clicked, until one of the Stops is reached."
                      : "Steps play from top to bottom, each waiting for the one before it.")
                     .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
             if allAtOnce {
-                Picker("Run", selection: Binding(
-                    get: { macro.playback.repeatMode == .duration ? PlaybackOptions.RepeatMode.duration : .untilStopped },
-                    set: { macro.playback.repeatMode = $0 })) {
-                    Text("Until stopped").tag(PlaybackOptions.RepeatMode.untilStopped)
-                    Text("For a duration").tag(PlaybackOptions.RepeatMode.duration)
-                }
-                if macro.playback.repeatMode == .duration {
-                    NumberField(title: "Minutes", value: Binding(get: { macro.playback.repeatDuration / 60 },
-                                                               set: { macro.playback.repeatDuration = max(0, $0) * 60 }))
-                }
                 Toggle(isOn: pb.prioritized) {
                     Text("Higher steps win")
                     Text("When several are on screen at once, click the one higher in the list (for example OK before Cancel) instead of taking turns.")
@@ -489,6 +487,17 @@ struct MacroDetailView: View {
         .frame(width: 380)
     }
 
+    /// Repeats with no end of its own: only Stops (or you) end it.
+    private var canRunForever: Bool {
+        allAtOnce || macro.runsInBackground || macro.playback.repeatMode == .untilStopped || macro.playback.repeatMode == .duration
+    }
+
+    private var hasAutoStop: Bool {
+        let pb = macro.playback
+        return pb.stopAfterStep != nil || pb.stopWhen != nil || pb.stopAfterMinutes > 0 || pb.stopIfIdleMinutes > 0
+            || (pb.maxClicks > 0 && (allAtOnce || macro.runsInBackground))
+    }
+
     /// The Stops chip's summary: the first condition set, and how many more.
     private var stopsSummary: String {
         let pb = macro.playback
@@ -500,6 +509,7 @@ struct MacroDetailView: View {
             else if !k.png.isEmpty { parts.append("at a picture") }
         }
         if pb.maxClicks > 0, allAtOnce || macro.runsInBackground { parts.append("after \(pb.maxClicks) clicks") }
+        if pb.stopAfterMinutes > 0 { parts.append("after \(formatDuration(pb.stopAfterMinutes * 60))") }
         if pb.stopIfIdleMinutes > 0 { parts.append("if idle \(pb.stopIfIdleMinutes.formatted()) min") }
         guard let first = parts.first else { return "When you stop it" }
         let head = first.prefix(1).uppercased() + first.dropFirst()
@@ -590,6 +600,16 @@ struct MacroDetailView: View {
                     TextField("", value: $macro.playback.stopAfterCount, format: .number).frame(width: 50)
                     Text("times").foregroundStyle(.secondary)
                 }
+            }
+            Divider()
+            Toggle(isOn: Binding(get: { macro.playback.stopAfterMinutes > 0 },
+                                 set: { macro.playback.stopAfterMinutes = $0 ? 30 : 0 })) {
+                Text("After a set time")
+                Text("Every run ends after this long, whether you started it or its schedule did.")
+            }
+            if macro.playback.stopAfterMinutes > 0 {
+                NumberField(title: "After", value: Binding(get: { macro.playback.stopAfterMinutes },
+                                                           set: { macro.playback.stopAfterMinutes = max(0.1, $0) }), unit: "min")
             }
             Divider()
             Toggle(isOn: Binding(get: { macro.playback.stopIfIdleMinutes > 0 },
@@ -708,18 +728,13 @@ struct MacroDetailView: View {
                 }
             }
             Picker("Repeat", selection: pb.repeatMode) {
-                ForEach(PlaybackOptions.RepeatMode.allCases) { Text($0.label).tag($0) }
+                ForEach([PlaybackOptions.RepeatMode.once, .times, .untilStopped]) { Text($0.label).tag($0) }
             }
-            switch macro.playback.repeatMode {
-            case .times:
+            if macro.playback.repeatMode == .times {
                 IntField(title: "Times", value: pb.loops, range: 1...1_000_000)
-            case .duration:
-                NumberField(title: "Minutes", value: Binding(get: { macro.playback.repeatDuration / 60 },
-                                                           set: { macro.playback.repeatDuration = max(0, $0) * 60 }))
-                Text("No new loop starts after this; the loop in progress finishes first.")
-                    .font(.caption).foregroundStyle(.secondary)
-            case .once, .untilStopped:
-                EmptyView()
+            } else if macro.playback.repeatMode == .untilStopped {
+                Text("Repeats until one of the Stops is reached, or you press Stop. Time limits are in Stops (⌘3).")
+                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
             if macro.playback.repeatMode != .once {
                 NumberField(title: "Wait between loops", value: pb.loopDelay, unit: "s")
@@ -1265,6 +1280,8 @@ struct SettingsChip: View {
     let icon: String
     let title: String
     let value: String
+    /// Changed from the default: the icon takes the accent colour, so chips read apart even as icons alone.
+    var isSet = false
 
     /// With the summary when it fits; just the name when space is short (the details are one click away).
     var body: some View {
@@ -1279,7 +1296,8 @@ struct SettingsChip: View {
 
     private func chip(showTitle: Bool, showValue: Bool) -> some View {
         HStack(spacing: 6) {
-            Image(systemName: icon).foregroundStyle(.secondary)
+            Image(systemName: icon).foregroundStyle(isSet ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+                .symbolVariant(isSet && !showTitle ? .fill : .none)
             if showTitle { Text(title).fontWeight(.medium) }
             if showValue { Text(value).foregroundStyle(.secondary) }
             Image(systemName: "chevron.down").font(.caption2).foregroundStyle(.secondary)
@@ -1310,5 +1328,40 @@ struct LiveDot: View {
                 withAnimation(.easeInOut(duration: 1).repeatForever(autoreverses: true)) { state.on = true }
             }
             .accessibilityHidden(true)
+    }
+}
+
+
+/// Opens one of the open macro's settings panels; the Macro menu's ⌘1–⌘4 use it.
+struct MacroPanels {
+    enum Panel: CaseIterable { case target, playback, stops, schedule
+        var title: String {
+            switch self { case .target: "Target…"; case .playback: "Playback…"; case .stops: "Stops…"; case .schedule: "Schedule…" }
+        }
+    }
+    let open: (Panel) -> Void
+}
+
+private struct MacroPanelsKey: FocusedValueKey { typealias Value = MacroPanels }
+
+extension FocusedValues {
+    var macroPanels: MacroPanels? {
+        get { self[MacroPanelsKey.self] }
+        set { self[MacroPanelsKey.self] = newValue }
+    }
+}
+
+/// The Macro menu: the open macro's settings, each a keystroke away.
+struct MacroCommands: Commands {
+    @FocusedValue(\.macroPanels) private var panels
+
+    var body: some Commands {
+        CommandMenu("Macro") {
+            ForEach(Array(MacroPanels.Panel.allCases.enumerated()), id: \.offset) { i, p in
+                Button(p.title) { panels?.open(p) }
+                    .keyboardShortcut(KeyEquivalent(Character("\(i + 1)")), modifiers: .command)
+                    .disabled(panels == nil)
+            }
+        }
     }
 }

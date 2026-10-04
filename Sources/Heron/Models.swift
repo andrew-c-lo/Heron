@@ -365,6 +365,8 @@ struct ImageStep: Codable, Equatable {
     var spotOnly = false
     /// Words read from inside the picture, for its title (“” when it has none; nil = not read yet).
     var pictureWords: String?
+    /// Its main colour, for the title of a picture with no words (“red”; nil = not worked out yet).
+    var pictureColor: String?
     /// That spot (window points).
     var spotX: Double?
     var spotY: Double?
@@ -460,6 +462,7 @@ extension ImageStep {
         alsoPicture = try c.decodeIfPresent(Bool.self, forKey: .alsoPicture) ?? false
         spotOnly = try c.decodeIfPresent(Bool.self, forKey: .spotOnly) ?? false
         pictureWords = try c.decodeIfPresent(String.self, forKey: .pictureWords)
+        pictureColor = try c.decodeIfPresent(String.self, forKey: .pictureColor)
         settleMax = try c.decodeIfPresent(Double.self, forKey: .settleMax)
         captureWindowWidth = try c.decodeIfPresent(Double.self, forKey: .captureWindowWidth)
         captureWindowHeight = try c.decodeIfPresent(Double.self, forKey: .captureWindowHeight)
@@ -503,14 +506,14 @@ extension MacroStep {
 
 struct PlaybackOptions: Codable, Equatable {
     enum RepeatMode: String, Codable, CaseIterable, Identifiable {
+        /// `.duration` is only read from old files: it becomes `.untilStopped` plus Stops › After a set time.
         case once, times, untilStopped, duration
         var id: String { rawValue }
         var label: String {
             switch self {
             case .once: "Once"
             case .times: "Number of times"
-            case .untilStopped: "Until stopped"
-            case .duration: "For a duration"
+            case .untilStopped, .duration: "Until it stops"
             }
         }
     }
@@ -537,7 +540,7 @@ struct PlaybackOptions: Codable, Equatable {
     var repeatMode: RepeatMode = .once
     /// Used by `.times`.
     var loops: Int = 2
-    /// Used by `.duration`, in seconds. No new loop starts after this; the current one finishes.
+    /// Only read from old files (see `stopAfterMinutes`).
     var repeatDuration: Double = 600
     /// Real seconds between loops (not affected by speed).
     /// Killswitch: whenever this picture or these words show up during a run, the macro has done its job and stops.
@@ -549,6 +552,8 @@ struct PlaybackOptions: Codable, Equatable {
     var stopAfterCount = 5
     /// Stop (as a problem) when nothing has happened for this many minutes (0 = never).
     var stopIfIdleMinutes: Double = 0
+    /// Stop after the run has gone on this long, however it was started (0 = no time limit).
+    var stopAfterMinutes: Double = 0
     /// Each wait between steps is stretched or shortened at random by up to this share (0.2 = ±20%).
     var varyTiming: Double = 0
     /// Only click something once it has stopped moving (seen in the same place twice in a row).
@@ -599,6 +604,12 @@ extension PlaybackOptions {
         stopAfterStep = try c.decodeIfPresent(UUID.self, forKey: .stopAfterStep)
         stopAfterCount = try c.decodeIfPresent(Int.self, forKey: .stopAfterCount) ?? 5
         stopIfIdleMinutes = try c.decodeIfPresent(Double.self, forKey: .stopIfIdleMinutes) ?? 0
+        stopAfterMinutes = try c.decodeIfPresent(Double.self, forKey: .stopAfterMinutes) ?? 0
+        if repeatMode == .duration {
+            // “For a duration” moved to Stops.
+            repeatMode = .untilStopped
+            if stopAfterMinutes == 0 { stopAfterMinutes = repeatDuration / 60 }
+        }
         varyTiming = try c.decodeIfPresent(Double.self, forKey: .varyTiming) ?? 0
         waitForStill = try c.decodeIfPresent(Bool.self, forKey: .waitForStill) ?? true
     }
@@ -621,6 +632,16 @@ struct Macro: Codable, Identifiable, Equatable {
     var schedule: MacroSchedule?
 
     var duration: Double { steps.reduce(0) { $0 + $1.delay } }
+
+    /// Older files: a schedule's run limit now lives in Stops › After a set time, for every run.
+    func migrated() -> Macro {
+        guard var s = schedule, s.limitMinutes > 0 else { return self }
+        var m = self
+        if m.playback.stopAfterMinutes == 0 { m.playback.stopAfterMinutes = s.limitMinutes }
+        s.limitMinutes = 0
+        m.schedule = s
+        return m
+    }
 }
 
 /// When a macro starts on its own.
@@ -645,8 +666,8 @@ struct MacroSchedule: Codable, Equatable {
     var weekdays: Set<Int> = Set(1...7)
     /// Interval: minutes between starts.
     var everyMinutes = 60
-    /// A scheduled run is stopped after this many minutes (0 = when the macro ends by itself).
-    var limitMinutes: Double = 30
+    /// Only read from old files: moved into the macro's Stops (`PlaybackOptions.stopAfterMinutes`).
+    var limitMinutes: Double = 0
 
     /// The first start strictly after `date` (nil for “when the app opens”, or when no day is chosen).
     func nextRun(after date: Date, lastRun: Date?, calendar: Calendar = .current) -> Date? {

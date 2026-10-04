@@ -15,12 +15,14 @@ struct HeronApp: App {
         // Lets the window shrink to the simple strip and grow back.
         .windowResizability(.contentSize)
         .commands {
-            CommandGroup(replacing: .help) {
-                Button("Heron Help") {
-                    if let url = URL(string: "https://github.com/andrew-c-lo/Heron#everything-it-does") { NSWorkspace.shared.open(url) }
-                }
-            }
+            MacroCommands()
+            HelpCommands()
         }
+
+        Window("Heron Help", id: "help") {
+            HelpView()
+        }
+        .defaultSize(width: 760, height: 480)
 
         Settings {
             SettingsRoot()
@@ -37,7 +39,7 @@ struct HeronApp: App {
             } else {
                 Image(systemName: model.menuBarIcon)
             }
-            // Round progress while a macro with a round goal runs (“3/5”).
+            // While something runs: rounds, time left, or time so far.
             if let p = model.menuBarProgress {
                 Text(p).monospacedDigit()
             }

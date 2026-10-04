@@ -48,7 +48,7 @@ struct MacroStore {
         return files.filter { $0.pathExtension == "json" }
             .compactMap { url in
                 (try? Data(contentsOf: url)).flatMap {
-                    Lenient.decode($0, defaults: Macro(name: "Untitled", steps: []), encoder: Self.encoder, decoder: Self.decoder)
+                    Lenient.decode($0, defaults: Macro(name: "Untitled", steps: []), encoder: Self.encoder, decoder: Self.decoder)?.migrated()
                 }
             }
             .sorted { $0.created < $1.created }

@@ -72,12 +72,21 @@ final class AppModel: ObservableObject {
     }
 
     /// Beside the menu bar icon while a macro with a round goal runs: “3/5”.
+    /// Next to the menu bar icon while something runs: rounds of a goal (“3/5”), time left (“12m left”),
+    /// or how long it has run (“5m”); with several running, how many.
     var menuBarProgress: String? {
-        let runs = live.compactMap { id, run -> String? in
-            guard let m = macros.first(where: { $0.id == id }), m.playback.stopAfterStep != nil else { return nil }
+        guard !live.isEmpty else { return nil }
+        guard live.count == 1, let (id, run) = live.first, let m = macros.first(where: { $0.id == id }) else {
+            return "\(live.count) running"
+        }
+        if m.playback.stopAfterStep != nil {
             return "\(min(run.rounds + 1, m.playback.stopAfterCount))/\(m.playback.stopAfterCount)"
         }
-        return runs.count == 1 ? runs[0] : nil
+        let ran = Date().timeIntervalSince(run.started) / 60
+        if m.playback.stopAfterMinutes > 0 {
+            return "\(Int(max(0, m.playback.stopAfterMinutes - ran).rounded(.up)))m left"
+        }
+        return ran < 1 ? "<1m" : "\(Int(ran))m"
     }
 
     nonisolated static func clock(_ seconds: Double) -> String {
@@ -157,7 +166,7 @@ final class AppModel: ObservableObject {
         var todo: [(UUID, Data)] = []
         for m in macros {
             for st in m.steps {
-                if case .findImage(let p) = st.action, p.pictureWords == nil, !p.png.isEmpty, !readingWords.contains(st.id) {
+                if case .findImage(let p) = st.action, p.pictureWords == nil || (p.pictureWords == "" && p.pictureColor == nil), !p.png.isEmpty, !readingWords.contains(st.id) {
                     todo.append((st.id, p.png))
                 }
             }
@@ -168,19 +177,21 @@ final class AppModel: ObservableObject {
             // the threads everything else shares.
             Self.wordQueue.async {
                 let words = Self.words(inPicture: png)
-                Task { @MainActor in self.storePictureWords(words, step: id, png: png) }
+                let colour = words.isEmpty ? NSImage(data: png).flatMap(ScreenReader.WindowPixels.init(image:)).map(PictureColor.name) : nil
+                Task { @MainActor in self.storePictureWords(words, colour: colour, step: id, png: png) }
             }
         }
     }
 
     private nonisolated static let wordQueue = DispatchQueue(label: "heron.picture-words", qos: .utility)
 
-    private func storePictureWords(_ words: String, step id: UUID, png: Data) {
+    private func storePictureWords(_ words: String, colour: String?, step id: UUID, png: Data) {
         readingWords.remove(id)
         guard var m = macros.first(where: { $0.steps.contains { $0.id == id } }),
               let i = m.steps.firstIndex(where: { $0.id == id }),
               case .findImage(var p) = m.steps[i].action, p.png == png else { return }
         p.pictureWords = words
+        p.pictureColor = colour ?? ""
         m.steps[i].action = .findImage(p)
         update(m, bookkeeping: true)
     }
@@ -208,14 +219,17 @@ final class AppModel: ObservableObject {
     private var scheduledRuns: Set<UUID> = []
     /// Due while something else was playing: started as soon as Heron is free (within 30 minutes).
     private var pendingScheduled: [UUID: Date] = [:]
-    private var scheduleLimits: [UUID: DispatchWorkItem] = [:]
     private var launchObserver: NSObjectProtocol?
 
     private func startScheduler() {
         let stored = Persist.load("scheduleLastRun", default: [String: Date]())
         scheduleLastRun = Dictionary(uniqueKeysWithValues: stored.compactMap { k, v in UUID(uuidString: k).map { ($0, v) } })
         scheduleTimer = Timer.scheduledTimer(withTimeInterval: 20, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.checkSchedules() }
+            Task { @MainActor in
+                self?.checkSchedules()
+                // Keeps the menu bar's run time current through quiet stretches.
+                if self?.live.isEmpty == false { self?.objectWillChange.send() }
+            }
         }
         launchObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didLaunchApplicationNotification, object: nil, queue: .main) { [weak self] note in
@@ -293,7 +307,7 @@ final class AppModel: ObservableObject {
 
     /// Starts a macro because its schedule says so.
     private func runScheduled(_ id: UUID, retry: Bool = false) {
-        guard let m = macros.first(where: { $0.id == id }), let s = m.schedule else { pendingScheduled[id] = nil; return }
+        guard let m = macros.first(where: { $0.id == id }), m.schedule != nil else { pendingScheduled[id] = nil; return }
         if playingMacroID == id || backgroundRunning.contains(id) { pendingScheduled[id] = nil; return }
         if SystemState.screenIsLocked {
             pendingScheduled[id] = nil
@@ -312,22 +326,11 @@ final class AppModel: ObservableObject {
         if m.runsInBackground { startBackground(id, quietly: true) } else { play(m) }
         guard playingMacroID == id || backgroundRunning.contains(id) else { scheduledRuns.remove(id); return }
         flash("“\(m.name)” started on its schedule.")
-        scheduleLimits[id]?.cancel()
-        if s.limitMinutes > 0 {
-            let stop = DispatchWorkItem { [weak self] in
-                guard let self, self.scheduledRuns.contains(id) else { return }
-                if self.playingMacroID == id { self.stopPlayback() }
-                if self.backgroundRunning.contains(id) { self.stopBackground(id, quietly: true) }
-            }
-            scheduleLimits[id] = stop
-            DispatchQueue.main.asyncAfter(deadline: .now() + s.limitMinutes * 60, execute: stop)
-        }
     }
 
     /// Called when any run ends: scheduled ones get a summary notification.
     private func finishScheduled(_ id: UUID, clicks: Int, seconds: Int) {
         guard scheduledRuns.remove(id) != nil else { return }
-        scheduleLimits.removeValue(forKey: id)?.cancel()
         let name = macros.first { $0.id == id }?.name ?? "Macro"
         let time = seconds >= 60 ? "\(seconds / 60) min" : "\(seconds) s"
         Notifier.post(name, "Scheduled run finished: \(clicks) click\(clicks == 1 ? "" : "s") in \(time).", enabled: true)
@@ -505,8 +508,7 @@ final class AppModel: ObservableObject {
             switch m.playback.repeatMode {
             case .once: loop = ""
             case .times: loop += "/\(m.playback.loops)"
-            case .untilStopped: loop += " (until stopped)"
-            case .duration: loop += " (for \(formatDuration(m.playback.repeatDuration)))"
+            case .untilStopped, .duration: loop += " (until it stops)"
             }
         }
         let detail = playWaitingColor.map { "waiting for \($0)" }
