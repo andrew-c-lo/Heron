@@ -430,6 +430,11 @@ final class AppModel: ObservableObject {
         HotkeyManager.shared.register(bindings)
     }
 
+    /// The hotkey that really works for an action: none when the saved one is a standard Mac shortcut (switched off).
+    func liveHotkey(_ action: HotkeyAction) -> Hotkey? {
+        hotkeys[action].flatMap { $0.isReserved ? nil : $0 }
+    }
+
     func perform(_ action: HotkeyAction) {
         switch action {
         case .toggleAutoClick: toggleAutoClick()
@@ -926,7 +931,10 @@ final class AppModel: ObservableObject {
                 self.flash(text); self.sound("Glass")
                 Notifier.post(macro.name, text, enabled: self.prefs.notifyWhenStopped)
             } else if let error {
-                self.flash(error); self.sound("Basso")
+                // The target closed: offer to open it again.
+                if let app = macro.target.app, WindowFinder.find(app) == nil { self.flashMissingWindow(app, error) }
+                else { self.flash(error) }
+                self.sound("Basso")
                 Notifier.post(macro.name, error, enabled: self.prefs.notifyWhenStopped)
             }
         })
@@ -1377,6 +1385,11 @@ final class AppModel: ObservableObject {
     /// background macro doesn't need to restart for.
     func update(_ m: Macro, bookkeeping: Bool = false) {
         guard let i = macros.firstIndex(where: { $0.id == m.id }) else { return }
+        var m = m
+        // “Stop after a step happens N times” on a step that was deleted would never stop: drop it.
+        if let counted = m.playback.stopAfterStep, !m.steps.contains(where: { $0.id == counted }) {
+            m.playback.stopAfterStep = nil
+        }
         let old = macros[i]
         macros[i] = m
         if !bookkeeping { readPictureWords() }

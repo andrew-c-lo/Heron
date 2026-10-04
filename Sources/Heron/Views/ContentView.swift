@@ -145,7 +145,7 @@ struct StatusBar: View {
             Button(action: c.action) {
                 HStack(spacing: 10) {
                     Text(c.button)
-                    if let hk = c.hotkey, let display = model.hotkeys[hk]?.display { KeyCaps(display, onDark: true) }
+                    if let hk = c.hotkey, let display = model.liveHotkey(hk)?.display { KeyCaps(display, onDark: true) }
                 }
             }
             .buttonStyle(PrimaryActionStyle(tint: c.tint))

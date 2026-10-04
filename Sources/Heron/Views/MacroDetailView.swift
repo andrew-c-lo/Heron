@@ -171,6 +171,8 @@ struct MacroDetailView: View {
     }
 
     private func keepAName() {
+        // One line (a pasted line break would break the list row), and never empty.
+        if name.contains(where: \.isNewline) { name = name.split(whereSeparator: \.isNewline).joined(separator: " ") }
         if name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { name = "Untitled Macro" }
     }
 
@@ -526,7 +528,11 @@ struct MacroDetailView: View {
 
     private var hasAutoStop: Bool {
         let pb = macro.playback
-        return pb.stopAfterStep != nil || pb.stopWhen != nil || pb.stopAfterMinutes > 0 || pb.stopIfIdleMinutes > 0
+        // A “stop when it appears” only counts once it has something to look for.
+        let killswitch = pb.stopWhen.map { k in
+            pb.stopAtNumber != nil || k.usesPicture || !(k.text ?? "").trimmingCharacters(in: .whitespaces).isEmpty
+        } ?? false
+        return pb.stopAfterStep != nil || killswitch || pb.stopAfterMinutes > 0 || pb.stopIfIdleMinutes > 0
             || (pb.maxClicks > 0 && (allAtOnce || macro.runsInBackground))
     }
 

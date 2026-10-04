@@ -159,7 +159,7 @@ struct AutoClickerView: View {
                 model.capturePointAfterDelay()
             }
             .disabled(model.countdown != nil)
-            Text(model.hotkeys[.capturePoint].map { "or hover anywhere and press \($0.display)" }
+            Text(model.liveHotkey(.capturePoint).map { "or hover anywhere and press \($0.display)" }
                  ?? "or set an “add point” hotkey in Settings")
                 .font(.caption).foregroundStyle(.secondary)
             Spacer()

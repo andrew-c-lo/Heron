@@ -122,6 +122,6 @@ private extension View {
 
 extension AppModel {
     func hotkeyDisplay(_ action: HotkeyAction) -> String {
-        hotkeys[action]?.display ?? "not set"
+        liveHotkey(action)?.display ?? "not set"
     }
 }

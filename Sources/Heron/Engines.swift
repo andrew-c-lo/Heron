@@ -13,7 +13,7 @@ enum RouteBuilder {
             return .success(Route(mode: target.delivery))
         }
         guard let w = resolver.window() else {
-            return .failure(RouteError(message: "Can't find a window for \(resolver.app.name). Is it open?"))
+            return .failure(RouteError(message: "The \(resolver.app.name) window went away, so the run stopped."))
         }
         return .success(Route(mode: target.delivery, pid: w.pid, windowNumber: w.windowNumber, origin: w.frame.origin,
                               focusFlash: target.delivery == .background && FocusFlash.needed(for: resolver.app.bundleID)))
@@ -494,7 +494,7 @@ final class Player {
         while !token.isCancelled {
             if opts.maxClicks > 0, clicks >= opts.maxClicks { break }
             let tick = Timing.now()
-            guard let win = resolver.window() else { return "Can't find \(resolver.app.name)'s window." }
+            guard let win = resolver.window() else { return "The \(resolver.app.name) window went away, so the run stopped." }
             if pauseable, WindowFinder.frontmostPID() != win.pid {
                 _ = Timing.wait(until: tick + 0.2, token)
                 continue

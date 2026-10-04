@@ -59,7 +59,7 @@ private struct MacroList: View {
                         .frame(maxWidth: .infinity)
                 }
                 .controlSize(.large)
-                .help(model.hotkeys[.toggleRecording].map { "Record what you do (\($0.display) from anywhere)" } ?? "Record what you do")
+                .help(model.liveHotkey(.toggleRecording).map { "Record what you do (\($0.display) from anywhere)" } ?? "Record what you do")
                 iconButton("plus", "New macro: build it step by step") { model.newMacro() }
                 iconButton("eye", "Watch for something: runs in the background and clicks a picture or some words whenever they show up") {
                     model.newBackgroundChain()
@@ -189,7 +189,7 @@ struct SimpleStrip: View {
             Button { model.toggleAutoClick() } label: {
                 HStack(spacing: 10) {
                     Text(model.isAutoClicking ? "Stop" : "Start")
-                    if let d = model.hotkeys[.toggleAutoClick]?.display { KeyCaps(d, onDark: true) }
+                    if let d = model.liveHotkey(.toggleAutoClick)?.display { KeyCaps(d, onDark: true) }
                 }
             }
             .buttonStyle(PrimaryActionStyle(tint: model.isAutoClicking ? .green : .primary))
