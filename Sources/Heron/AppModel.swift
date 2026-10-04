@@ -469,11 +469,11 @@ final class AppModel: ObservableObject {
 
     private func startClicker(_ settings: AutoClickSettings) {
         if settings.location == .points && settings.points.isEmpty {
-            flash("Add at least one click point, or switch to “Follow cursor”.")
+            flash("Add a spot to click first, or set Where to “Wherever the pointer is”.")
             return
         }
         if settings.target.delivery == .background && settings.location == .cursor {
-            flash("Background mode needs fixed click points (the cursor isn't used).")
+            flash("Clicking in the background needs spots you pick (it doesn't use the pointer).")
             return
         }
         guard let prep = prepareTarget(settings.target) else { return }
