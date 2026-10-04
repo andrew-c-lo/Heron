@@ -122,11 +122,12 @@ final class Player {
                                 error = "Picture steps need a target app. Choose one with the Target button."
                                 break outer
                             }
-                            if pic.text != nil && !pic.isText {
+                            if pic.text != nil && !pic.isText && !pic.usesPicture {
                                 error = "Step \(i + 1) has no text to look for. Type it in the step's settings."
                                 break outer
                             }
-                            let looking = pic.isText ? "“\(pic.text!.trimmingCharacters(in: .whitespaces))”" : "the picture"
+                            let words = pic.isText ? "“\(pic.text!.trimmingCharacters(in: .whitespaces))”" : nil
+                            let looking = pic.usesPicture ? (words.map { "the picture or \($0)" } ?? "the picture") : words ?? "the text"
                             Task { @MainActor in waiting(looking) }
                             let stepID = step.id
                             let result = Self.runPictureStep(pic, performer: performer, resolver: resolver, token: token,
@@ -243,7 +244,7 @@ final class Player {
             return Item(index: i, step: p, lookup: l)
         }
         guard !items.isEmpty else { return "“All at once” needs at least one picture step set to click." }
-        let hasText = items.contains { $0.lookup.isText }
+        let hasText = items.contains { $0.lookup.hasText }
         var lines: [TextFinder.Line] = []
         var lastTextRead = -Double.infinity
         var textFound: [Int: CGRect?] = [:]
@@ -284,11 +285,12 @@ final class Player {
                 let readText = hasText && tick - lastTextRead >= 0.2
                 if readText { lines = TextFinder.read(frame.pixels); lastTextRead = tick }
                 for it in items {
-                    if let text = it.lookup.text, !text.isEmpty {
+                    // The picture first (fast); then, for text or “Both”, the words.
+                    if it.lookup.hasPicture, let r = it.lookup.locatePicture(in: frame.pixels, scene: scene) {
+                        found[it.index] = r
+                    } else if let text = it.lookup.text, !text.isEmpty {
                         if readText { textFound[it.index] = TextFinder.find(text, in: lines, area: it.step.area) }
                         if let r = textFound[it.index] ?? nil { found[it.index] = r }
-                    } else if let r = it.lookup.locate(in: frame.pixels, scene: scene) {
-                        found[it.index] = r
                     }
                 }
             }
@@ -341,18 +343,22 @@ final class Player {
         var frameNumber = 0
         var cached: Look = .missing
         var lastLook = 0.0
+        var lastTextRead = -Double.infinity
         /// Checks the newest frame of the live feed, waiting briefly for one if nothing changed.
         func look() -> Look {
             // At most ~30 checks a second.
             let interval = lookup.isText ? 0.15 : 1.0 / 30 // reading text is slow; pictures are cheap
+            // “Both”: the picture every check, the words a few times a second.
+            let readText = lookup.hasText && Timing.now() - lastTextRead >= 0.15
             let since = Timing.now() - lastLook
             if since < interval { _ = Timing.wait(until: lastLook + interval, token) }
             lastLook = Timing.now()
             guard let win = resolver.window(),
                   let frame = FrameSource.shared.frame(for: win, after: frameNumber, timeout: 0.1) else { return .unreadable }
-            if frame.number == frameNumber { return cached }
+            if frame.number == frameNumber && !(readText && lookup.hasPicture) { return cached }
             frameNumber = frame.number
-            if let r = lookup.locate(in: frame.pixels) {
+            if readText { lastTextRead = Timing.now() }
+            if let r = lookup.locate(in: frame.pixels, readText: readText) {
                 cached = .found(r, win)
             } else {
                 cached = .missing

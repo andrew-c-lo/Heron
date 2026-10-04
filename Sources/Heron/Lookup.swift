@@ -14,8 +14,8 @@ struct Lookup {
 
     init?(step s: ImageStep) {
         self.init(png: s.png, width: s.width, height: s.height, text: s.text, area: s.area,
-                  strictness: s.strictness)
-        if !isText {
+                  strictness: s.strictness, alsoPicture: s.alsoPicture)
+        if template != nil {
             variants = s.variants.compactMap { TemplateMatcher.prepare(png: $0.png, width: $0.width, height: $0.height) }
         }
     }
@@ -25,45 +25,71 @@ struct Lookup {
                   area: w.area, strictness: w.strictness)
     }
 
-    init?(png: Data?, width: Double, height: Double, text: String?, area: CGRect?, strictness: Double) {
+    /// `text` set = look for words; with `alsoPicture` the picture counts too.
+    init?(png: Data?, width: Double, height: Double, text: String?, area: CGRect?, strictness: Double,
+          alsoPicture: Bool = false) {
         self.text = text?.trimmingCharacters(in: .whitespaces)
         self.area = area
         self.strictness = strictness
+        if self.text == nil || alsoPicture, let png, !png.isEmpty {
+            template = TemplateMatcher.prepare(png: png, width: width, height: height)
+        }
         // Text mode (even with nothing typed yet) never falls back to an old picture.
-        if let t = self.text { if t.isEmpty { return nil } else { return } }
-        guard let png, let t = TemplateMatcher.prepare(png: png, width: width, height: height) else { return nil }
-        template = t
+        if self.text?.isEmpty == true { self.text = nil; if !alsoPicture { return nil } }
+        guard template != nil || hasText else { return nil }
     }
 
-    var isText: Bool { text?.isEmpty == false }
+    var hasPicture: Bool { template != nil }
+    var hasText: Bool { text?.isEmpty == false }
+    /// Only words (no picture).
+    var isText: Bool { hasText && !hasPicture }
 
-    /// Best match in the window (window coordinates), or nil. `scene` is reused for picture searches over the
-    /// whole window, so several pictures can share one prepared frame.
-    func find(in px: ScreenReader.WindowPixels, scene: TemplateMatcher.Scene? = nil) -> TemplateMatcher.Match? {
-        var pixels = px, offset = CGPoint.zero
+    /// The pixels inside the search area, and where they sit in the window.
+    private func searchPixels(_ px: ScreenReader.WindowPixels) -> (ScreenReader.WindowPixels, CGPoint) {
         if let a = area?.integral.intersection(CGRect(x: 0, y: 0, width: px.width, height: px.height)),
            !a.isEmpty, let cropped = px.cropped(to: a) {
-            pixels = cropped
-            offset = a.origin
+            return (cropped, a.origin)
         }
-        let local: TemplateMatcher.Match?
-        if let text, !text.isEmpty {
-            local = TextFinder.find(text, in: pixels)
-        } else if let template {
-            let useScene = offset == .zero && area == nil ? scene : nil
-            let sc = useScene ?? TemplateMatcher.Scene(rgba: pixels.rgba, width: pixels.width, height: pixels.height)
-            local = ([template] + variants).compactMap { TemplateMatcher.find($0, in: sc) }.max { $0.score < $1.score }
-        } else {
-            local = nil
-        }
-        return local.map { TemplateMatcher.Match(rect: $0.rect.offsetBy(dx: offset.x, dy: offset.y), score: $0.score) }
+        return (px, .zero)
     }
 
-    /// Where it is, if it's on screen right now (text counts as found whenever it's read; pictures must
-    /// meet the strictness).
-    func locate(in px: ScreenReader.WindowPixels, scene: TemplateMatcher.Scene? = nil) -> CGRect? {
-        guard let m = find(in: px, scene: scene), isText || m.score >= strictness else { return nil }
+    /// Best picture match (any score), window coordinates.
+    func matchPicture(in px: ScreenReader.WindowPixels, scene: TemplateMatcher.Scene? = nil) -> TemplateMatcher.Match? {
+        guard let template else { return nil }
+        let (pixels, offset) = searchPixels(px)
+        let sc = (offset == .zero && area == nil ? scene : nil)
+            ?? TemplateMatcher.Scene(rgba: pixels.rgba, width: pixels.width, height: pixels.height)
+        let m = ([template] + variants).compactMap { TemplateMatcher.find($0, in: sc) }.max { $0.score < $1.score }
+        return m.map { TemplateMatcher.Match(rect: $0.rect.offsetBy(dx: offset.x, dy: offset.y), score: $0.score) }
+    }
+
+    /// The words, if they're on screen (window coordinates).
+    func matchText(in px: ScreenReader.WindowPixels) -> TemplateMatcher.Match? {
+        guard let text, !text.isEmpty else { return nil }
+        let (pixels, offset) = searchPixels(px)
+        return TextFinder.find(text, in: pixels)
+            .map { TemplateMatcher.Match(rect: $0.rect.offsetBy(dx: offset.x, dy: offset.y), score: $0.score) }
+    }
+
+    /// The picture, if it's on screen and meets the strictness.
+    func locatePicture(in px: ScreenReader.WindowPixels, scene: TemplateMatcher.Scene? = nil) -> CGRect? {
+        guard let m = matchPicture(in: px, scene: scene), m.score >= strictness else { return nil }
         return m.rect
+    }
+
+    /// Where it is, if it's on screen right now: the picture first (fast), then the words.
+    /// `readText: false` skips the (slow) word reading this time.
+    func locate(in px: ScreenReader.WindowPixels, scene: TemplateMatcher.Scene? = nil, readText: Bool = true) -> CGRect? {
+        if let r = locatePicture(in: px, scene: scene) { return r }
+        return readText ? matchText(in: px)?.rect : nil
+    }
+
+    /// For Test Now: a picture that meets the strictness, else the words, else the closest picture.
+    func find(in px: ScreenReader.WindowPixels, scene: TemplateMatcher.Scene? = nil) -> TemplateMatcher.Match? {
+        let picture = matchPicture(in: px, scene: scene)
+        if let p = picture, p.score >= strictness { return p }
+        if let t = matchText(in: px) { return t }
+        return picture
     }
 }
 

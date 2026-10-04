@@ -59,7 +59,7 @@ struct MacroDetailView: View {
                 .onAppear { updateCompact(g.size.width) }
                 .onChange(of: g.size.width) { _, w in updateCompact(w) }
         })
-        .onAppear { model.loadStuck(for: macro.id) }
+        .onAppear { model.loadStuck(for: macro.id); model.loadFoundHistory(for: macro) }
         .sheet(isPresented: $ui.showingStuck) {
             StuckScreensView(macroID: macro.id, onAdd: { step in
                 select(insert(.findImage(step), delay: 0.1))
@@ -428,6 +428,13 @@ struct MacroDetailView: View {
                     .disabled(editing.combinablePictures.count < 2)
                 Button("Delete Selected Steps", role: .destructive) { deleteSelected() }.disabled(selection.isEmpty)
                 Divider()
+                let narrow = model.narrowableSteps(in: macro)
+                Button(narrow.isEmpty ? "Narrow Searches to Where Things Show Up"
+                                      : "Narrow \(narrow.count) Search\(narrow.count == 1 ? "" : "es") to Where Things Show Up") {
+                    narrowSearches(narrow)
+                }
+                .disabled(narrow.isEmpty)
+                .help("Steps that kept showing up in one part of the window will only look there: faster, and fewer look-alikes.")
                 Button("Stuck Screens…") { ui.showingStuck = true }
                 Button("Autopilot (Experimental)…") { ui.showingAutopilot = true }
                 Divider()
@@ -638,6 +645,16 @@ struct MacroDetailView: View {
         guard !selection.isEmpty else { return }
         macro.steps.removeAll { selection.contains($0.id) }
         selection.removeAll()
+    }
+
+    private func narrowSearches(_ narrow: [(id: UUID, area: CGRect)]) {
+        for n in narrow {
+            if let i = macro.steps.firstIndex(where: { $0.id == n.id }), case .findImage(var p) = macro.steps[i].action {
+                p.area = n.area
+                macro.steps[i].action = .findImage(p)
+            }
+        }
+        model.flash("Narrowed \(narrow.count) search\(narrow.count == 1 ? "" : "es"). Undo with ⌘Z.")
     }
 
     private func scaleDelays(_ f: Double) {

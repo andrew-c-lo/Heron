@@ -60,7 +60,8 @@ struct ActionGroup: Identifiable {
             return "Wait for \(c.hex)"
         case .image(let s):
             if s.text != nil {
-                let t = s.isText ? "“\(s.text!.trimmingCharacters(in: .whitespaces))”" : "some words"
+                let words = s.isText ? "“\(s.text!.trimmingCharacters(in: .whitespaces))”" : "some words"
+                let t = s.usesPicture ? "the picture or " + words : words
                 switch s.mode {
                 case .click: return (touch ? "Tap " : "Click ") + t + (s.repeatUntilGone ? " until it's gone" : "")
                 case .appear: return "Wait for " + t
@@ -85,7 +86,7 @@ struct ActionGroup: Identifiable {
             (s.untilAppears ? (s.mode == .gone ? "no time limit" : "whenever it appears")
                             : "up to \(s.timeout.formatted())s, else "
                                 + (s.fallbackX != nil ? "clicks where it was recorded" : s.otherwise.label.lowercased()))
-                + (s.text != nil ? "" : " · \(Int((s.strictness * 100).rounded()))% match")
+                + (!s.usesPicture ? "" : " · \(Int((s.strictness * 100).rounded()))% match")
                 + (s.area == nil ? "" : " · in an area")
         case .colorWait(let at, let c):
             "at \(Self.fmt(at))"

@@ -14,11 +14,21 @@ final class WatcherUIState: ObservableObject {
 /// "Look for: Picture | Text". Text mode is `text != nil`, so an empty box stays in text mode.
 struct LookForPicker: View {
     @Binding var text: String?
+    /// Offers “Both” (picture or words, whichever is found) when given.
+    var alsoPicture: Binding<Bool>? = nil
+
+    private enum Choice { case picture, text, both }
 
     var body: some View {
-        Picker("Look for", selection: Binding(get: { text != nil }, set: { text = $0 ? (text ?? "") : nil })) {
-            Text("Picture").tag(false)
-            Text("Text").tag(true)
+        Picker("Look for", selection: Binding<Choice>(
+            get: { text == nil ? .picture : (alsoPicture?.wrappedValue == true ? .both : .text) },
+            set: { c in
+                text = c == .picture ? nil : (text ?? "")
+                alsoPicture?.wrappedValue = c == .both
+            })) {
+            Text("Picture").tag(Choice.picture)
+            Text("Text").tag(Choice.text)
+            if alsoPicture != nil { Text("Both").tag(Choice.both) }
         }
         .pickerStyle(.segmented)
         .labelsHidden() // the section is already titled "Look for"

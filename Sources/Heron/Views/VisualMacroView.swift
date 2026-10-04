@@ -102,7 +102,7 @@ extension ActionGroup {
     var points: [CGPoint] {
         switch kind {
         case .click(_, _, let at?, _), .scroll(_, _, let at?), .colorWait(let at, _), .move(let at): [at]
-        case .image(let s) where s.text != nil:
+        case .image(let s) where !s.usesPicture:
             if let x = s.fallbackX, let y = s.fallbackY { [CGPoint(x: x, y: y)] }
             else { s.area.map { [CGPoint(x: $0.midX, y: $0.midY)] } ?? [] }
         case .image(let s): [CGPoint(x: s.originX + s.width / 2, y: s.originY + s.height / 2)]

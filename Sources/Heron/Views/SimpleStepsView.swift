@@ -87,7 +87,7 @@ struct ActionEditing {
         guard macro.wrappedValue.playback.order == .allAtOnce, case .image(let s) = g.kind else { return nil }
         guard s.mode == .click else { return "Skipped in All at once (only steps that click are used)" }
         let how = s.repeatUntilGone ? "every \(s.repeatEvery.formatted())s while it's showing" : "once each time it appears"
-        return "Whenever it appears, \(how)" + (s.text != nil ? "" : " · \(Int((s.strictness * 100).rounded()))% match")
+        return "Whenever it appears, \(how)" + (!s.usesPicture ? "" : " · \(Int((s.strictness * 100).rounded()))% match")
     }
 
     /// The id of the step that holds a group's main action (e.g. the picture step itself).
@@ -363,7 +363,7 @@ struct ActionRow: View {
                     ColorWaitControls(wait: color, onSampleColor: onSampleColor)
                 } else if case .image(let pic) = group.kind {
                     HStack(spacing: 8) {
-                        if pic.text == nil {
+                        if pic.usesPicture {
                             PictureThumbnail(png: pic.png, maxWidth: 110, maxHeight: 26)
                             if !pic.variants.isEmpty {
                                 Text("+\(pic.variants.count)")

@@ -51,14 +51,21 @@ struct PictureStepEditor: View {
     private var form: some View {
         Form {
             Section("Look for") {
-                LookForPicker(text: step.text)
+                LookForPicker(text: step.text, alsoPicture: step.alsoPicture)
+                if s.text != nil && s.alsoPicture {
+                    Text("Found when either the picture or the words show up. The picture is checked first, since it's quicker.")
+                        .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                }
                 if s.text != nil {
                     LookForTextField(text: step.text)
-                    HStack {
-                        testButton
-                        Spacer()
+                    if !s.alsoPicture {
+                        HStack {
+                            testButton
+                            Spacer()
+                        }
                     }
-                } else {
+                }
+                if s.text == nil || s.alsoPicture {
                 VStack(alignment: .leading, spacing: 8) {
                     if s.png.isEmpty {
                         Text("No picture yet").font(.caption).foregroundStyle(.secondary)
@@ -74,7 +81,7 @@ struct PictureStepEditor: View {
                 }
                 }
                 SearchAreaRow(area: step.area) { pick(area: true) }
-                if s.text == nil {
+                if s.text == nil || s.alsoPicture {
                 LabeledContent {
                     HStack {
                         Slider(value: step.strictness, in: 0.6...0.98).frame(width: 100)
@@ -120,7 +127,7 @@ struct PictureStepEditor: View {
                         }
                     } label: {
                         Text("Click offset")
-                        Text("Shift the \(touch ? "tap" : "click") away from the \(s.text != nil ? "text" : "picture")'s center, in points.")
+                        Text("Shift the \(touch ? "tap" : "click") away from the \(s.text == nil ? "picture" : s.alsoPicture ? "match" : "text")'s center, in points.")
                     }
                 }
             }
@@ -171,7 +178,7 @@ struct PictureStepEditor: View {
                     ui.testing = false
                 }
             }
-            .disabled(ui.testing || (s.text != nil && !s.isText))
+            .disabled(ui.testing || (s.text != nil && !s.isText && !s.usesPicture))
             if let r = ui.testResult {
                 Text(r).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }

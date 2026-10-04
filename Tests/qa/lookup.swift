@@ -275,5 +275,23 @@ if combineMacro.steps.count == 2, case .findImage(let merged) = combineMacro.ste
     check("combining makes one step that also matches the other picture", merged.variants.count == 1 && merged.png == settingsPic.0)
 } else { check("combining two picture steps", false, "\(combineMacro.steps.count) steps") }
 
+// Both: the picture or the words, whichever shows up.
+var both = ImageStep(png: settingsPic.0, width: settingsPic.1, height: settingsPic.2, originX: 0, originY: 0)
+both.text = "Claim"
+both.alsoPicture = true
+let bothLookup = Lookup(step: both)!
+check("both: the picture is found when it's there (checked first)", near(bothLookup.locate(in: px), boxes["Settings"]!))
+check("both: without the picture, the words are found", near(bothLookup.locate(in: ix), ib["Claim"]!),
+      "\(String(describing: bothLookup.locate(in: ix)))")
+check("both: skipping the word read only tries the picture", bothLookup.locate(in: ix, readText: false) == nil)
+var bothEmpty = both; bothEmpty.text = ""
+check("both with no words typed still looks for the picture", near(Lookup(step: bothEmpty)?.locate(in: px), boxes["Settings"]!))
+var textOnly = both; textOnly.alsoPicture = false; textOnly.text = "Nowhere"
+check("text mode ignores a picture left over from before", Lookup(step: textOnly)!.locate(in: px) == nil)
+let both2 = try! JSONDecoder().decode(ImageStep.self, from: JSONEncoder().encode(both))
+check("both saves and loads", both2.alsoPicture && both2.text == "Claim" && both2.usesPicture)
+check("both title names the picture and the words", ActionGroup(id: UUID(), range: 0..<1, lead: 0...0, wait: 0, start: 0,
+      kind: .image(both)).title(touch: false).contains("the picture or “Claim”"))
+
 print(failures == 0 ? "ALL PASSED" : "\(failures) FAILED")
 exit(failures == 0 ? 0 : 1)

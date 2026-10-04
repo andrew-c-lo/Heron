@@ -62,7 +62,7 @@ struct StepInspector: View {
                 if let area = model.suggestedArea(for: id), binding.wrappedValue.area != area {
                     HStack(alignment: .top, spacing: 8) {
                         Image(systemName: "scope").foregroundStyle(.tint)
-                        Text("Last run it only showed up in one part of the window. Searching just there is faster and avoids look-alikes.")
+                        Text("It keeps showing up in one part of the window. Searching just there is faster and avoids look-alikes.")
                             .font(.caption)
                         Spacer(minLength: 4)
                         Button("Use It") { binding.wrappedValue.area = area }

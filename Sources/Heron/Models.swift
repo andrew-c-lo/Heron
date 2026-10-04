@@ -307,6 +307,8 @@ struct ImageStep: Codable, Equatable {
     var goToStep: UUID?
     /// More pictures that count as the same thing (for example the same button in different states).
     var variants: [PictureVariant] = []
+    /// With text set: the picture counts too (“Both”), whichever is found first.
+    var alsoPicture = false
     /// Where in the picture to click, as fractions of its width and height (nil = the middle, spread over all of it).
     var clickArea: CGRect?
     /// Look for this text instead of the picture (nil = picture).
@@ -315,6 +317,8 @@ struct ImageStep: Codable, Equatable {
     var area: CGRect?
 
     var isText: Bool { !(text ?? "").trimmingCharacters(in: .whitespaces).isEmpty }
+    /// Whether the picture is looked for (Picture, or Both with a picture picked).
+    var usesPicture: Bool { (text == nil || alsoPicture) && !png.isEmpty }
 
     init(png: Data, width: Double, height: Double, originX: Double, originY: Double) {
         self.png = png
@@ -364,6 +368,7 @@ extension ImageStep {
         fallbackY = try c.decodeIfPresent(Double.self, forKey: .fallbackY)
         goToStep = try c.decodeIfPresent(UUID.self, forKey: .goToStep)
         variants = try c.decodeIfPresent([PictureVariant].self, forKey: .variants) ?? []
+        alsoPicture = try c.decodeIfPresent(Bool.self, forKey: .alsoPicture) ?? false
         clickArea = try c.decodeIfPresent(CGRect.self, forKey: .clickArea)
         text = try c.decodeIfPresent(String.self, forKey: .text)
         area = try c.decodeIfPresent(CGRect.self, forKey: .area)

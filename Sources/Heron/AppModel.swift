@@ -671,10 +671,54 @@ final class AppModel: ObservableObject {
         if let found { stepFound[step] = stepFound[step].map { $0.union(found) } ?? found }
     }
 
-    /// The search area suggested for a step from where it was found last run (with some room around it).
+    /// Where each step was found in earlier runs (from the saved reports): the spot and how many runs saw it.
+    @Published private(set) var foundHistory: [UUID: (rect: CGRect, runs: Int)] = [:]
+
+    /// Reads where this macro's steps were found in its saved run reports.
+    func loadFoundHistory(for m: Macro) {
+        let dir = AppFolder.url.appendingPathComponent("Runs", isDirectory: true)
+        let files = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? []
+        let ids = Set(m.steps.map(\.id))
+        for s in m.steps { foundHistory[s.id] = nil }
+        for url in files where url.pathExtension == "json" {
+            guard let data = try? Data(contentsOf: url),
+                  let report = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let steps = report["steps"] as? [[String: Any]] else { continue }
+            if let id = report["macroID"] as? String { guard id == m.id.uuidString else { continue } }
+            else {
+                // Older reports: same name, same steps (they're listed by number then).
+                guard report["macro"] as? String == m.name, steps.count == m.steps.count else { continue }
+            }
+            for (i, d) in steps.enumerated() {
+                guard let f = d["foundIn"] as? [Double], f.count == 4 else { continue }
+                let id = (d["id"] as? String).flatMap(UUID.init(uuidString:)) ?? m.steps[i].id
+                guard ids.contains(id) else { continue }
+                let r = CGRect(x: f[0], y: f[1], width: f[2], height: f[3])
+                let old = foundHistory[id]
+                foundHistory[id] = (old.map { $0.rect.union(r) } ?? r, (old?.runs ?? 0) + 1)
+            }
+        }
+    }
+
+    /// The search area suggested for a step from where it showed up in every run so far (with some room
+    /// around it): when it keeps appearing in one spot, searching just there is faster and avoids look-alikes.
     func suggestedArea(for step: UUID) -> CGRect? {
-        guard let r = stepFound[step], (stepHits[step] ?? 0) >= 2 else { return nil }
+        let past = foundHistory[step]
+        let now = stepFound[step]
+        let seen = (past?.runs ?? 0) + (now != nil && (stepHits[step] ?? 0) >= 2 ? 1 : 0)
+        let rects = [past?.rect, now].compactMap { $0 }
+        guard seen >= 2 || (stepHits[step] ?? 0) >= 3, var r = rects.first else { return nil }
+        for x in rects.dropFirst() { r = r.union(x) }
         return r.insetBy(dx: -max(24, r.width * 0.25), dy: -max(24, r.height * 0.25)).integral
+    }
+
+    /// Picture and text steps whose search could be narrowed to where they always showed up.
+    func narrowableSteps(in m: Macro) -> [(id: UUID, area: CGRect)] {
+        m.steps.compactMap { s in
+            guard case .findImage(let p) = s.action, let a = suggestedArea(for: s.id) else { return nil }
+            guard p.area == nil else { return nil } // already limited
+            return (s.id, a)
+        }
     }
 
     private static func stuckFolder(_ macro: UUID) -> URL {
@@ -693,7 +737,7 @@ final class AppModel: ObservableObject {
               !log.events.isEmpty else { return }
         let index = Dictionary(uniqueKeysWithValues: m.steps.enumerated().map { ($0.element.id, $0.offset + 1) })
         let steps: [[String: Any]] = m.steps.enumerated().map { i, s in
-            var d: [String: Any] = ["step": i + 1, "hits": stepHits[s.id] ?? 0, "enabled": s.enabled]
+            var d: [String: Any] = ["step": i + 1, "id": s.id.uuidString, "hits": stepHits[s.id] ?? 0, "enabled": s.enabled]
             if case .findImage(let p) = s.action {
                 d["looksFor"] = p.text.map { "text: \($0)" } ?? "picture \(Int(p.width))×\(Int(p.height))"
             }
@@ -701,7 +745,7 @@ final class AppModel: ObservableObject {
             return d
         }
         let report: [String: Any] = [
-            "macro": m.name, "started": ISO8601DateFormatter().string(from: log.started),
+            "macro": m.name, "macroID": m.id.uuidString, "started": ISO8601DateFormatter().string(from: log.started),
             "seconds": Int(Date().timeIntervalSince(log.started)),
             "stuckTaps": log.events.filter { $0.step == nil }.count,
             "steps": steps,
@@ -713,6 +757,7 @@ final class AppModel: ObservableObject {
         if let data = try? JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys]) {
             try? data.write(to: dir.appendingPathComponent("\(m.name) \(stamp).json"))
         }
+        loadFoundHistory(for: m)
     }
 
     private func saveStuck(_ screen: ScreenReader.WindowPixels, macro: UUID) {
@@ -734,6 +779,16 @@ final class AppModel: ObservableObject {
 
     func deleteStuck(_ url: URL, macro: UUID) {
         try? FileManager.default.removeItem(at: url)
+        loadStuck(for: macro)
+    }
+
+    /// Moves every stuck screen of a macro to the Trash (so a mistaken Clear All can be undone in Finder).
+    func clearStuck(macro: UUID) {
+        for url in stuckScreens[macro] ?? [] {
+            if (try? FileManager.default.trashItem(at: url, resultingItemURL: nil)) == nil {
+                try? FileManager.default.removeItem(at: url)
+            }
+        }
         loadStuck(for: macro)
     }
 
@@ -875,13 +930,26 @@ final class AppModel: ObservableObject {
         guard let shot = await ScreenReader.captureWindowAsync(win) else {
             return "Couldn't capture \(app.name). Allow Screen Recording in Permissions."
         }
-        let match = await Task.detached { lookup.find(in: shot) }.value
-        if let text = lookup.text, !text.isEmpty {
+        if lookup.isText, let text = lookup.text {
+            let match = await Task.detached { lookup.matchText(in: shot) }.value
             guard let m = match else { return "“\(text)” isn't on screen right now." }
             return "Found “\(text)” at (\(Int(m.rect.midX)), \(Int(m.rect.midY)))."
         }
         let strictness = lookup.strictness
-        guard let m = match else { return "Not found." }
+        let picture = await Task.detached { lookup.matchPicture(in: shot) }.value
+        if let m = picture, m.score >= strictness {
+            return "Found the picture at (\(Int(m.rect.midX)), \(Int(m.rect.midY))): \(Int((m.score * 100).rounded()))% match."
+        }
+        // “Both”: the picture isn't there, so try the words.
+        if let text = lookup.text, lookup.hasText {
+            let words = await Task.detached { lookup.matchText(in: shot) }.value
+            let pictureNote = picture.map { " (the picture was only a \(Int(($0.score * 100).rounded()))% match)" } ?? ""
+            if let w = words {
+                return "Found “\(text)” at (\(Int(w.rect.midX)), \(Int(w.rect.midY)))\(pictureNote)."
+            }
+            return "Neither the picture nor “\(text)” is on screen right now\(pictureNote)."
+        }
+        guard let m = picture else { return "Not found." }
         let pct = Int((m.score * 100).rounded())
         if m.score >= strictness {
             return "Found at (\(Int(m.rect.midX)), \(Int(m.rect.midY))): \(pct)% match."

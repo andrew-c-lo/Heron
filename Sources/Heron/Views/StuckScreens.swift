@@ -46,6 +46,9 @@ struct StuckScreensView: View {
                                               : "Suggestions use common button words; Apple Intelligence isn't available on this Mac.")
                     .font(.caption).foregroundStyle(.secondary)
                 Spacer()
+                Button("Clear All") { model.clearStuck(macro: macroID) }
+                    .disabled(screens.isEmpty)
+                    .help("Move all \(screens.count) screens to the Trash. Handy when they were only slow loads.")
                 Button("Done", action: onDone).keyboardShortcut(.defaultAction)
             }
             .padding(12)
