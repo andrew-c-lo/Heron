@@ -837,5 +837,10 @@ else { check("a Run step whose macro was deleted is refused", false) }
 let ifJSON = try! JSONEncoder().encode(branching)
 check("Ifs save and load", (try? JSONDecoder().decode(Macro.self, from: ifJSON))?.steps.map(\.action) == branching.steps.map(\.action))
 
+check("new macros with an app click in the background; whole-screen ones jump and return",
+      AppModel.startingDelivery(for: TargetApp(bundleID: "com.example.rewards", name: "Rewards")) == .background
+      && AppModel.startingDelivery(for: nil) == .jumpReturn)
+check("Background is offered first", DeliveryMode.choices.first == .background)
+
 print(failures == 0 ? "ALL PASSED" : "\(failures) FAILED")
 exit(failures == 0 ? 0 : 1)

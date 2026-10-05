@@ -31,7 +31,7 @@ enum DeliveryMode: String, Codable, CaseIterable, Identifiable {
 
     /// What's offered: leaving the cursor wherever the last click was isn't a useful choice, so “Normal” is gone
     /// (macros saved with it load as Jump & return).
-    static let choices: [DeliveryMode] = [.jumpReturn, .background]
+    static let choices: [DeliveryMode] = [.background, .jumpReturn]
 
     init(from decoder: Decoder) throws {
         let raw = try decoder.singleValueContainer().decode(String.self)
@@ -49,8 +49,8 @@ enum DeliveryMode: String, Codable, CaseIterable, Identifiable {
     var explanation: String {
         switch self {
         case .normal: "Moves your real cursor to each click."
-        case .jumpReturn: "Cursor jumps to the click and instantly back, so your mouse stays mostly yours."
-        case .background: "Clicks go straight to the target app. Your cursor never moves. Not every app accepts this, so use Test to check."
+        case .jumpReturn: "Cursor jumps to the click and instantly back. Works in every app, including ones that ignore background clicks (some games)."
+        case .background: "Clicks go straight to the target app, and your cursor never moves. If an app ignores them, use Test, then switch to Jump & return."
         }
     }
 }

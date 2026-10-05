@@ -206,11 +206,12 @@ With Apple Intelligence (macOS 26 or later), all on your Mac and never sent anyw
 <details>
 <summary><b>Clicking that stays out of your way</b></summary>
 
-- Jump & return (the default): the cursor jumps to each click and straight back, and waits until you've
-  stopped moving the mouse
-- Background delivery: clicks, taps and typing go straight into the target app without moving the cursor,
-  in standard Mac apps and in iPhone Mirroring. Mirroring only takes input while it thinks it's the active app,
+- Background delivery (the default for macros with an app): clicks, taps and typing go straight into the
+  target app without moving the cursor, in standard Mac apps and in iPhone Mirroring. Mirroring only takes
+  input while it thinks it's the active app,
   so Heron tells it so around each tap, without bringing it forward or taking the keyboard from your app
+- Jump & return, for apps that ignore background clicks (some games) and macros on the whole screen: the
+  cursor jumps to each click and straight back, and waits until you've stopped moving the mouse
 - Positions are relative to the app's window, so moving the window doesn't break anything
 - Randomize click position: each click lands at a random spot near its target (or anywhere in a picture's
   click box)

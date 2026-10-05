@@ -137,7 +137,7 @@ save(chain, snapshot: true)
 // The README demo GIF (scripts/record-demo.sh): claim each reward as it lights up, and stop after six.
 var claimAll = Macro(name: "Claim rewards", steps: [])
 claimAll.created = Date(timeIntervalSinceNow: -60)
-claimAll.target = TargetOptions(app: phone, delivery: .jumpReturn)
+claimAll.target = TargetOptions(app: phone, delivery: .background)
 claimAll.playback.order = .allAtOnce
 claimAll.playback.repeatMode = .untilStopped
 var claimText = ImageStep(png: Data(), width: 0, height: 0, originX: 0, originY: 0)

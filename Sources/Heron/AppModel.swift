@@ -712,6 +712,10 @@ final class AppModel: ObservableObject {
         autoClick = s
     }
 
+    /// How a new macro's clicks are sent: in the background when it has an app (the pointer never moves), and
+    /// Jump & return when it works on the whole screen (there's no app to send them to).
+    nonisolated static func startingDelivery(for app: TargetApp?) -> DeliveryMode { app == nil ? .jumpReturn : .background }
+
     func setMacroTarget(_ id: UUID, _ app: TargetApp?) {
         guard var m = macros.first(where: { $0.id == id }), app != m.target.app else { return }
         if let d = conversionOffset(from: m.target.app, to: app) {
@@ -723,8 +727,11 @@ final class AppModel: ObservableObject {
         } else if m.steps.contains(where: { $0.action.point != nil }) {
             flash("Couldn't find the window to convert coordinates. They were kept as-is; re-check them.")
         }
+        let hadApp = m.target.app != nil
         m.target.app = app
         if app == nil && m.target.delivery == .background { m.target.delivery = .jumpReturn }
+        // A macro's first app: clicks go to it in the background, so your pointer stays yours.
+        if app != nil && !hadApp { m.target.delivery = .background }
         update(m)
     }
 
@@ -820,7 +827,9 @@ final class AppModel: ObservableObject {
         if let into, var m = macros.first(where: { $0.id == into.id }) {
             // Added after anything already there (say, a step added while recording), never replacing it.
             m.steps += steps
+            let hadApp = m.target.app != nil
             m.target.app = into.app ?? smart.app ?? m.target.app
+            if !hadApp { m.target.delivery = Self.startingDelivery(for: m.target.app) }
             m.target.windowSize = m.target.app.flatMap { WindowFinder.find($0)?.frame.size }
             update(m)
             if let snap = pendingSnapshot { setSnapshot(snap, for: m.id) }
@@ -835,6 +844,7 @@ final class AppModel: ObservableObject {
         df.dateFormat = "MMM d, HH:mm:ss"
         var m = Macro(name: "Recording \(df.string(from: Date()))", steps: steps)
         m.target.app = prefs.recordTarget ?? smart.app
+        m.target.delivery = Self.startingDelivery(for: m.target.app)
         m.target.windowSize = m.target.app.flatMap { WindowFinder.find($0)?.frame.size }
         macros.append(m)
         store.save(m)
@@ -1328,7 +1338,7 @@ final class AppModel: ObservableObject {
     func newBackgroundChain() {
         var m = Macro(name: "Watch \(macros.filter(\.runsInBackground).count + 1)", steps: [])
         m.target.app = selectedMacro?.target.app ?? autoClick.target.app ?? prefs.recordTarget
-        m.target.delivery = selectedMacro?.target.delivery ?? .jumpReturn
+        m.target.delivery = Self.startingDelivery(for: m.target.app)
         m.runsInBackground = true
         m.playback.order = .allAtOnce
         m.playback.repeatMode = .untilStopped
@@ -1483,7 +1493,7 @@ final class AppModel: ObservableObject {
     func newChain() {
         var m = Macro(name: "Chain \(macros.filter { $0.name.hasPrefix("Chain") }.count + 1)", steps: [])
         m.target.app = macros.last?.target.app ?? autoClick.target.app ?? prefs.recordTarget
-        m.target.delivery = macros.last?.target.delivery ?? .jumpReturn
+        m.target.delivery = Self.startingDelivery(for: m.target.app)
         macros.append(m)
         store.save(m)
         show(m.id)
@@ -1493,7 +1503,7 @@ final class AppModel: ObservableObject {
         var m = Macro(name: "New Macro", steps: [])
         // Same app as the macro you're looking at, so picture and text steps work right away.
         m.target.app = selectedMacro?.target.app ?? macros.last?.target.app ?? autoClick.target.app ?? prefs.recordTarget
-        m.target.delivery = selectedMacro?.target.delivery ?? .jumpReturn
+        m.target.delivery = Self.startingDelivery(for: m.target.app)
         macros.append(m)
         store.save(m)
         show(m.id)
