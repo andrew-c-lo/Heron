@@ -160,33 +160,77 @@ struct ActionMap: View {
             let toView: (CGPoint) -> CGPoint = { p in
                 CGPoint(x: origin.x + (p.x - space.minX) * scale, y: origin.y + (p.y - space.minY) * scale)
             }
-            let placed = placements(toView)
+            let placed = placements(toView, bounds: CGRect(origin: .zero, size: geo.size))
+            // The step in focus (selected, or playing): its path in and out is drawn bright, the rest fades.
+            let focus = placed.firstIndex { editing.isSelected($0.group) }
+                ?? playing.flatMap { p in placed.firstIndex { $0.number == p + 1 } }
 
             ZStack(alignment: .topLeading) {
                 background(drawn: drawn, origin: origin)
                     .onTapGesture { ui.selection.removeAll() }
 
-                // Order of events: a faint dashed line through the markers.
+                // Order of events: a faint dashed line through the exact spots. With many steps it would be a tangle
+                // (the timeline below shows the order), so then only the line around the step in focus is drawn.
                 Path { path in
+                    guard placed.count <= 12 else { return }
                     for (n, item) in placed.enumerated() {
                         n == 0 ? path.move(to: item.point) : path.addLine(to: item.point)
                     }
                 }
-                .stroke(Color.white.opacity(0.7), style: StrokeStyle(lineWidth: 1.5, dash: [4, 4]))
+                .stroke(Color.white.opacity(focus == nil ? 0.55 : 0.25), style: StrokeStyle(lineWidth: 1.2, dash: [4, 4]))
                 .shadow(color: .black.opacity(0.5), radius: 1)
                 .allowsHitTesting(false)
+                if let f = focus {
+                    Path { path in
+                        let from = max(0, f - 1), to = min(placed.count - 1, f + 1)
+                        path.move(to: placed[from].point)
+                        for k in (from + 1)...max(from + 1, to) where k < placed.count { path.addLine(to: placed[k].point) }
+                    }
+                    .stroke(Color.white.opacity(0.95), style: StrokeStyle(lineWidth: 2, dash: [5, 3]))
+                    .shadow(color: .black.opacity(0.6), radius: 1.5)
+                    .allowsHitTesting(false)
+                }
 
                 ForEach(placed, id: \.group.id) { item in
                     if case .drag(_, _, let to) = item.group.kind {
                         Arrow(from: item.point, to: offsetIfDragging(toView(to), item.group))
                             .stroke(item.group.tint, style: StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round))
                             .shadow(color: .black.opacity(0.4), radius: 1.5)
+                            .opacity(dimmed(item, focus: focus, in: placed) ? 0.4 : 1)
                             .allowsHitTesting(false)
                     }
                 }
 
+                // Leader lines from each exact spot to its number, then the spots, then the numbers on top.
                 ForEach(placed, id: \.group.id) { item in
-                    marker(item, scale: scale)
+                    // From the edge of the spot's ring to the edge of its number, so neither is crossed out.
+                    Path { p in
+                        let dx = item.badge.x - item.point.x, dy = item.badge.y - item.point.y
+                        let len = max(hypot(dx, dy), 1)
+                        guard len > 20 else { return }
+                        p.move(to: CGPoint(x: item.point.x + dx / len * 6, y: item.point.y + dy / len * 6))
+                        p.addLine(to: CGPoint(x: item.badge.x - dx / len * 12, y: item.badge.y - dy / len * 12))
+                    }
+                        .stroke(Color.white.opacity(0.9), lineWidth: 1)
+                        .shadow(color: .black.opacity(0.6), radius: 1)
+                        .opacity(dimmed(item, focus: focus, in: placed) ? 0.35 : 1)
+                        .allowsHitTesting(false)
+                }
+                ForEach(placed, id: \.group.id) { item in
+                    // A ring rather than a dot: the spot is marked and the label under it stays readable.
+                    ZStack {
+                        Circle().stroke(.white, lineWidth: 2.5)
+                        Circle().stroke(item.group.tint, lineWidth: 1.5)
+                    }
+                        .frame(width: 10, height: 10)
+                        .shadow(color: .black.opacity(0.6), radius: 1.5)
+                        .contentShape(Circle())
+                        .opacity(item.group.enabled ? (dimmed(item, focus: focus, in: placed) ? 0.5 : 1) : 0.35)
+                        .position(item.point)
+                        .onTapGesture { editing.select(item.group) }
+                }
+                ForEach(placed, id: \.group.id) { item in
+                    marker(item, scale: scale, small: placed.count > 12, dimmed: dimmed(item, focus: focus, in: placed))
                 }
             }
         }
@@ -219,24 +263,45 @@ struct ActionMap: View {
     private struct Placement {
         let group: ActionGroup
         let number: Int
+        /// The exact spot it acts on.
         let point: CGPoint
+        /// Where its number sits: beside the spot, so the button underneath stays visible.
+        let badge: CGPoint
     }
 
-    /// Marker positions in view space. Repeats on the same spot fan out slightly so each stays clickable.
-    private func placements(_ toView: (CGPoint) -> CGPoint) -> [Placement] {
-        var seen: [String: Int] = [:]
+    /// Spots in view space, each with its number placed beside it on the first side that doesn't cover
+    /// another number or spot (up and to the right when there's room).
+    private func placements(_ toView: (CGPoint) -> CGPoint, bounds: CGRect) -> [Placement] {
+        let spots: [(ActionGroup, Int, CGPoint)] = groups.enumerated().compactMap { i, g in
+            g.anchor.map { (g, i + 1, offsetIfDragging(toView($0), g)) }
+        }
+        let inner = bounds.insetBy(dx: 14, dy: 14)
+        let angles: [CGFloat] = [-45, -135, 45, 135, -90, 0, 180, 90].map { $0 * .pi / 180 }
+        var badges: [CGPoint] = []
         var out: [Placement] = []
-        for (i, g) in groups.enumerated() {
-            guard let a = g.anchor else { continue }
-            var p = toView(a)
-            let key = "\(Int(p.x / 8)),\(Int(p.y / 8))"
-            let n = seen[key, default: 0]
-            seen[key] = n + 1
-            p.x += CGFloat(n) * 9
-            p.y -= CGFloat(n) * 9
-            out.append(Placement(group: g, number: i + 1, point: offsetIfDragging(p, g)))
+        for (g, number, p) in spots {
+            var chosen: CGPoint?
+            search: for radius: CGFloat in [26, 38, 52] {
+                for a in angles {
+                    let c = CGPoint(x: p.x + cos(a) * radius, y: p.y + sin(a) * radius)
+                    guard inner.contains(c) else { continue }
+                    if badges.contains(where: { hypot($0.x - c.x, $0.y - c.y) < 26 }) { continue }
+                    if spots.contains(where: { hypot($0.2.x - c.x, $0.2.y - c.y) < 14 }) { continue }
+                    chosen = c
+                    break search
+                }
+            }
+            let badge = chosen ?? CGPoint(x: min(max(p.x + 16, inner.minX), inner.maxX), y: min(max(p.y - 16, inner.minY), inner.maxY))
+            badges.append(badge)
+            out.append(Placement(group: g, number: number, point: p, badge: badge))
         }
         return out
+    }
+
+    /// With a step in focus, the ones that aren't it or right before or after it fade back.
+    private func dimmed(_ item: Placement, focus: Int?, in placed: [Placement]) -> Bool {
+        guard let f = focus, let i = placed.firstIndex(where: { $0.group.id == item.group.id }) else { return false }
+        return abs(i - f) > 1
     }
 
     private func offsetIfDragging(_ p: CGPoint, _ g: ActionGroup) -> CGPoint {
@@ -244,14 +309,15 @@ struct ActionMap: View {
         return CGPoint(x: p.x + ui.dragOffset.width, y: p.y + ui.dragOffset.height)
     }
 
-    private func marker(_ item: Placement, scale: CGFloat) -> some View {
+    private func marker(_ item: Placement, scale: CGFloat, small: Bool, dimmed: Bool) -> some View {
         let g = item.group
         let selected = editing.isSelected(g)
         return MapMarker(number: item.number, tint: g.tint, icon: markerIcon(g), rings: ringCount(g),
                          selected: selected, playing: playing == item.number - 1,
                          isColorCheck: { if case .colorWait = g.kind { return true } else { return false } }())
-            .opacity(g.enabled ? 1 : 0.35)
-            .position(item.point)
+            .scaleEffect(small && !selected ? 0.82 : 1)
+            .opacity(g.enabled ? (dimmed ? 0.55 : 1) : 0.35)
+            .position(item.badge)
             .help("\(item.number). \(g.title(touch: editing.isTouch)) · at \(ActionRow.timestamp(g.start))")
             .onTapGesture { editing.select(g) }
             .gesture(
