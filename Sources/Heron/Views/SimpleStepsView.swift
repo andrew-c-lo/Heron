@@ -357,6 +357,7 @@ struct SimpleStepsList: View {
                               hits: hits(g, ran: ran),
                               live: live.map { id in steps[g.range.clamped(to: steps.indices)].contains { $0.id == id } } ?? false)
                         .tag(g.id)
+                        .listRowSeparator(.visible)
                 }
                 .onMove { editing.move(groups, from: $0, to: $1) }
             }
@@ -369,7 +370,9 @@ struct SimpleStepsList: View {
             } primaryAction: { ids in
                 if let g = groups.first(where: { ids.contains($0.id) }), case .image = g.kind { onEditPicture(g) }
             }
-            .listStyle(.inset(alternatesRowBackgrounds: true))
+            // Separators, not alternating shading: shading carried on below the last step as empty grey rows,
+            // which made a short macro look unfinished.
+            .listStyle(.inset(alternatesRowBackgrounds: false))
             .onDeleteCommand(perform: onDelete)
             .overlay {
                 if groups.isEmpty {
