@@ -45,8 +45,10 @@ final class Player {
         let opts = macro.playback
         let target = macro.target
         // Switched-off steps are skipped entirely (their waits too).
-        let enabledSteps = macro.steps.filter(\.enabled)
+        let enabledSteps = Self.playable(macro.steps)
         let steps = opts.skipMouseMoves ? Self.removingMoves(enabledSteps) : enabledSteps
+        // Where each If's Otherwise and End are, to jump between them.
+        let ifBlocks = IfBlocks(steps.map(\.action))
         let speed = max(opts.speed, 0.01)
         let groups = ActionGrouper.groups(for: steps)
         // Color checks that ignore timing: no recorded wait before the check, or before the action after it.
@@ -311,6 +313,33 @@ final class Player {
                             let id = step.id, after = n + 1
                             Task { @MainActor in listAdvanced(id, after) }
                             t = Timing.now()
+                        } else if case .ifStart(let c) = step.action {
+                            // If: carry on into its steps when it holds; otherwise jump past its Otherwise (or End).
+                            if c.kind != .round { let what = c.lookingFor; Task { @MainActor in waiting(what) } }
+                            let result = Self.check(c, round: loop + 1, resolver: resolver, target: target,
+                                                    performer: performer, token: token)
+                            if c.kind != .round { Task { @MainActor in waiting(nil) } }
+                            switch result {
+                            case .cancelled: break outer
+                            case .needsTarget:
+                                error = "Step \(i + 1) checks the screen, so it needs a target app. Choose one with the Target button."
+                                break outer
+                            case .unreadable:
+                                error = "Couldn't see \(resolver?.app.name ?? "the window"). Checking the screen needs Screen Recording permission."
+                                break outer
+                            case .yes: break
+                            case .no: next = (ifBlocks.otherwise[i] ?? ifBlocks.end[i]).map { $0 + 1 } ?? steps.count
+                            }
+                            let stepID = step.id, held = result == .yes
+                            Task { @MainActor in if held { clicked(stepID, nil) } }
+                            // Counts toward “stop after it happens N times” only when its check held.
+                            if !held { stepMissed = true }
+                            t = Timing.now()
+                        } else if case .otherwise = step.action {
+                            // Reached by finishing the If's own steps: skip the Otherwise steps.
+                            next = ifBlocks.endAfterOtherwise[i].map { $0 + 1 } ?? steps.count
+                        } else if step.action.isFlowMarker {
+                            // End of an If, or a Run step whose macro couldn't be found: nothing to do.
                         } else {
                             t += performer.perform(Self.scaled(step.action, target.scale(for: resolver?.window()?.frame.size)))
                         }
@@ -396,6 +425,79 @@ final class Player {
 
     /// Looks for the killswitch a few times a second (words about twice a second) until it shows up or the run ends.
     /// The killswitch as a lookup: its picture and words, or (for “a number reaches”) just its area.
+    /// The steps that play: the switched-on ones. A switched-off If takes its whole block with it, and an If
+    /// that's on keeps its Otherwise and End whatever their own switches say.
+    static func playable(_ all: [MacroStep]) -> [MacroStep] {
+        let b = IfBlocks(all.map(\.action))
+        var keep = all.map(\.enabled)
+        for (i, st) in all.enumerated() where st.enabled {
+            if case .ifStart = st.action {
+                if let o = b.otherwise[i] { keep[o] = true }
+                if let e = b.end[i] { keep[e] = true }
+            }
+        }
+        for (i, st) in all.enumerated() where !st.enabled {
+            if case .ifStart = st.action {
+                for k in i...(b.end[i] ?? all.count - 1) { keep[k] = false }
+            }
+        }
+        return all.indices.filter { keep[$0] }.map { all[$0] }
+    }
+
+    enum CheckResult { case yes, no, unreadable, cancelled, needsTarget }
+
+    /// An If's check: looks at the window for up to `lookFor` seconds (pictures, words, a number, a colour), or
+    /// compares the round number.
+    static func check(_ c: StepCondition, round: Int, resolver: TargetResolver?, target: TargetOptions,
+                      performer: Performer, token: CancelToken) -> CheckResult {
+        func flip(_ seen: Bool) -> CheckResult { seen != c.negate ? .yes : .no }
+        switch c.kind {
+        case .round:
+            return c.roundMatches(round) ? .yes : .no
+        case .picture, .words:
+            guard let resolver else { return .needsTarget }
+            guard c.isReady else { return flip(false) } // nothing chosen to look for: it isn't there
+            var look = c.look
+            look.mode = .stop // only looks, never clicks
+            look.timeout = max(0, c.lookFor)
+            look.spotOnly = false
+            if c.kind == .picture { look.text = nil } else { look.png = Data() }
+            switch runPictureStep(look, performer: performer, resolver: resolver, token: token,
+                                  reference: target.windowSize, waitForStill: false) {
+            case .cancelled: return .cancelled
+            case .unreadable: return .unreadable
+            case .matched: return flip(true)
+            case .timedOut: return flip(false)
+            }
+        case .number:
+            guard let resolver else { return .needsTarget }
+            guard var lookup = Lookup(png: nil, width: 0, height: 0, text: "0", area: c.look.area, strictness: 0.8) else { return .no }
+            lookup.reference = c.look.captureWindow ?? target.windowSize
+            let deadline = Timing.now() + max(0, c.lookFor)
+            var frameNumber = 0, read = false
+            while true {
+                if token.isCancelled { return .cancelled }
+                if let win = resolver.window(), let frame = FrameSource.shared.frame(for: win, after: frameNumber, timeout: 0.3) {
+                    frameNumber = frame.number
+                    read = true
+                    if let v = lookup.largestNumber(in: frame.pixels), v >= c.atLeast { return .yes }
+                }
+                if Timing.now() >= deadline { return read ? .no : .unreadable }
+                guard Timing.wait(until: Timing.now() + 0.25, token) else { return .cancelled }
+            }
+        case .color:
+            guard let hex = c.colorHex else { return flip(false) }
+            let cs = target.scale(for: resolver?.window()?.frame.size)
+            switch waitForColor(at: performer.route.absolute(c.colorX * cs, c.colorY * cs), hex: hex,
+                                tolerance: c.tolerance, timeout: max(0, c.lookFor), token: token) {
+            case .cancelled: return .cancelled
+            case .unreadable: return .unreadable
+            case .matched: return flip(true)
+            case .timedOut: return flip(false)
+            }
+        }
+    }
+
     static func killswitchLookup(_ kill: ImageStep, _ opts: PlaybackOptions, _ target: TargetOptions) -> Lookup? {
         guard opts.stopAtNumber != nil else { return Lookup(step: kill, reference: target.windowSize) }
         var l = Lookup(png: nil, width: 0, height: 0, text: "0", area: kill.area, strictness: kill.strictness)
@@ -636,9 +738,11 @@ final class Player {
             if readText { lastTextRead = Timing.now() }
             if let r = lookup.locate(in: frame.pixels, readText: readText) {
                 cached = .found(r, win)
-            } else {
+            } else if readText || !lookup.hasText {
                 cached = .missing
             }
+            // Otherwise the words weren't read this time (they're read a few times a second): keep the last answer.
+            // Counting such frames as “missing” meant a step with words never saw them still, so never clicked.
             return cached
         }
         func click(_ r: CGRect, _ win: TargetWindow) {

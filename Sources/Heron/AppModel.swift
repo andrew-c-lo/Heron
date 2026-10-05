@@ -17,7 +17,12 @@ final class AppModel: ObservableObject {
     }
 
     // Macros
-    @Published private(set) var macros: [Macro] = []
+    @Published private(set) var macros: [Macro] = [] {
+        didSet {
+            let names = Dictionary(macros.map { ($0.id, $0.name) }, uniquingKeysWith: { a, _ in a })
+            if names != ActionGroup.macroNames { ActionGroup.macroNames = names }
+        }
+    }
     @Published var selectedMacroID: UUID?
     /// Keeps the sidebar visible (it would otherwise collapse in narrower windows).
     @Published var columnVisibility: NavigationSplitViewVisibility = .all
@@ -896,13 +901,56 @@ final class AppModel: ObservableObject {
         return m
     }
 
+    /// `m` with each “Run another macro” step replaced by that macro's steps (and theirs, and so on), or why it
+    /// can't be: a macro that would end up running itself, or one that was deleted.
+    func expandingRuns(_ m: Macro) -> Result<Macro, RunProblem> {
+        let all = macros
+        return Self.expandingRuns(m) { id in all.first { $0.id == id } }
+    }
+
+    nonisolated static func expandingRuns(_ m: Macro, find: (UUID) -> Macro?) -> Result<Macro, RunProblem> {
+        guard m.steps.contains(where: { if case .runMacro = $0.action { true } else { false } }) else { return .success(m) }
+        var used = Set<UUID>()
+        func fresh(_ st: MacroStep) -> MacroStep {
+            // A macro run twice gets its own step ids the second time, so jumps and counts stay apart.
+            guard used.insert(st.id).inserted else { var c = st; c.id = UUID(); used.insert(c.id); return c }
+            return st
+        }
+        func expand(_ steps: [MacroStep], chain: [UUID]) throws -> [MacroStep] {
+            var out: [MacroStep] = []
+            for st in steps {
+                guard case .runMacro(let id) = st.action, st.enabled else { out.append(fresh(st)); continue }
+                guard let other = find(id) else {
+                    throw RunProblem(message: "A Run step's macro was deleted. Pick another one in its settings.")
+                }
+                guard !chain.contains(id) else { throw RunProblem(message: "“\(other.name)” would end up running itself.") }
+                guard chain.count < 8 else { throw RunProblem(message: "Macros run each other more than 8 deep.") }
+                var inner = try expand(other.steps, chain: chain + [id])
+                if !inner.isEmpty { inner[0].delay += st.delay }
+                out += inner
+            }
+            return out
+        }
+        do {
+            var copy = m
+            copy.steps = try expand(m.steps, chain: [m.id])
+            return .success(copy)
+        } catch let p as RunProblem { return .failure(p) } catch { return .failure(RunProblem(message: "\(error)")) }
+    }
+
+    struct RunProblem: Error { let message: String }
+
     func play(_ macro: Macro) {
-        let macro = rememberWindowSize(macro.id) ?? macro
+        var macro = rememberWindowSize(macro.id) ?? macro
         // Background macros run on their own player, with their own switch.
         if macro.runsInBackground { toggleBackground(macro.id); return }
         guard requireAccessibility() else { return }
         guard !macro.steps.isEmpty else { flash("This macro has no steps."); return }
         guard macro.steps.contains(where: \.enabled) else { flash("All of this macro's steps are switched off."); return }
+        switch expandingRuns(macro) {
+        case .success(let m): macro = m
+        case .failure(let p): flash(p.message); sound("Basso"); return
+        }
         if isRecording { stopRecording(fromUI: false) }
         guard let prep = prepareTarget(macro.target) else { return }
         stopAutoClick()
@@ -1201,9 +1249,15 @@ final class AppModel: ObservableObject {
     }
 
     func startBackground(_ id: UUID, quietly: Bool = false) {
-        guard let m = rememberWindowSize(id), !backgroundRunning.contains(id) else { return }
+        guard var m = rememberWindowSize(id), !backgroundRunning.contains(id) else { return }
         if let problem = backgroundProblem(m) {
             if !quietly { flash(problem); sound("Basso") }
+            return
+        }
+        switch expandingRuns(m) {
+        case .success(let expanded): m = expanded
+        case .failure(let p):
+            if !quietly { flash(p.message); sound("Basso") }
             return
         }
         let player = Player()

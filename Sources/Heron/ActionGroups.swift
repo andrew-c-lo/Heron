@@ -13,8 +13,26 @@ struct ActionGroup: Identifiable {
         case colorWait(at: CGPoint, ColorWait)
         case image(ImageStep)
         case repeatFrom(target: UUID, times: Int)
+        case ifStart(StepCondition)
+        case otherwise
+        case endIf
+        case runMacro(UUID)
         case move(to: CGPoint)
         case other(String, icon: String)
+
+        var isOtherwise: Bool { if case .otherwise = self { true } else { false } }
+        var isIf: Bool { if case .ifStart = self { true } else { false } }
+    }
+
+    /// Macro names by id, for “Run “…”” titles (kept up to date by the app).
+    nonisolated(unsafe) static var macroNames: [UUID: String] = [:]
+
+    /// If, Otherwise and End: rows that shape the list rather than doing something.
+    var isBlockMarker: Bool {
+        switch kind {
+        case .ifStart, .otherwise, .endIf: true
+        default: false
+        }
     }
 
     /// Id of the first raw step.
@@ -39,11 +57,7 @@ struct ActionGroup: Identifiable {
     // MARK: Presentation (touch = target is a phone, so say "tap"/"swipe")
 
     /// “picture”, “"OK" picture” when words were read from inside it, or “red picture” when it has none.
-    static func pictureNoun(_ s: ImageStep) -> String {
-        if let w = s.pictureWords?.trimmingCharacters(in: .whitespaces), !w.isEmpty { return "“\(w)” picture" }
-        if let c = s.pictureColor, !c.isEmpty { return "\(c) picture" }
-        return "picture"
-    }
+    static func pictureNoun(_ s: ImageStep) -> String { s.pictureNoun }
 
     /// The step's name if it has one, otherwise what it does.
     func title(touch: Bool) -> String {
@@ -100,6 +114,11 @@ struct ActionGroup: Identifiable {
             return n == 0 ? "Type from a list" : "Type the next of \(n) item\(n == 1 ? "" : "s")" + (l.pressReturn ? ", then Return" : "")
         case .move: return "Move the mouse"
         case .repeatFrom(_, let n): return "Repeat from an earlier step, \(n)×"
+        case .ifStart(let c): return "If " + c.summary
+        case .otherwise: return "Otherwise"
+        case .endIf: return "End of if"
+        case .runMacro(let id):
+            return Self.macroNames[id].map { "Run “\($0)”" } ?? "Run a macro that was deleted"
         case .other(let s, _): return s
         }
     }
@@ -130,6 +149,11 @@ struct ActionGroup: Identifiable {
                 + (c.immediate ? ", ignores timing" : "")
                 + (c.untilAppears || c.otherwise == .continueAnyway ? "" : ". If not: \(c.otherwise.label.lowercased())")
         case .move(let to): "to \(Self.fmt(to))"
+        case .ifStart(let c):
+            !c.isReady ? "pick what to check in its settings"
+                : c.kind == .round ? nil
+                : c.lookFor > 0 ? "looks for up to \(c.lookFor.formatted())s" : "one look"
+        case .runMacro: "its steps run here once, in this macro's app"
         default: nil
         }
     }
@@ -150,6 +174,10 @@ struct ActionGroup: Identifiable {
             return s.isText && s.mode == .click ? "text.viewfinder" : s.mode.icon
         case .typeList: return "list.bullet.rectangle"
         case .repeatFrom: return "arrow.uturn.backward"
+        case .ifStart: return "arrow.triangle.branch"
+        case .otherwise: return "arrow.turn.down.right"
+        case .endIf: return "arrow.turn.left.down"
+        case .runMacro: return "play.rectangle"
         case .move: return "arrow.up.and.down.and.arrow.left.and.right"
         case .other(_, let icon): return icon
         }
@@ -173,6 +201,11 @@ struct ActionGroup: Identifiable {
 }
 
 enum ActionGrouper {
+    /// Steps as people count them: an If counts once; its Otherwise and End rows don't.
+    static func stepCount(_ steps: [MacroStep]) -> Int {
+        groups(for: steps).filter { !$0.isBlockMarker || $0.kind.isIf }.count
+    }
+
     private static let clickTolerance: CGFloat = 8
     private static let scrollGap = 0.6
     private static let keyGap = 1.0
@@ -244,6 +277,14 @@ enum ActionGrouper {
                 kind = .image(s)
             case .repeatFrom(let target, let times):
                 kind = .repeatFrom(target: target, times: times)
+            case .ifStart(let c):
+                kind = .ifStart(c)
+            case .otherwise:
+                kind = .otherwise
+            case .endIf:
+                kind = .endIf
+            case .runMacro(let id):
+                kind = .runMacro(id)
             case .typeList(let l):
                 kind = .typeList(l)
             case .mouseUp(let b, _, _, _, _):

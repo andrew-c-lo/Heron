@@ -95,10 +95,26 @@ enum StepAction: Codable, Equatable {
     case typeList(TypeList)
     /// Counter: go back to an earlier step, `times` times, then carry on.
     case repeatFrom(step: UUID, times: Int)
+    /// If: the steps up to its Otherwise (or End) run when the condition holds; the ones after Otherwise when it doesn't.
+    case ifStart(StepCondition)
+    /// Marks where an If's “when it doesn't” steps begin.
+    case otherwise
+    /// Marks where an If ends.
+    case endIf
+    /// Runs another macro's steps here (once, in this macro's app), then carries on.
+    case runMacro(UUID)
 
     var isMouseMove: Bool {
         if case .move = self { return true }
         return false
+    }
+
+    /// If, Otherwise, End and Run: they steer the macro rather than press anything.
+    var isFlowMarker: Bool {
+        switch self {
+        case .ifStart, .otherwise, .endIf, .runMacro: true
+        default: false
+        }
     }
 
     /// Identifies motion events that may be coalesced together while recording.
@@ -168,6 +184,10 @@ enum StepAction: Codable, Equatable {
         case .findImage(let s): s.mode.icon
         case .repeatFrom: "arrow.uturn.backward"
         case .typeList: "list.bullet.rectangle"
+        case .ifStart: "arrow.triangle.branch"
+        case .otherwise: "arrow.turn.down.right"
+        case .endIf: "arrow.turn.left.down"
+        case .runMacro: "play.rectangle"
         }
     }
 
@@ -204,6 +224,14 @@ enum StepAction: Codable, Equatable {
             return "Repeat from an earlier step, \(n)×"
         case .waitForColor(_, _, let hex, _, let timeout, _, _):
             return "Wait for \(hex)" + (timeout < 0 ? " (until it appears)" : timeout > 0 ? " (up to \(timeout.formatted())s)" : "")
+        case .ifStart(let c):
+            return "If " + c.summary
+        case .otherwise:
+            return "Otherwise"
+        case .endIf:
+            return "End of if"
+        case .runMacro:
+            return "Run another macro"
         }
     }
 }
@@ -501,6 +529,196 @@ extension MacroStep {
         action = try c.decode(StepAction.self, forKey: .action)
         enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
         name = try c.decodeIfPresent(String.self, forKey: .name)
+    }
+}
+
+extension ImageStep {
+    /// “picture”, “"OK" picture” when words were read from inside it, or “red picture” when it has none.
+    var pictureNoun: String {
+        if let w = pictureWords?.trimmingCharacters(in: .whitespaces), !w.isEmpty { return "“\(w)” picture" }
+        if let c = pictureColor, !c.isEmpty { return "\(c) picture" }
+        return "picture"
+    }
+}
+
+/// What an If step checks: something on screen, a number, a colour, or which round it is.
+struct StepCondition: Codable, Equatable {
+    enum Kind: String, Codable, CaseIterable, Identifiable {
+        case picture, words, number, color, round
+        var id: String { rawValue }
+        var label: String {
+            switch self {
+            case .picture: "Picture"
+            case .words: "Words"
+            case .number: "Number"
+            case .color: "Colour"
+            case .round: "Round"
+            }
+        }
+    }
+    enum RoundRule: String, Codable, CaseIterable, Identifiable {
+        /// Every Nth round (2, 4, 6… for N = 2).
+        case every
+        /// Round N and later.
+        case from
+        /// Up to round N.
+        case upTo
+        var id: String { rawValue }
+        var label: String {
+            switch self {
+            case .every: "Every"
+            case .from: "From round"
+            case .upTo: "Up to round"
+            }
+        }
+    }
+
+    var kind: Kind = .words
+    /// Picture or words: what to look for, with its search area. Number: only its area is used.
+    var look = ImageStep(png: Data(), width: 0, height: 0, originX: 0, originY: 0)
+    /// Picture, words or colour: true means “isn't there”.
+    var negate = false
+    /// Seconds to keep looking before deciding (0 = a single look).
+    var lookFor: Double = 2
+    /// Number: true when a number in the area is at least this.
+    var atLeast = 10
+    /// Colour: the spot (window points), the colour, and how close counts.
+    var colorX: Double = 0
+    var colorY: Double = 0
+    var colorHex: String?
+    var tolerance = 24
+    /// Round.
+    var roundRule: RoundRule = .every
+    var roundN = 2
+
+    init(kind: Kind = .words) {
+        self.kind = kind
+        look.text = ""
+    }
+
+    /// Whether round `round` (1 = the first) passes a round condition.
+    func roundMatches(_ round: Int) -> Bool {
+        let n = max(1, roundN)
+        switch roundRule {
+        case .every: return round % n == 0
+        case .from: return round >= n
+        case .upTo: return round <= n
+        }
+    }
+
+    /// “the “Level up” picture is on screen”, “the number reaches 30”, “it's every 3rd round”.
+    var summary: String {
+        let isnt = negate ? "isn't" : "is"
+        switch kind {
+        case .picture:
+            return "the \(look.pictureNoun) \(isnt) on screen"
+        case .words:
+            let t = (look.text ?? "").trimmingCharacters(in: .whitespaces)
+            return t.isEmpty ? "some words \(isnt) on screen" : "“\(t)” \(isnt) on screen"
+        case .number:
+            return "a number reaches \(atLeast)"
+        case .color:
+            return colorHex.map { "the colour at \(Int(colorX)), \(Int(colorY)) \(isnt) \($0)" } ?? "a colour \(isnt) at a spot"
+        case .round:
+            let n = max(1, roundN)
+            switch roundRule {
+            case .every: return n == 1 ? "it's any round" : "it's every \(Self.ordinal(n)) round"
+            case .from: return "it's round \(n) or later"
+            case .upTo: return "it's round \(n) or earlier"
+            }
+        }
+    }
+
+    /// For the live strip's “Looking for …” while the If checks.
+    var lookingFor: String {
+        switch kind {
+        case .picture: return "the \(look.pictureNoun)"
+        case .words:
+            let t = (look.text ?? "").trimmingCharacters(in: .whitespaces)
+            return t.isEmpty ? "some words" : "“\(t)”"
+        case .number: return "a number of \(atLeast) or more"
+        case .color: return colorHex ?? "a colour"
+        case .round: return "round"
+        }
+    }
+
+    /// Something to check has been set (a picture picked, words typed, a colour sampled).
+    var isReady: Bool {
+        switch kind {
+        case .picture: !look.png.isEmpty
+        case .words: !(look.text ?? "").trimmingCharacters(in: .whitespaces).isEmpty
+        case .color: colorHex != nil
+        case .number, .round: true
+        }
+    }
+
+    static func ordinal(_ n: Int) -> String {
+        let suffix: String
+        switch (n % 10, n % 100) {
+        case (1, let t) where t != 11: suffix = "st"
+        case (2, let t) where t != 12: suffix = "nd"
+        case (3, let t) where t != 13: suffix = "rd"
+        default: suffix = "th"
+        }
+        return "\(n)\(suffix)"
+    }
+}
+
+extension StepCondition {
+    // Hand-written so conditions saved by other versions load with defaults for anything missing.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(kind: try c.decodeIfPresent(Kind.self, forKey: .kind) ?? .words)
+        look = try c.decodeIfPresent(ImageStep.self, forKey: .look) ?? look
+        negate = try c.decodeIfPresent(Bool.self, forKey: .negate) ?? false
+        lookFor = try c.decodeIfPresent(Double.self, forKey: .lookFor) ?? 2
+        atLeast = try c.decodeIfPresent(Int.self, forKey: .atLeast) ?? 10
+        colorX = try c.decodeIfPresent(Double.self, forKey: .colorX) ?? 0
+        colorY = try c.decodeIfPresent(Double.self, forKey: .colorY) ?? 0
+        colorHex = try c.decodeIfPresent(String.self, forKey: .colorHex)
+        tolerance = try c.decodeIfPresent(Int.self, forKey: .tolerance) ?? 24
+        roundRule = try c.decodeIfPresent(RoundRule.self, forKey: .roundRule) ?? .every
+        roundN = try c.decodeIfPresent(Int.self, forKey: .roundN) ?? 2
+    }
+}
+
+/// Where each If's Otherwise and End are, for a list of steps (nil when missing).
+struct IfBlocks {
+    var otherwise: [Int: Int] = [:]
+    var end: [Int: Int] = [:]
+    /// For an Otherwise: where its If ends.
+    var endAfterOtherwise: [Int: Int] = [:]
+    /// How deeply each step is nested inside Ifs (the If, Otherwise and End rows themselves count as outside).
+    var depth: [Int] = []
+
+    init(_ actions: [StepAction]) {
+        var stack: [Int] = []
+        var level = 0
+        depth = Array(repeating: 0, count: actions.count)
+        for (i, a) in actions.enumerated() {
+            switch a {
+            case .ifStart:
+                depth[i] = level
+                stack.append(i)
+                level += 1
+            case .otherwise:
+                if let open = stack.last, otherwise[open] == nil {
+                    otherwise[open] = i
+                    depth[i] = level - 1
+                } else {
+                    depth[i] = level
+                }
+            case .endIf:
+                if let open = stack.popLast() {
+                    end[open] = i
+                    if let o = otherwise[open] { endAfterOtherwise[o] = i }
+                    level -= 1
+                }
+                depth[i] = level
+            default:
+                depth[i] = level
+            }
+        }
     }
 }
 

@@ -20,6 +20,12 @@ struct HelpView: View {
             "Draw a box to choose where clicks land: each click goes to a different place inside it. Limit the search area to make finding faster and avoid look-alikes.",
             "A picture with no words is named by its colour, like “Tap the red picture”. Rename it to anything you like.",
         ]),
+        Topic(id: "If and other macros", icon: "arrow.triangle.branch", body: [
+            "An If runs some steps only when something holds: a picture or words are (or aren't) on screen, a number has reached a value, a spot is a colour, or it's a certain round. Select steps and choose Add › If… to wrap them.",
+            "Turn on Otherwise for steps that run when it doesn't hold. Steps after End always run. Ifs can go inside Ifs.",
+            "Add › Run Another Macro plays another macro's steps right there, then carries on. Its own Playback, Stops and Schedule aren't used, and a macro can't end up running itself.",
+            "Ifs work when steps run in order (Playback). Deleting an If, Otherwise or End row keeps the steps inside.",
+        ]),
         Topic(id: "Target", icon: "scope", body: [
             "Target is the app the macro works in. Positions are kept relative to its window, so moving or resizing the window doesn't break the macro.",
             "Jump and return clicks and puts the pointer back where it was. In the background clicks without moving your pointer, for apps that allow it.",

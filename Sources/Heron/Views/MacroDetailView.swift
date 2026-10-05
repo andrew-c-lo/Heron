@@ -177,7 +177,7 @@ struct MacroDetailView: View {
     }
 
     private var stats: String {
-        let actions = ActionGrouper.groups(for: macro.steps).count
+        let actions = ActionGrouper.stepCount(macro.steps)
         var s = "\(actions) step\(actions == 1 ? "" : "s") · \(formatDuration(macro.duration))"
         if model.live[macro.id] == nil, let next = model.nextScheduledRun(macro) {
             s += " · next run " + next.formatted(.relative(presentation: .named))
@@ -239,7 +239,10 @@ struct MacroDetailView: View {
         }
         if let id = run.lastFired, let at = run.lastFiredAt, now.timeIntervalSince(at) < 3,
            let i = editing.groups.firstIndex(where: { g in macro.steps[g.range.clamped(to: macro.steps.indices)].contains { $0.id == id } }) {
-            return "\(editing.isTouch ? "Tapped" : "Clicked") step \(i + 1): \(editing.groups[i].title(touch: editing.isTouch))"
+            let g = editing.groups[i]
+            // An If doesn't click: it reports that its check held.
+            if case .ifStart(let c) = g.kind { return "Step \(i + 1): yes, \(c.summary)" }
+            return "\(editing.isTouch ? "Tapped" : "Clicked") step \(i + 1): \(g.title(touch: editing.isTouch))"
         }
         if model.playingMacroID == macro.id, let looking = model.playWaitingColor {
             return looking.hasPrefix("#") ? "Waiting for \(looking)" : "Looking for \(looking)"
@@ -870,6 +873,16 @@ struct MacroDetailView: View {
                         }
                     } label: { Label("Repeat From an Earlier Step", systemImage: "arrow.counterclockwise") }
                     .disabled(macro.steps.isEmpty)
+                    Button { addIf() } label: {
+                        Label(selection.isEmpty ? "If…" : "If… (Around the Selected Steps)", systemImage: "arrow.triangle.branch")
+                    }
+                    Menu {
+                        let others = model.macros.filter { $0.id != macro.id }
+                        ForEach(others) { m in
+                            Button(m.name) { select(insert(.runMacro(m.id), delay: 0.1)); showDetails = true }
+                        }
+                        if others.isEmpty { Text("No other macros yet") }
+                    } label: { Label("Run Another Macro", systemImage: "play.rectangle") }
                 }
                 Section {
                     Button { ui.showingDescribe = true } label: { Label("Describe in Words… (Apple Intelligence)", systemImage: "sparkles") }
@@ -1199,8 +1212,36 @@ struct MacroDetailView: View {
 
     private func deleteSelected() {
         guard !selection.isEmpty else { return }
-        macro.steps.removeAll { selection.contains($0.id) }
+        let b = IfBlocks(macro.steps.map(\.action))
+        var drop = Set<Int>()
+        for (i, st) in macro.steps.enumerated() where selection.contains(st.id) {
+            drop.insert(i)
+            // A selected If, Otherwise or End takes its whole If's rows with it; the steps inside stay.
+            let start: Int?
+            switch st.action {
+            case .ifStart: start = i
+            case .otherwise: start = b.otherwise.first { $0.value == i }?.key
+            case .endIf: start = b.end.first { $0.value == i }?.key
+            default: start = nil
+            }
+            if let start { drop.formUnion([start, b.otherwise[start], b.end[start]].compactMap { $0 }) }
+        }
+        macro.steps = macro.steps.enumerated().filter { !drop.contains($0.offset) }.map(\.element)
         selection.removeAll()
+    }
+
+    /// Wraps the selected steps in an If (or adds an empty one), and selects it so its settings show.
+    private func addIf() {
+        let groups = editing.groups
+        let chosen = groups.filter(editing.isSelected)
+        let lower = chosen.first?.range.lowerBound ?? macro.steps.count
+        let upper = chosen.last?.range.upperBound ?? macro.steps.count
+        let start = MacroStep(delay: 0, action: .ifStart(StepCondition()))
+        macro.steps.insert(MacroStep(delay: 0, action: .endIf), at: upper)
+        macro.steps.insert(start, at: lower)
+        select(start.id)
+        showDetails = true
+        if allAtOnce { model.flash("If steps only work when steps run in order (Playback).") }
     }
 
     private func narrowSearches(_ narrow: [(id: UUID, area: CGRect)]) {

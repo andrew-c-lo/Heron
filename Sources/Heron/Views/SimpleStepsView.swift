@@ -112,6 +112,82 @@ struct ActionEditing {
     }
 
     /// The list of a “Type from a list” action.
+    // MARK: If blocks
+
+    /// Where each If's Otherwise and End are, and how deeply each step is nested.
+    var blocks: IfBlocks { IfBlocks(steps.map(\.action)) }
+
+    func conditionBinding(_ g: ActionGroup) -> Binding<StepCondition>? {
+        guard g.actionIndex < steps.count, case .ifStart(let initial) = steps[g.actionIndex].action else { return nil }
+        let id = steps[g.actionIndex].id
+        return Binding(
+            get: {
+                if let s = steps.first(where: { $0.id == id }), case .ifStart(let v) = s.action { return v }
+                return initial
+            },
+            set: { v in
+                guard let i = steps.firstIndex(where: { $0.id == id }) else { return }
+                macro.wrappedValue.steps[i].action = .ifStart(v)
+            }
+        )
+    }
+
+    func runMacroBinding(_ g: ActionGroup) -> Binding<UUID>? {
+        guard g.actionIndex < steps.count, case .runMacro(let initial) = steps[g.actionIndex].action else { return nil }
+        let id = steps[g.actionIndex].id
+        return Binding(
+            get: {
+                if let s = steps.first(where: { $0.id == id }), case .runMacro(let v) = s.action { return v }
+                return initial
+            },
+            set: { v in
+                guard let i = steps.firstIndex(where: { $0.id == id }) else { return }
+                macro.wrappedValue.steps[i].action = .runMacro(v)
+            }
+        )
+    }
+
+    /// The If a marker row belongs to (the row itself for an If).
+    func ifIndex(of g: ActionGroup) -> Int? {
+        let b = blocks, i = g.actionIndex
+        switch g.kind {
+        case .ifStart: return i
+        case .otherwise: return b.otherwise.first { $0.value == i }?.key
+        case .endIf: return b.end.first { $0.value == i }?.key
+        default: return nil
+        }
+    }
+
+    func hasOtherwise(_ g: ActionGroup) -> Bool { ifIndex(of: g).map { blocks.otherwise[$0] != nil } ?? false }
+
+    /// Adds an Otherwise (just before the End), or removes it with the steps under it. Returns how many were removed.
+    @discardableResult
+    func setOtherwise(_ g: ActionGroup, _ on: Bool) -> Int {
+        guard let start = ifIndex(of: g) else { return 0 }
+        let b = blocks
+        var all = steps
+        if on {
+            guard b.otherwise[start] == nil else { return 0 }
+            all.insert(MacroStep(delay: 0, action: .otherwise), at: b.end[start] ?? all.count)
+            macro.wrappedValue.steps = all
+            return 0
+        }
+        guard let o = b.otherwise[start] else { return 0 }
+        let end = b.end[start] ?? all.count
+        all.removeSubrange(o..<end)
+        macro.wrappedValue.steps = all
+        return end - o - 1
+    }
+
+    /// Removes an If's If, Otherwise and End rows, keeping the steps that were inside.
+    func unwrap(_ g: ActionGroup) {
+        guard let start = ifIndex(of: g) else { return }
+        let b = blocks
+        let drop = Set([start, b.otherwise[start], b.end[start]].compactMap { $0 })
+        macro.wrappedValue.steps = steps.enumerated().filter { !drop.contains($0.offset) }.map(\.element)
+        ui.selection.removeAll()
+    }
+
     func typeListBinding(_ g: ActionGroup) -> Binding<TypeList>? {
         guard g.actionIndex < steps.count, case .typeList(let initial) = steps[g.actionIndex].action else { return nil }
         let id = steps[g.actionIndex].id
@@ -179,7 +255,8 @@ struct ActionEditing {
     /// The step id an action starts at, for choosing jump targets.
     func stepChoices(before g: ActionGroup? = nil) -> [(id: UUID, title: String)] {
         groups.enumerated().compactMap { i, e in
-            guard let id = actionStepID(e), g.map({ e.range.upperBound <= $0.range.lowerBound }) ?? true else { return nil }
+            guard let id = actionStepID(e), g.map({ e.range.upperBound <= $0.range.lowerBound }) ?? true,
+                  !e.isBlockMarker || e.kind.isIf else { return nil }
             return (id, "\(i + 1). \(e.title(touch: isTouch))")
         }
     }
@@ -198,6 +275,8 @@ struct ActionEditing {
     }
 
     func delete(_ g: ActionGroup) {
+        // Deleting an If, Otherwise or End row removes that If's rows and keeps the steps inside.
+        if g.isBlockMarker { unwrap(g); return }
         guard g.range.upperBound <= steps.count else { return }
         macro.wrappedValue.steps.removeSubrange(g.range)
         ui.selection.removeAll()
@@ -280,7 +359,9 @@ struct ActionEditing {
 
     func summary(_ groups: [ActionGroup]) -> String {
         let touch = isTouch
-        var clicks = 0, drags = 0, scrolls = 0, keys = 0, pauses = 0, colors = 0, pictures = 0, texts = 0
+        var clicks = 0, drags = 0, scrolls = 0, keys = 0, pauses = 0, colors = 0, pictures = 0, texts = 0, ifs = 0, runs = 0
+        // If, Otherwise and End rows aren't steps of their own: the count is of steps that do something.
+        let real = groups.filter { !$0.isBlockMarker || $0.kind.isIf }
         for g in groups {
             switch g.kind {
             case .click: clicks += 1
@@ -290,6 +371,8 @@ struct ActionEditing {
             case .wait: pauses += 1
             case .colorWait: colors += 1
             case .image(let s): if s.text != nil { texts += 1 } else { pictures += 1 }
+            case .ifStart: ifs += 1
+            case .runMacro: runs += 1
             default: break
             }
         }
@@ -297,8 +380,9 @@ struct ActionEditing {
             count == 0 ? nil : "\(count) \(word)\(count == 1 ? "" : "s")"
         }
         let parts = [n(pictures, "picture step"), n(texts, "text step"), n(clicks, touch ? "tap" : "click"), n(drags, touch ? "swipe" : "drag"), n(scrolls, "scroll"),
-                     n(keys, "keyboard step"), n(colors, "color check"), n(pauses, "pause")].compactMap { $0 }
-        let head = "\(groups.count) step\(groups.count == 1 ? "" : "s")"
+                     n(keys, "keyboard step"), n(colors, "color check"), n(pauses, "pause"),
+                     ifs == 0 ? nil : "\(ifs) If\(ifs == 1 ? "" : "s")", n(runs, "other macro")].compactMap { $0 }
+        let head = "\(real.count) step\(real.count == 1 ? "" : "s")"
         return parts.isEmpty ? head : head + ": " + parts.joined(separator: ", ")
     }
 }
@@ -339,6 +423,7 @@ struct SimpleStepsList: View {
         let live = liveStep
         let steps = editing.macro.wrappedValue.steps
 
+        let blocks = editing.blocks
         VStack(alignment: .leading, spacing: 6) {
             Text(editing.summary(groups))
                 .font(.caption).foregroundStyle(.secondary)
@@ -346,7 +431,8 @@ struct SimpleStepsList: View {
             List(selection: editing.selectionBinding(groups)) {
                 ForEach(Array(groups.enumerated()), id: \.element.id) { i, g in
                     ActionRow(group: g, number: i + 1, touch: touch,
-                              enabled: editing.enabledBinding(g),
+                              // Otherwise and End go with their If: switching the If off skips the whole block.
+                              enabled: g.isBlockMarker && !(g.kind.isIf) ? nil : editing.enabledBinding(g),
                               wait: editing.waitBinding(g),
                               point: nil,
                               color: nil,
@@ -355,7 +441,8 @@ struct SimpleStepsList: View {
                               detailOverride: editing.allAtOnceDetail(g),
                               compact: true,
                               hits: hits(g, ran: ran),
-                              live: live.map { id in steps[g.range.clamped(to: steps.indices)].contains { $0.id == id } } ?? false)
+                              live: live.map { id in steps[g.range.clamped(to: steps.indices)].contains { $0.id == id } } ?? false,
+                              depth: g.actionIndex < blocks.depth.count ? blocks.depth[g.actionIndex] : 0)
                         .tag(g.id)
                         .listRowSeparator(.visible)
                 }
@@ -440,6 +527,8 @@ struct ActionRow: View {
     var hits: Int? = nil
     /// The running macro is on this step (or just clicked it).
     var live = false
+    /// How many Ifs it's inside: drawn as guides down the left, so each If's steps read as one block.
+    var depth = 0
     @StateObject private var hover = HoverState()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -456,6 +545,15 @@ struct ActionRow: View {
                 .monospacedDigit()
                 .foregroundStyle(.tertiary)
                 .frame(width: 30, alignment: .trailing)
+            if depth > 0 {
+                HStack(spacing: 12) {
+                    ForEach(0..<depth, id: \.self) { _ in
+                        Rectangle().fill(Color.accentColor.opacity(0.35)).frame(width: 2).frame(maxHeight: .infinity)
+                    }
+                }
+                .padding(.vertical, -6)
+                .accessibilityHidden(true)
+            }
 
             if !compact {
             HStack(spacing: 3) {

@@ -108,6 +108,15 @@ struct StepInspector: View {
                 }
                 PictureStepEditor(step: binding, app: app, touch: touch, allAtOnce: allAtOnce,
                                   stepChoices: editing.stepChoices().filter { $0.id != id })
+            } else if case .ifStart = g.kind, let condition = editing.conditionBinding(g) {
+                ConditionEditor(condition: condition, app: app, hasOtherwise: editing.hasOtherwise(g),
+                                setOtherwise: { on in
+                                    let removed = editing.setOtherwise(g, on)
+                                    if removed > 0 {
+                                        model.flash("Removed Otherwise and the \(removed) step\(removed == 1 ? "" : "s") under it. ⌘Z brings them back.")
+                                    }
+                                },
+                                wait: editing.waitBinding(g), allAtOnce: allAtOnce, onRemove: { editing.unwrap(g) })
             } else {
                 Form {
                     Section { specific(g) }
@@ -177,7 +186,34 @@ struct StepInspector: View {
             }
             Text("Runs the steps from there to here again, then carries on with the next step.")
                 .font(.caption).foregroundStyle(.secondary)
-        case .image, .other:
+        case .otherwise, .endIf:
+            Text(g.kind.isOtherwise
+                 ? "The steps between here and End run when the If's check doesn't hold."
+                 : "The end of an If. Steps after it always run.")
+                .foregroundStyle(.secondary)
+            Button("Remove If (Keep Its Steps)") { editing.unwrap(g) }
+        case .runMacro:
+            if let target = editing.runMacroBinding(g) {
+                let here = editing.macro.wrappedValue
+                let others = model.macros.filter { $0.id != here.id }
+                Picker("Macro", selection: target) {
+                    ForEach(others) { Text($0.name).tag($0.id) }
+                    if !others.contains(where: { $0.id == target.wrappedValue }) {
+                        Text("Deleted macro").tag(target.wrappedValue)
+                    }
+                }
+                if let other = model.macros.first(where: { $0.id == target.wrappedValue }) {
+                    Button("Open “\(other.name)”") { model.show(other.id) }
+                    if let theirs = other.target.app, theirs != here.target.app {
+                        Label("It was made for \(theirs.name), but its steps run in \(here.target.app?.name ?? "this macro's app") here.",
+                              systemImage: "exclamationmark.triangle")
+                            .foregroundStyle(.orange).font(.callout)
+                    }
+                }
+                Text("Its steps run here once, then this macro carries on. Its own Playback, Stops and Schedule aren't used.")
+                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+        case .ifStart, .image, .other:
             Text(g.detail ?? "").foregroundStyle(.secondary)
         }
     }

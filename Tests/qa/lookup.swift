@@ -768,5 +768,74 @@ listMacro.playback.repeatMode = .once
 let negativeListRun = playUntilDone(listMacro, timeout: 3)
 check("a list whose saved place is negative starts at the top instead of crashing", negativeListRun.end.map(Player.isDone) != false)
 
+// If / Otherwise / End, and Run another macro.
+func tapAt(_ x: Double) -> MacroStep { MacroStep(delay: 0.02, action: .click(button: .left, x: x, y: 5, count: 1)) }
+func playTaps(_ m: Macro, timeout: Double = 5) -> (taps: [Int], end: String?) {
+    var m = m
+    m.target.delivery = .normal
+    var taps: [Int] = [], end: String?, done = false
+    EventSynth.testSink = { e in if e.type == .leftMouseDown { taps.append(Int(e.location.x)) } }
+    let p = Player()
+    p.play(m, progress: { _, _, _ in }, finished: { e in end = e; done = true })
+    let until = Date().addingTimeInterval(timeout)
+    while !done && Date() < until { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
+    p.stop()
+    EventSynth.testSink = nil
+    return (taps, end)
+}
+var everyOther = StepCondition(kind: .round); everyOther.roundRule = .every; everyOther.roundN = 2
+var branching = Macro(name: "if", steps: [MacroStep(delay: 0, action: .ifStart(everyOther)), tapAt(1),
+                                          MacroStep(delay: 0, action: .otherwise), tapAt(2),
+                                          MacroStep(delay: 0, action: .endIf), tapAt(9)])
+branching.playback.repeatMode = .times; branching.playback.loops = 4
+let branchRun = playTaps(branching)
+check("If every 2nd round: Otherwise on rounds 1 and 3, the If's steps on 2 and 4, then the step after End each time",
+      branchRun.taps == [2, 9, 1, 9, 2, 9, 1, 9], "\(branchRun.taps)")
+var noElse = branching; noElse.steps.remove(at: 2) // drop Otherwise: tapAt(2) is now inside the If
+let noElseRun = playTaps(noElse)
+check("without Otherwise, a failed check skips straight past End", noElseRun.taps == [9, 1, 2, 9, 9, 1, 2, 9], "\(noElseRun.taps)")
+var offIf = branching; offIf.steps[0].enabled = false
+let offRun = playTaps(offIf)
+check("switching an If off skips its whole block, Otherwise included", offRun.taps == [9, 9, 9, 9], "\(offRun.taps)")
+var fromThree = StepCondition(kind: .round); fromThree.roundRule = .from; fromThree.roundN = 3
+var nested = Macro(name: "nested", steps: [MacroStep(delay: 0, action: .ifStart(everyOther)), tapAt(1),
+                                           MacroStep(delay: 0, action: .ifStart(fromThree)), tapAt(3),
+                                           MacroStep(delay: 0, action: .endIf),
+                                           MacroStep(delay: 0, action: .endIf)])
+nested.playback.repeatMode = .times; nested.playback.loops = 4
+let nestedRun = playTaps(nested)
+check("Ifs inside Ifs: round 2 taps 1; round 4 taps 1 and 3", nestedRun.taps == [1, 1, 3], "\(nestedRun.taps)")
+let ifMap = IfBlocks(nested.steps.map(\.action))
+check("the list indents steps inside Ifs", ifMap.depth == [0, 1, 1, 2, 1, 0], "\(ifMap.depth)")
+let wordsIf = Macro(name: "words", steps: [MacroStep(delay: 0, action: .ifStart(StepCondition(kind: .words))), tapAt(1),
+                                           MacroStep(delay: 0, action: .endIf)])
+let wordsRun = playTaps(wordsIf)
+check("checking the screen without a target app says so", wordsRun.end?.contains("target app") == true, wordsRun.end ?? "nil")
+check("If titles read plainly",
+      everyOther.summary == "it's every 2nd round" && fromThree.summary == "it's round 3 or later"
+      && { var w = StepCondition(kind: .words); w.look.text = "Level up"; w.negate = true; return w.summary }() == "“Level up” isn't on screen")
+
+let helper = Macro(name: "Helper", steps: [tapAt(5), tapAt(6)])
+let caller = Macro(name: "Caller", steps: [tapAt(1), MacroStep(delay: 0.1, action: .runMacro(helper.id)), tapAt(9)])
+let library = [helper.id: helper, caller.id: caller]
+let expanded = try? AppModel.expandingRuns(caller) { library[$0] }.get()
+check("Run another macro: its steps play in place", expanded.map { playTaps($0).taps } == [1, 5, 6, 9],
+      "\(expanded.map { playTaps($0).taps } ?? [])")
+var loopA = Macro(name: "A", steps: []), loopB = Macro(name: "B", steps: [])
+loopA.steps = [MacroStep(delay: 0, action: .runMacro(loopB.id))]
+loopB.steps = [MacroStep(delay: 0, action: .runMacro(loopA.id))]
+let loopLibrary = [loopA.id: loopA, loopB.id: loopB]
+if case .failure(let p) = AppModel.expandingRuns(loopA, find: { loopLibrary[$0] }) {
+    check("a macro that would end up running itself is refused", p.message.contains("running itself"), p.message)
+} else { check("a macro that would end up running itself is refused", false) }
+let twice = Macro(name: "Twice", steps: [MacroStep(delay: 0, action: .runMacro(helper.id)), MacroStep(delay: 0, action: .runMacro(helper.id))])
+let twiceSteps = (try? AppModel.expandingRuns(twice) { library[$0] }.get())?.steps ?? []
+check("running the same macro twice gives the second copy its own step ids", Set(twiceSteps.map(\.id)).count == 4)
+let gone = Macro(name: "Gone", steps: [MacroStep(delay: 0, action: .runMacro(UUID()))])
+if case .failure = AppModel.expandingRuns(gone, find: { library[$0] }) { check("a Run step whose macro was deleted is refused", true) }
+else { check("a Run step whose macro was deleted is refused", false) }
+let ifJSON = try! JSONEncoder().encode(branching)
+check("Ifs save and load", (try? JSONDecoder().decode(Macro.self, from: ifJSON))?.steps.map(\.action) == branching.steps.map(\.action))
+
 print(failures == 0 ? "ALL PASSED" : "\(failures) FAILED")
 exit(failures == 0 ? 0 : 1)

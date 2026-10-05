@@ -145,6 +145,10 @@ scripts/setup-signing.sh   # once: a personal signing certificate, so permission
 - See a macro as a map of the window with every tap, a readable list, or every raw event
 - Reorder by dragging, from the right-click menu, or with ⌥⌘↑ and ⌥⌘↓; switch steps off without deleting
   them; keep macros in folders
+- If, Otherwise and End: run steps only when a picture or words are (or aren't) on screen, a number has
+  reached a value, a spot is a colour, or it's a certain round (every 3rd, from round 5 on). Ifs can go
+  inside Ifs
+- Run another macro as a step, so a shared routine lives in one place
 - Branch and repeat: a step that isn't found can go to another step, and a Repeat step goes back to an
   earlier one a set number of times
 - Undo and redo for every edit, and global hotkeys for everything, including a panic stop
