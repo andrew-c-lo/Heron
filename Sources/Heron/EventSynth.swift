@@ -12,6 +12,8 @@ struct Route {
     /// Background delivery to an app that ignores input unless it's the active app (iPhone Mirroring):
     /// it's brought to the front for each press and the previous app is put back right after.
     var focusFlash = false
+    /// Background delivery to an Android emulator (BlueStacks): presses on its Android screen go in over ADB.
+    var android: AndroidScreen?
 
     static let screen = Route()
 
@@ -339,6 +341,8 @@ final class Performer {
     private var holdsFlashLock = false
     /// The target has been told it's active (see `FocusFlash.bringForward`) until the current press is done.
     private var faking = false
+    /// A press on an Android screen in progress: where it went down (Android pixels), when, and where it is now.
+    private var androidPress: (down: CGPoint, start: Double, last: CGPoint)?
     /// Jump & return: wait until the physical mouse has been still this long before jumping (0 = don't wait).
     var stillThreshold: Double = 0
     var token: CancelToken?
@@ -399,6 +403,7 @@ final class Performer {
             absolute ? CGPoint(x: x, y: y) : route.absolute(x, y)
         }
 
+        if background, let android = route.android, performOnAndroid(action, android, pos: pos, absolute: absolute) { return 0 }
         // Plain moves are pointless when we put the cursor back anyway.
         if jump, action.isMouseMove, heldButtons.isEmpty { return 0 }
         let flash = background && route.focusFlash && route.pid != 0 && (isPointer(action) || isKeyboard(action))
@@ -485,6 +490,55 @@ final class Performer {
             jumpOrigin = nil
         }
         return waited
+    }
+
+    /// Presses and swipes on an Android emulator's screen, sent over ADB (see `AndroidBridge`): a quick press is a
+    /// tap, a held one a long press, one that moves a swipe. Returns false for anything it doesn't handle, like a
+    /// click on the emulator's own toolbar (outside the Android screen), which goes in the usual way.
+    private func performOnAndroid(_ action: StepAction, _ android: AndroidScreen, pos: (Double, Double) -> CGPoint,
+                                  absolute: Bool) -> Bool {
+        switch action {
+        case .move:
+            return androidPress == nil ? false : true
+        case .mouseDown(.left, let x, let y, let c, _):
+            guard let px = android.pixel(spreadPoint(pos(x, y), newPress: c <= 1, absolute: absolute)) else { return false }
+            androidPress = (px, Timing.now(), px)
+            return true
+        case .drag(.left, let x, let y):
+            guard var p = androidPress else { return false }
+            if let px = android.pixel(spreadPoint(pos(x, y), newPress: false, absolute: absolute)) { p.last = px }
+            androidPress = p
+            return true
+        case .mouseUp(.left, _, _, _, _):
+            guard let p = androidPress else { return false }
+            androidPress = nil
+            let held = Timing.now() - p.start
+            if hypot(p.last.x - p.down.x, p.last.y - p.down.y) > 12 {
+                android.swipe(from: p.down, to: p.last, seconds: max(0.12, held))
+            } else if held >= DoubleClickEverywhere.longPress {
+                android.swipe(from: p.down, to: p.down, seconds: held)
+            } else {
+                android.tap(p.down)
+                if DoubleClickEverywhere.enabled { usleep(60_000); android.tap(p.down) }
+            }
+            return true
+        case .click(.left, let x?, let y?, let count):
+            guard let px = android.pixel(spreadPoint(pos(x, y), newPress: true, absolute: absolute)) else { return false }
+            let taps = count <= 1 && DoubleClickEverywhere.enabled ? 2 : max(1, count)
+            for i in 0..<taps {
+                if i > 0 { usleep(60_000) }
+                android.tap(px)
+            }
+            return true
+        case .scroll(_, let dy, let x?, let y?):
+            // Scrolling is a swipe on a touch screen: content moves the way the finger does.
+            guard dy != 0, let px = android.pixel(pos(x, y)) else { return false }
+            let distance = max(-android.size.height / 3, min(android.size.height / 3, CGFloat(dy) * 4))
+            android.swipe(from: px, to: CGPoint(x: px.x, y: px.y + distance), seconds: 0.25)
+            return true
+        default:
+            return false
+        }
     }
 
     /// Brings the target app to the front (without moving the pointer) so it accepts the next press.

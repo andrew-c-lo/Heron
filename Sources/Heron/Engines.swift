@@ -15,8 +15,16 @@ enum RouteBuilder {
         guard let w = resolver.window() else {
             return .failure(RouteError(message: "The \(resolver.app.name) window went away, so the run stopped."))
         }
-        return .success(Route(mode: target.delivery, pid: w.pid, windowNumber: w.windowNumber, origin: w.frame.origin,
-                              focusFlash: target.delivery == .background && FocusFlash.needed(for: resolver.app.bundleID)))
+        var route = Route(mode: target.delivery, pid: w.pid, windowNumber: w.windowNumber, origin: w.frame.origin,
+                          focusFlash: target.delivery == .background && FocusFlash.needed(for: resolver.app.bundleID))
+        if target.delivery == .background, AndroidBridge.emulators.contains(resolver.app.bundleID) {
+            // Its Android screen only takes taps over ADB.
+            guard let screen = AndroidScreen.find(pid: w.pid, windowFrame: w.frame) else {
+                return .failure(RouteError(message: "Couldn't reach Android in \(resolver.app.name). Turn on Android Debug Bridge in its Settings › Advanced, or switch Target to Jump & return."))
+            }
+            route.android = screen
+        }
+        return .success(route)
     }
 }
 

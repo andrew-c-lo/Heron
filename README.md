@@ -210,6 +210,8 @@ With Apple Intelligence (macOS 26 or later), all on your Mac and never sent anyw
   target app without moving the cursor, in standard Mac apps and in iPhone Mirroring. Mirroring only takes
   input while it thinks it's the active app,
   so Heron tells it so around each tap, without bringing it forward or taking the keyboard from your app
+- BlueStacks in the background too: its Android screen ignores clicks sent to the window, so Heron taps and
+  swipes inside Android over ADB, using the copy BlueStacks ships with (nothing to install)
 - Jump & return, for apps that ignore background clicks (some games) and macros on the whole screen: the
   cursor jumps to each click and straight back, and waits until you've stopped moving the mouse
 - Positions are relative to the app's window, so moving the window doesn't break anything

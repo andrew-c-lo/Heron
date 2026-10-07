@@ -841,8 +841,12 @@ check("new macros with an app click in the background; whole-screen ones jump an
       AppModel.startingDelivery(for: TargetApp(bundleID: "com.example.rewards", name: "Rewards")) == .background
       && AppModel.startingDelivery(for: nil) == .jumpReturn)
 check("Background is offered first", DeliveryMode.choices.first == .background)
-check("new BlueStacks macros start in Jump & return (it ignores background clicks)",
-      AppModel.startingDelivery(for: TargetApp(bundleID: "com.now.gg.BlueStacks", name: "BlueStacks")) == .jumpReturn)
+check("new BlueStacks macros start in Background when its ADB tool is there (taps go in over ADB), else Jump & return",
+      AppModel.startingDelivery(for: TargetApp(bundleID: "com.now.gg.BlueStacks", name: "BlueStacks"))
+          == (AndroidBridge.adbPath != nil ? .background : .jumpReturn))
+check("a window point on the Android screen maps to its Android pixel; the toolbar maps to nothing",
+      { let s = AndroidScreen(rect: CGRect(x: 100, y: 132, width: 481, height: 855), size: CGSize(width: 1080, height: 1920), serial: "x")
+        return s.pixel(CGPoint(x: 100 + 240.5, y: 132 + 427.5)) == CGPoint(x: 540, y: 960) && s.pixel(CGPoint(x: 590, y: 400)) == nil }())
 
 print(failures == 0 ? "ALL PASSED" : "\(failures) FAILED")
 exit(failures == 0 ? 0 : 1)

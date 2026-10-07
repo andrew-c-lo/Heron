@@ -34,13 +34,17 @@ enum DeliveryMode: String, Codable, CaseIterable, Identifiable {
     static let choices: [DeliveryMode] = [.background, .jumpReturn]
 
     /// Apps known to ignore clicks sent in the background (they read input another way), so new macros for them
-    /// start in Jump & return and the Target panel warns if Background is picked.
+    /// start in Jump & return and the Target panel warns if Background is picked. BlueStacks is here for when its
+    /// ADB tool is missing; normally its taps go in over ADB (see `AndroidBridge`).
     static let backgroundIgnoredBy: Set<String> = [
         "com.now.gg.BlueStacks", "com.now.gg.BlueStacksAirMIM", "com.bluestacks.BlueStacks",
     ]
 
     static func backgroundWorks(in app: TargetApp?) -> Bool {
-        app.map { !backgroundIgnoredBy.contains($0.bundleID) } ?? false
+        guard let app else { return false }
+        // BlueStacks: its Android screen takes taps over ADB, which it ships with.
+        if AndroidBridge.emulators.contains(app.bundleID) { return AndroidBridge.adbPath != nil }
+        return !backgroundIgnoredBy.contains(app.bundleID)
     }
 
     init(from decoder: Decoder) throws {
