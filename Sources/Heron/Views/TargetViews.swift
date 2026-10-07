@@ -83,6 +83,17 @@ struct TargetControls: View {
             Text("Choose a target app to use background delivery.")
                 .font(.caption).foregroundStyle(.red)
         }
+        if target.delivery == .background, let app = target.app, !DeliveryMode.backgroundWorks(in: app) {
+            HStack(alignment: .firstTextBaseline) {
+                Label("\(app.name) ignores clicks sent in the background, so nothing will happen. Use Jump & return.",
+                      systemImage: "exclamationmark.triangle")
+                    .font(.caption).foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer()
+                Button("Use Jump & Return") { target.delivery = .jumpReturn }
+                    .controlSize(.small)
+            }
+        }
         if target.app != nil && target.delivery != .background {
             Toggle("Bring app to front before starting", isOn: $target.activateFirst)
             Toggle("Pause while another app is in front", isOn: $target.pauseWhenInactive)

@@ -841,6 +841,8 @@ check("new macros with an app click in the background; whole-screen ones jump an
       AppModel.startingDelivery(for: TargetApp(bundleID: "com.example.rewards", name: "Rewards")) == .background
       && AppModel.startingDelivery(for: nil) == .jumpReturn)
 check("Background is offered first", DeliveryMode.choices.first == .background)
+check("new BlueStacks macros start in Jump & return (it ignores background clicks)",
+      AppModel.startingDelivery(for: TargetApp(bundleID: "com.now.gg.BlueStacks", name: "BlueStacks")) == .jumpReturn)
 
 print(failures == 0 ? "ALL PASSED" : "\(failures) FAILED")
 exit(failures == 0 ? 0 : 1)

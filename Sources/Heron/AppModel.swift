@@ -713,8 +713,11 @@ final class AppModel: ObservableObject {
     }
 
     /// How a new macro's clicks are sent: in the background when it has an app (the pointer never moves), and
-    /// Jump & return when it works on the whole screen (there's no app to send them to).
-    nonisolated static func startingDelivery(for app: TargetApp?) -> DeliveryMode { app == nil ? .jumpReturn : .background }
+    /// Jump & return when it works on the whole screen (there's no app to send them to) or its app is known to
+    /// ignore background clicks (BlueStacks).
+    nonisolated static func startingDelivery(for app: TargetApp?) -> DeliveryMode {
+        DeliveryMode.backgroundWorks(in: app) ? .background : .jumpReturn
+    }
 
     func setMacroTarget(_ id: UUID, _ app: TargetApp?) {
         guard var m = macros.first(where: { $0.id == id }), app != m.target.app else { return }
@@ -731,7 +734,7 @@ final class AppModel: ObservableObject {
         m.target.app = app
         if app == nil && m.target.delivery == .background { m.target.delivery = .jumpReturn }
         // A macro's first app: clicks go to it in the background, so your pointer stays yours.
-        if app != nil && !hadApp { m.target.delivery = .background }
+        if app != nil && !hadApp { m.target.delivery = Self.startingDelivery(for: app) }
         update(m)
     }
 
@@ -963,6 +966,17 @@ final class AppModel: ObservableObject {
         }
         if isRecording { stopRecording(fromUI: false) }
         guard let prep = prepareTarget(macro.target) else { return }
+        if macro.target.delivery == .background, let app = macro.target.app, !DeliveryMode.backgroundWorks(in: app) {
+            // It runs, but the clicks won't land: say so, with the fix one click away.
+            let id = macro.id
+            flash("\(app.name) ignores clicks sent in the background.", action: StatusAction(title: "Use Jump & Return") { [weak self] in
+                guard let self, var m = self.macros.first(where: { $0.id == id }) else { return }
+                m.target.delivery = .jumpReturn
+                self.update(m)
+                if self.playingMacroID == id { self.stopPlayback() }
+                self.flash("Switched to Jump & return. Press Play again.")
+            })
+        }
         stopAutoClick()
         playingMacroID = macro.id
         playStep = 0

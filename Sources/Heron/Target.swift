@@ -33,6 +33,16 @@ enum DeliveryMode: String, Codable, CaseIterable, Identifiable {
     /// (macros saved with it load as Jump & return).
     static let choices: [DeliveryMode] = [.background, .jumpReturn]
 
+    /// Apps known to ignore clicks sent in the background (they read input another way), so new macros for them
+    /// start in Jump & return and the Target panel warns if Background is picked.
+    static let backgroundIgnoredBy: Set<String> = [
+        "com.now.gg.BlueStacks", "com.now.gg.BlueStacksAirMIM", "com.bluestacks.BlueStacks",
+    ]
+
+    static func backgroundWorks(in app: TargetApp?) -> Bool {
+        app.map { !backgroundIgnoredBy.contains($0.bundleID) } ?? false
+    }
+
     init(from decoder: Decoder) throws {
         let raw = try decoder.singleValueContainer().decode(String.self)
         self = raw == "normal" ? .jumpReturn : DeliveryMode(rawValue: raw) ?? .jumpReturn
