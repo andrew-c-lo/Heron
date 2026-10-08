@@ -31,26 +31,25 @@ struct ContentView: View {
     @AppStorage("miniOnTop") private var onTop = true
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    private var macroMini: Bool { simple && model.tab == .macros }
+
     var body: some View {
         Group {
-            if simple {
-                // Mini mode follows the tab you were on: the auto clicker, or up to three macros.
-                if model.tab == .macros {
-                    // No title bar here: the window still counts its height (28 pt), so the strip says it's that
-                    // much shorter and draws up into where the title bar was. The window ends up just the card's height.
-                    MacroMiniStrip(onTop: $onTop) { simple = false }
-                        .frame(height: MacroMiniStrip.height - 28, alignment: .top)
-                        .ignoresSafeArea()
-                } else {
-                    SimpleStrip(onTop: $onTop) { simple = false }
-                }
+            // Mini mode follows the tab you were on: the auto clicker's strip here, or (Macros) a separate
+            // floating card while this window steps aside.
+            if simple && model.tab != .macros {
+                SimpleStrip(onTop: $onTop) { simple = false }
             } else {
                 full
             }
         }
-        .toolbar(simple ? .hidden : .visible, for: .windowToolbar)
+        // The card is put up before the window steps aside, so Heron always has a window showing.
+        .onAppear { MiniPanel.shared.show(macroMini, model: model) }
+        .onChange(of: macroMini) { _, on in MiniPanel.shared.show(on, model: model) }
+        .background(MainWindowAside(aside: macroMini) { simple = false })
+        .toolbar(simple && model.tab != .macros ? .hidden : .visible, for: .windowToolbar)
         // The small strip stays above other windows, like a remote control.
-        .background(WindowLevel(floating: simple && onTop, bare: simple && model.tab == .macros))
+        .background(WindowLevel(floating: simple && model.tab != .macros && onTop))
     }
 
     private var full: some View {
@@ -106,96 +105,147 @@ struct ContentView: View {
 /// say where you are.
 struct WindowLevel: NSViewRepresentable {
     let floating: Bool
-    /// Macro mini mode: no title bar or window buttons, dragged by its background, like a widget.
-    var bare = false
 
     final class Probe: NSView {
         var floating = false { didSet { apply() } }
-        var bare = false { didSet { if bare != oldValue { apply() } } }
         private var observers: [NSObjectProtocol] = []
-        /// The window's toolbar, set aside while bare (an empty toolbar still draws a band with a line under it).
-        private var parkedToolbar: NSToolbar?
-        /// Bare windows keep their own top-left corner: the saved window frame assumes a title bar and put the
-        /// window 28 pt lower on every launch.
-        private var placed = false
-        private var original: (transparent: Bool, fullSize: Bool, movable: Bool, separator: NSTitlebarSeparatorStyle)?
-        private static let cornerKey = "miniTopLeft"
 
         override func viewDidMoveToWindow() {
             observers.forEach(NotificationCenter.default.removeObserver)
             observers = []
             apply()
             guard let window else { return }
-            observers.append(NotificationCenter.default.addObserver(forName: NSWindow.didMoveNotification, object: window,
-                                                                    queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated {
-                    guard let self, self.bare, self.placed, let w = self.window else { return }
-                    UserDefaults.standard.set(NSStringFromPoint(NSPoint(x: w.frame.minX, y: w.frame.maxY)), forKey: Self.cornerKey)
-                }
-            })
-            for name in [NSWindow.didResizeNotification, NSWindow.didBecomeKeyNotification, NSWindow.didEndLiveResizeNotification,
-                         NSWindow.didUpdateNotification] {
+            for name in [NSWindow.didResizeNotification, NSWindow.didBecomeKeyNotification, NSWindow.didEndLiveResizeNotification] {
                 observers.append(NotificationCenter.default.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in
                     MainActor.assumeIsolated { self?.apply() }
                 })
             }
         }
-        // SwiftUI sets the title back up as the toolbar changes, so keep it hidden.
         override func layout() { super.layout(); apply() }
         func apply() {
             guard let window else { return }
             let level: NSWindow.Level = floating ? .floating : .normal
             if window.level != level { window.level = level }
-            // Checked on every window update (each step only changes something that differs): becoming active
-            // makes SwiftUI show its toolbar again, which drew a band with a line over the card. The window's own
-            // settings are kept when going bare and put back exactly when leaving; outside mini mode they're left alone.
-            if bare {
-                if original == nil {
-                    original = (window.titlebarAppearsTransparent, window.styleMask.contains(.fullSizeContentView),
-                                window.isMovableByWindowBackground, window.titlebarSeparatorStyle)
+        }
+    }
+
+    func makeNSView(context: Context) -> Probe { Probe() }
+    func updateNSView(_ view: Probe, context: Context) { view.floating = floating }
+}
+
+/// Puts the main window away while the macro mini card is up, and back when it closes. Opening the window
+/// another way meanwhile (the Dock, the menu bar) ends mini mode.
+struct MainWindowAside: NSViewRepresentable {
+    let aside: Bool
+    let onShownAnyway: () -> Void
+
+    final class Probe: NSView {
+        var aside = false { didSet { if aside != oldValue { if aside { asideSince = Date() }; apply() } } }
+        var onShownAnyway: () -> Void = {}
+        private var asideSince = Date()
+        private var observer: NSObjectProtocol?
+
+        override func viewDidMoveToWindow() {
+            if let observer { NotificationCenter.default.removeObserver(observer) }
+            guard let window else { return }
+            observer = NotificationCenter.default.addObserver(forName: NSWindow.didBecomeKeyNotification, object: window,
+                                                              queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    // Ignored just after stepping aside: at launch the window becomes key on its own.
+                    guard let self, self.aside, Date().timeIntervalSince(self.asideSince) > 1.5 else { return }
+                    self.onShownAnyway()
                 }
-                if !window.titlebarAppearsTransparent { window.titlebarAppearsTransparent = true }
-                if !window.styleMask.contains(.fullSizeContentView) { window.styleMask.insert(.fullSizeContentView) }
-                if !window.isMovableByWindowBackground { window.isMovableByWindowBackground = true }
-                if window.titlebarSeparatorStyle != .none { window.titlebarSeparatorStyle = .none }
-                if let t = window.toolbar {
-                    parkedToolbar = t
-                    window.toolbar = nil
-                }
-            } else if let o = original {
-                original = nil
-                window.titlebarAppearsTransparent = o.transparent
-                if o.fullSize { window.styleMask.insert(.fullSizeContentView) } else { window.styleMask.remove(.fullSizeContentView) }
-                window.isMovableByWindowBackground = o.movable
-                window.titlebarSeparatorStyle = o.separator
-                if window.toolbar == nil, let t = parkedToolbar { window.toolbar = t }
-                parkedToolbar = nil
             }
-            for b in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
-                if let button = window.standardWindowButton(b), button.isHidden != bare { button.isHidden = bare }
-            }
-            // The title bar's own view: its background comes back whenever the window becomes active.
-            if let bar = window.standardWindowButton(.closeButton)?.superview?.superview,
-               String(describing: type(of: bar)).contains("Titlebar"), bar.isHidden != bare {
-                bar.isHidden = bare
-            }
-            if bare && !placed {
-                placed = true
-                if let saved = UserDefaults.standard.string(forKey: Self.cornerKey) {
-                    window.setFrameTopLeftPoint(NSPointFromString(saved))
-                } else {
-                    UserDefaults.standard.set(NSStringFromPoint(NSPoint(x: window.frame.minX, y: window.frame.maxY)), forKey: Self.cornerKey)
-                }
-            } else if !bare {
-                placed = false
+            apply()
+        }
+        func apply() {
+            guard let window else { return }
+            if aside {
+                // Not closed or hidden: window-tidying utilities (like Vorssaint) quit apps whose windows all go
+                // away. It stays open but out of sight: see-through, at the back, not clickable, skipped by ⌘`.
+                window.alphaValue = 0
+                window.ignoresMouseEvents = true
+                window.collectionBehavior.insert([.ignoresCycle, .transient])
+                window.orderBack(nil)
+            } else if window.alphaValue < 1 || !window.isVisible {
+                window.alphaValue = 1
+                window.ignoresMouseEvents = false
+                window.collectionBehavior.remove([.ignoresCycle, .transient])
+                window.makeKeyAndOrderFront(nil)
+                // You asked for it (Show everything), so it comes to the front even from another app.
+                NSApp.activate(ignoringOtherApps: true)
             }
         }
     }
 
     func makeNSView(context: Context) -> Probe { Probe() }
     func updateNSView(_ view: Probe, context: Context) {
-        view.floating = floating
-        view.bare = bare
+        view.onShownAnyway = onShownAnyway
+        view.aside = aside
+    }
+}
+
+/// The macro mini card's own window: a small borderless panel that floats (unless unpinned) and doesn't make
+/// Heron the active app when clicked, so pressing Play leaves you in the app you're using.
+@MainActor
+final class MiniPanel {
+    static let shared = MiniPanel()
+    private var panel: NSPanel?
+    private var moveObserver: NSObjectProtocol?
+    private static let cornerKey = "miniTopLeft"
+
+    /// A panel that takes key presses (← →) when clicked, without activating the app.
+    final class KeyPanel: NSPanel {
+        override var canBecomeKey: Bool { true }
+    }
+
+    func show(_ visible: Bool, model: AppModel) {
+        guard visible else { panel?.orderOut(nil); return }
+        if panel == nil {
+            let p = KeyPanel(contentRect: NSRect(x: 0, y: 0, width: 356, height: 86),
+                             styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+            p.isMovableByWindowBackground = true
+            p.backgroundColor = .clear
+            p.isOpaque = false
+            p.hasShadow = true
+            p.hidesOnDeactivate = false
+            p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+            let host = NSHostingView(rootView: MiniPanelRoot().environmentObject(model))
+            p.contentView = host
+            p.setContentSize(host.fittingSize)
+            if let saved = UserDefaults.standard.string(forKey: Self.cornerKey) {
+                p.setFrameTopLeftPoint(NSPointFromString(saved))
+            } else if let screen = NSScreen.main {
+                p.setFrameTopLeftPoint(NSPoint(x: screen.visibleFrame.maxX - p.frame.width - 24, y: screen.visibleFrame.maxY - 24))
+            }
+            moveObserver = NotificationCenter.default.addObserver(forName: NSWindow.didMoveNotification, object: p, queue: .main) { _ in
+                MainActor.assumeIsolated {
+                    UserDefaults.standard.set(NSStringFromPoint(NSPoint(x: p.frame.minX, y: p.frame.maxY)), forKey: Self.cornerKey)
+                }
+            }
+            panel = p
+        }
+        setOnTop(UserDefaults.standard.object(forKey: "miniOnTop") as? Bool ?? true)
+        panel?.orderFrontRegardless()
+    }
+
+    func setOnTop(_ on: Bool) { panel?.level = on ? .floating : .normal }
+
+    var isShowing: Bool { panel?.isVisible == true }
+}
+
+/// The mini card with its rounded, material background.
+private struct MiniPanelRoot: View {
+    @AppStorage("miniOnTop") private var onTop = true
+    @AppStorage("simpleMode") private var simple = false
+
+    var body: some View {
+        MacroMiniStrip(onTop: $onTop) { simple = false }
+            .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(.regularMaterial))
+            .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Color.primary.opacity(0.1)))
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .fixedSize()
+            .onChange(of: onTop) { _, on in MiniPanel.shared.setOnTop(on) }
     }
 }
 

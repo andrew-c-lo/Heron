@@ -3,6 +3,7 @@ import SwiftUI
 @main
 struct HeronApp: App {
     @StateObject private var model = AppModel()
+    @NSApplicationDelegateAdaptor private var delegate: HeronDelegate
 
     var body: some Scene {
         Window("Heron", id: "main") {
@@ -123,5 +124,14 @@ private extension View {
 extension AppModel {
     func hotkeyDisplay(_ action: HotkeyAction) -> String {
         liveHotkey(action)?.display ?? "not set"
+    }
+}
+
+
+/// Keeps Heron running while the main window steps aside for the macro mini card (otherwise putting the only
+/// window away would quit the app). Closing the window outside mini mode behaves as before.
+final class HeronDelegate: NSObject, NSApplicationDelegate {
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        !MainActor.assumeIsolated { MiniPanel.shared.isShowing }
     }
 }
