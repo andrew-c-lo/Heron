@@ -766,8 +766,16 @@ struct PlaybackOptions: Codable, Equatable {
     /// With words: instead of matching them, stop when a number read in the killswitch's area is at least this.
     var stopAtNumber: Int?
     /// Stop after this step has happened this many times (one count per appearance, not per repeat tap).
+    /// The round step: each time it happens counts a round (shown while running; a run can stop after some).
+    /// Named for when rounds only existed as a stop condition.
     var stopAfterStep: UUID?
+    /// Stop after this many rounds (0 = just count them).
     var stopAfterCount = 5
+    /// A round counts at most once in this many seconds, so a double press or a flicker isn't two rounds.
+    var roundGap: Double = 5
+
+    /// Stop after this many rounds, when a round step is chosen and a limit set.
+    var roundLimit: Int? { stopAfterStep != nil && stopAfterCount > 0 ? stopAfterCount : nil }
     /// Stop (as a problem) when nothing has happened for this many minutes (0 = never).
     var stopIfIdleMinutes: Double = 0
     /// Stop after the run has gone on this long, however it was started (0 = no time limit).
@@ -820,7 +828,8 @@ extension PlaybackOptions {
         stopWhen = try c.decodeIfPresent(ImageStep.self, forKey: .stopWhen)
         stopAtNumber = try c.decodeIfPresent(Int.self, forKey: .stopAtNumber)
         stopAfterStep = try c.decodeIfPresent(UUID.self, forKey: .stopAfterStep)
-        stopAfterCount = max(1, try c.decodeIfPresent(Int.self, forKey: .stopAfterCount) ?? 5)
+        stopAfterCount = max(0, try c.decodeIfPresent(Int.self, forKey: .stopAfterCount) ?? 5)
+        roundGap = max(0, try c.decodeIfPresent(Double.self, forKey: .roundGap) ?? 5)
         stopIfIdleMinutes = try c.decodeIfPresent(Double.self, forKey: .stopIfIdleMinutes) ?? 0
         stopAfterMinutes = try c.decodeIfPresent(Double.self, forKey: .stopAfterMinutes) ?? 0
         if repeatMode == .duration {

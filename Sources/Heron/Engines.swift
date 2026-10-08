@@ -143,6 +143,8 @@ final class Player {
             var listNext: [UUID: Int] = [:]
             // “Stop after it happens N times” counts across loops; a step that times out doesn't count.
             var timesSoFar = 0
+            // When the last round was counted: one within the cooldown is the same round (a double press).
+            var lastRoundAt = -Double.infinity
             var stepMissed = false
 
             if opts.order == .allAtOnce {
@@ -355,13 +357,14 @@ final class Player {
                         // Counted toward “stop after it happens N times” (a step that timed out didn't happen).
                         if !stepMissed {
                             idle.touch()
-                            if step.id == opts.stopAfterStep {
+                            if step.id == opts.stopAfterStep, Timing.now() - lastRoundAt >= opts.roundGap {
+                                lastRoundAt = Timing.now()
                                 timesHappened += 1
                                 timesSoFar = timesHappened
                                 let n = timesHappened
                                 Task { @MainActor in counted(n) }
-                                if timesHappened >= opts.stopAfterCount {
-                                    error = Self.done("\(Self.stepName(step, i)) happened \(opts.stopAfterCount) time\(opts.stopAfterCount == 1 ? "" : "s")")
+                                if let limit = opts.roundLimit, timesHappened >= limit {
+                                    error = Self.done("\(limit) round\(limit == 1 ? "" : "s") (\(Self.stepName(step, i)))")
                                     break outer
                                 }
                             }
@@ -608,6 +611,7 @@ final class Player {
         var found: [Int: CGRect] = [:]
         var still: Set<Int> = []
         var timesHappened = 0
+        var lastRoundAt = -Double.infinity
         var clicks = 0
         while !token.isCancelled {
             if opts.maxClicks > 0, clicks >= opts.maxClicks { break }
@@ -690,12 +694,14 @@ final class Player {
                 let id = steps[index].id
                 // Reported before the stop check, so the click that reaches the goal is counted too.
                 Task { @MainActor in progress(index + 1, 1, nil); clicked(id, rect) }
-                if firstThisTime, steps[index].id == opts.stopAfterStep {
+                // A round: the round step showing up again, past the cooldown (a double press is the same round).
+                if firstThisTime, steps[index].id == opts.stopAfterStep, Timing.now() - lastRoundAt >= opts.roundGap {
+                    lastRoundAt = Timing.now()
                     timesHappened += 1
                     let n = timesHappened
                     Task { @MainActor in counted(n) }
-                    if timesHappened >= opts.stopAfterCount {
-                        return Self.done("\(Self.stepName(steps[index], index)) happened \(opts.stopAfterCount) time\(opts.stopAfterCount == 1 ? "" : "s")")
+                    if let limit = opts.roundLimit, timesHappened >= limit {
+                        return Self.done("\(limit) round\(limit == 1 ? "" : "s") (\(Self.stepName(steps[index], index)))")
                     }
                 }
             } else if opts.idleTapAfter > 0, let ix = opts.idleTapX, let iy = opts.idleTapY,

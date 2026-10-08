@@ -65,8 +65,10 @@ final class AppModel: ObservableObject {
         live.compactMap { id, run in
             guard let m = macros.first(where: { $0.id == id }) else { return nil }
             var parts: [String] = []
-            if m.playback.stopAfterStep != nil {
-                parts.append("Round \(min(run.rounds + 1, m.playback.stopAfterCount)) of \(m.playback.stopAfterCount)")
+            if let limit = m.playback.roundLimit {
+                parts.append("Round \(min(run.rounds + 1, limit)) of \(limit)")
+            } else if m.playback.stopAfterStep != nil {
+                parts.append("Round \(run.rounds + 1)")
             }
             let quiet = now.timeIntervalSince(run.lastActivity)
             if m.playback.stopIfIdleMinutes > 0 || quiet >= 15 { parts.append("quiet \(Self.clock(quiet))") }
@@ -84,9 +86,10 @@ final class AppModel: ObservableObject {
         guard live.count == 1, let (id, run) = live.first, let m = macros.first(where: { $0.id == id }) else {
             return "\(live.count) running"
         }
-        if m.playback.stopAfterStep != nil {
-            return "\(min(run.rounds + 1, m.playback.stopAfterCount))/\(m.playback.stopAfterCount)"
+        if let limit = m.playback.roundLimit {
+            return "\(min(run.rounds + 1, limit))/\(limit)"
         }
+        if m.playback.stopAfterStep != nil { return "R\(run.rounds + 1)" }
         let ran = Date().timeIntervalSince(run.started) / 60
         if m.playback.stopAfterMinutes > 0 {
             return "\(Int(max(0, m.playback.stopAfterMinutes - ran).rounded(.up)))m left"
@@ -1183,6 +1186,7 @@ final class AppModel: ObservableObject {
 
     /// Writes the report of a finished run: how often each step fired, where, and every click's time.
     private func saveRunReport(_ macroID: UUID) {
+        let rounds = live[macroID]?.rounds ?? 0
         live[macroID] = nil
         collectPresses(macroID)
         if let log = runs[macroID] {
@@ -1206,6 +1210,7 @@ final class AppModel: ObservableObject {
             "macro": m.name, "macroID": m.id.uuidString, "started": ISO8601DateFormatter().string(from: log.started),
             "seconds": Int(Date().timeIntervalSince(log.started)),
             "stuckTaps": log.events.filter { $0.step == nil }.count,
+            "rounds": m.playback.stopAfterStep == nil ? NSNull() : rounds as Any,
             "steps": steps,
             "clicks": log.events.map { ["t": (($0.t * 10).rounded() / 10), "step": $0.step.flatMap { index[$0] } ?? 0] },
         ]

@@ -666,7 +666,7 @@ func playUntilDone(_ m: Macro, timeout: Double = 6) -> (presses: Int, end: Strin
 let tapStep = MacroStep(delay: 0.05, action: .click(button: .left, x: 5, y: 5, count: 1))
 var counted = Macro(name: "count", steps: [tapStep, MacroStep(delay: 0.05, action: .wait)])
 counted.playback.repeatMode = .untilStopped
-counted.playback.stopAfterStep = tapStep.id; counted.playback.stopAfterCount = 3
+counted.playback.stopAfterStep = tapStep.id; counted.playback.stopAfterCount = 3; counted.playback.roundGap = 0
 let countRun = playUntilDone(counted)
 check("stops after the chosen step has happened 3 times", countRun.presses == 3 && countRun.end.map(Player.isDone) == true,
       "\(countRun.presses) presses, \(countRun.end ?? "nil")")
@@ -847,6 +847,21 @@ check("new BlueStacks macros start in Background when its ADB tool is there (tap
 check("a window point on the Android screen maps to its Android pixel; the toolbar maps to nothing",
       { let s = AndroidScreen(rect: CGRect(x: 100, y: 132, width: 481, height: 855), size: CGSize(width: 1080, height: 1920), serial: "x")
         return s.pixel(CGPoint(x: 100 + 240.5, y: 132 + 427.5)) == CGPoint(x: 540, y: 960) && s.pixel(CGPoint(x: 590, y: 400)) == nil }())
+
+// Rounds: a double press within the cooldown counts once; with no limit, rounds are only counted.
+var doubled = Macro(name: "double", steps: [tapStep, MacroStep(delay: 0.05, action: .wait)])
+doubled.playback.repeatMode = .times; doubled.playback.loops = 6
+doubled.playback.stopAfterStep = tapStep.id; doubled.playback.stopAfterCount = 2; doubled.playback.roundGap = 0.25
+let doubledRun = playUntilDone(doubled)
+check("presses closer together than the cooldown are one round", doubledRun.presses >= 4 && doubledRun.end.map(Player.isDone) == true,
+      "\(doubledRun.presses) presses, \(doubledRun.end ?? "nil")")
+var countOnly = counted; countOnly.playback.stopAfterCount = 0
+countOnly.playback.repeatMode = .times; countOnly.playback.loops = 5
+let countOnlyRun = playUntilDone(countOnly)
+check("a round step with no limit only counts: the run carries on", countOnlyRun.presses == 5 && countOnlyRun.end == nil,
+      "\(countOnlyRun.presses) presses, \(countOnlyRun.end ?? "nil")")
+check("older macros: rounds count at most once every 5 s",
+      (try! JSONDecoder().decode(PlaybackOptions.self, from: Data("{}".utf8))).roundGap == 5)
 
 print(failures == 0 ? "ALL PASSED" : "\(failures) FAILED")
 exit(failures == 0 ? 0 : 1)
