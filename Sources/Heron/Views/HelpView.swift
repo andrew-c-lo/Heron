@@ -12,7 +12,7 @@ struct HelpView: View {
         Topic(id: "Macros and steps", icon: "list.bullet", body: [
             "A macro is a list of steps that play from top to bottom: clicks, key presses, typing, waits, and steps that look at the screen.",
             "Record what you do, add steps with Add or Find Picture, or start from a template. Drag steps to reorder them, or use ⌥⌘↑ and ⌥⌘↓.",
-            "Mini mode (the arrows button at the top) shrinks Heron to up to three macros you can play and watch, in a small window that stays above other windows; the pin turns that off.",
+            "Mini mode (the arrows button at the top) shrinks Heron to one macro on a small card: swipe or use ‹ › (or the arrow keys) to move between macros, and play or stop it there. The big number is its round. It stays above other windows; the pin turns that off.",
             "Select a step to edit it in the panel beside the list, and double-click a picture step to pick its picture again. Click the pencil next to a step's title to give it a name.",
         ]),
         Topic(id: "Pictures and words", icon: "viewfinder", body: [

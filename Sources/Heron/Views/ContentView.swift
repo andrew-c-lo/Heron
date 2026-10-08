@@ -36,7 +36,11 @@ struct ContentView: View {
             if simple {
                 // Mini mode follows the tab you were on: the auto clicker, or up to three macros.
                 if model.tab == .macros {
+                    // No title bar here: the window still counts its height (28 pt), so the strip says it's that
+                    // much shorter and draws up into where the title bar was. The window ends up just the card's height.
                     MacroMiniStrip(onTop: $onTop) { simple = false }
+                        .frame(height: MacroMiniStrip.height - 28, alignment: .top)
+                        .ignoresSafeArea()
                 } else {
                     SimpleStrip(onTop: $onTop) { simple = false }
                 }
@@ -46,7 +50,7 @@ struct ContentView: View {
         }
         .toolbar(simple ? .hidden : .visible, for: .windowToolbar)
         // The small strip stays above other windows, like a remote control.
-        .background(WindowLevel(floating: simple && onTop))
+        .background(WindowLevel(floating: simple && onTop, bare: simple && model.tab == .macros))
     }
 
     private var full: some View {
@@ -102,17 +106,35 @@ struct ContentView: View {
 /// say where you are.
 struct WindowLevel: NSViewRepresentable {
     let floating: Bool
+    /// Macro mini mode: no title bar or window buttons, dragged by its background, like a widget.
+    var bare = false
 
     final class Probe: NSView {
         var floating = false { didSet { apply() } }
+        var bare = false { didSet { if bare != oldValue { apply() } } }
         private var observers: [NSObjectProtocol] = []
+        /// The window's toolbar, set aside while bare (an empty toolbar still draws a band with a line under it).
+        private var parkedToolbar: NSToolbar?
+        /// Bare windows keep their own top-left corner: the saved window frame assumes a title bar and put the
+        /// window 28 pt lower on every launch.
+        private var placed = false
+        private var original: (transparent: Bool, fullSize: Bool, movable: Bool, separator: NSTitlebarSeparatorStyle)?
+        private static let cornerKey = "miniTopLeft"
 
         override func viewDidMoveToWindow() {
             observers.forEach(NotificationCenter.default.removeObserver)
             observers = []
             apply()
             guard let window else { return }
-            for name in [NSWindow.didResizeNotification, NSWindow.didBecomeKeyNotification, NSWindow.didEndLiveResizeNotification] {
+            observers.append(NotificationCenter.default.addObserver(forName: NSWindow.didMoveNotification, object: window,
+                                                                    queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self, self.bare, self.placed, let w = self.window else { return }
+                    UserDefaults.standard.set(NSStringFromPoint(NSPoint(x: w.frame.minX, y: w.frame.maxY)), forKey: Self.cornerKey)
+                }
+            })
+            for name in [NSWindow.didResizeNotification, NSWindow.didBecomeKeyNotification, NSWindow.didEndLiveResizeNotification,
+                         NSWindow.didUpdateNotification] {
                 observers.append(NotificationCenter.default.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in
                     MainActor.assumeIsolated { self?.apply() }
                 })
@@ -124,11 +146,57 @@ struct WindowLevel: NSViewRepresentable {
             guard let window else { return }
             let level: NSWindow.Level = floating ? .floating : .normal
             if window.level != level { window.level = level }
+            // Checked on every window update (each step only changes something that differs): becoming active
+            // makes SwiftUI show its toolbar again, which drew a band with a line over the card. The window's own
+            // settings are kept when going bare and put back exactly when leaving; outside mini mode they're left alone.
+            if bare {
+                if original == nil {
+                    original = (window.titlebarAppearsTransparent, window.styleMask.contains(.fullSizeContentView),
+                                window.isMovableByWindowBackground, window.titlebarSeparatorStyle)
+                }
+                if !window.titlebarAppearsTransparent { window.titlebarAppearsTransparent = true }
+                if !window.styleMask.contains(.fullSizeContentView) { window.styleMask.insert(.fullSizeContentView) }
+                if !window.isMovableByWindowBackground { window.isMovableByWindowBackground = true }
+                if window.titlebarSeparatorStyle != .none { window.titlebarSeparatorStyle = .none }
+                if let t = window.toolbar {
+                    parkedToolbar = t
+                    window.toolbar = nil
+                }
+            } else if let o = original {
+                original = nil
+                window.titlebarAppearsTransparent = o.transparent
+                if o.fullSize { window.styleMask.insert(.fullSizeContentView) } else { window.styleMask.remove(.fullSizeContentView) }
+                window.isMovableByWindowBackground = o.movable
+                window.titlebarSeparatorStyle = o.separator
+                if window.toolbar == nil, let t = parkedToolbar { window.toolbar = t }
+                parkedToolbar = nil
+            }
+            for b in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
+                if let button = window.standardWindowButton(b), button.isHidden != bare { button.isHidden = bare }
+            }
+            // The title bar's own view: its background comes back whenever the window becomes active.
+            if let bar = window.standardWindowButton(.closeButton)?.superview?.superview,
+               String(describing: type(of: bar)).contains("Titlebar"), bar.isHidden != bare {
+                bar.isHidden = bare
+            }
+            if bare && !placed {
+                placed = true
+                if let saved = UserDefaults.standard.string(forKey: Self.cornerKey) {
+                    window.setFrameTopLeftPoint(NSPointFromString(saved))
+                } else {
+                    UserDefaults.standard.set(NSStringFromPoint(NSPoint(x: window.frame.minX, y: window.frame.maxY)), forKey: Self.cornerKey)
+                }
+            } else if !bare {
+                placed = false
+            }
         }
     }
 
     func makeNSView(context: Context) -> Probe { Probe() }
-    func updateNSView(_ view: Probe, context: Context) { view.floating = floating }
+    func updateNSView(_ view: Probe, context: Context) {
+        view.floating = floating
+        view.bare = bare
+    }
 }
 
 // MARK: - Status bar

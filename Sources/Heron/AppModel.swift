@@ -59,6 +59,8 @@ final class AppModel: ObservableObject {
         var rounds = 0
     }
     @Published private(set) var live: [UUID: LiveRun] = [:]
+    /// Rounds the last run of each macro got through (macros that count rounds), for mini mode.
+    @Published private(set) var lastRounds: [UUID: Int] = [:]
 
     /// Running macros, in a line each, for the menu bar: “Round 3 of 5 · quiet 0:42 · 4:12”.
     func liveLines(now: Date = Date()) -> [(id: UUID, name: String, line: String)] {
@@ -1187,6 +1189,7 @@ final class AppModel: ObservableObject {
     /// Writes the report of a finished run: how often each step fired, where, and every click's time.
     private func saveRunReport(_ macroID: UUID) {
         let rounds = live[macroID]?.rounds ?? 0
+        if live[macroID] != nil, macros.first(where: { $0.id == macroID })?.playback.stopAfterStep != nil { lastRounds[macroID] = rounds }
         live[macroID] = nil
         collectPresses(macroID)
         if let log = runs[macroID] {

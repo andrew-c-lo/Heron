@@ -212,126 +212,182 @@ struct SimpleStrip: View {
 }
 
 
-/// Mini mode on the Macros tab: up to three macros, each one click from running, with what it's doing now.
+/// Mini mode on the Macros tab: one macro at a time on a small card, swiped (or arrowed) through like a carousel,
+/// with its round count up front and a dot per macro (green while running).
 struct MacroMiniStrip: View {
     @EnvironmentObject var model: AppModel
-    /// The macros picked for mini mode (comma-separated ids). Empty: the one you're looking at and the newest others.
-    @AppStorage("miniMacros") private var stored = ""
+    /// The macro on show, kept between launches.
+    @AppStorage("miniMacro") private var storedID = ""
+    @StateObject private var state = Carousel()
     @Binding var onTop: Bool
     let onExpand: () -> Void
 
-    private var slots: [Macro] {
-        let picked = stored.split(separator: ",").compactMap { UUID(uuidString: String($0)) }
-            .compactMap { id in model.macros.first { $0.id == id } }
-        if !picked.isEmpty { return Array(picked.prefix(3)) }
-        var out: [Macro] = []
-        for m in [model.selectedMacro].compactMap({ $0 }) + model.macros.reversed() where !out.contains(where: { $0.id == m.id }) {
-            out.append(m)
-            if out.count == 3 { break }
-        }
-        return out
+    final class Carousel: ObservableObject {
+        @Published var current: UUID?
+        var ready = false
     }
 
-    private func save(_ ms: [Macro]) { stored = ms.prefix(3).map(\.id.uuidString).joined(separator: ",") }
+    static let cardWidth: CGFloat = 268
+    static let height: CGFloat = 86
+
+    private var macros: [Macro] { model.macros }
 
     var body: some View {
-        // Ticks once a second while something runs, so round and time stay current.
-        TimelineView(.periodic(from: .now, by: 1)) { context in
-            VStack(spacing: 0) {
-                if slots.isEmpty {
-                    Text("No macros yet. Show everything to record or build one.")
-                        .foregroundStyle(.secondary).padding(14)
+        HStack(spacing: 6) {
+            arrow(-1)
+            VStack(spacing: 5) {
+                ScrollView(.horizontal) {
+                    LazyHStack(spacing: 0) {
+                        ForEach(macros) { m in
+                            card(m).frame(width: Self.cardWidth).id(m.id)
+                        }
+                    }
+                    .scrollTargetLayout()
                 }
-                ForEach(slots) { m in
-                    row(m, now: context.date)
-                    Divider()
-                }
-                footer
+                .scrollTargetBehavior(.paging)
+                .scrollIndicators(.never)
+                .scrollPosition(id: $state.current)
+                .frame(width: Self.cardWidth, height: 58)
+                dots
+            }
+            arrow(1)
+            VStack(spacing: 10) {
+                MiniOnTopToggle(onTop: $onTop)
+                Button(action: onExpand) { Image(systemName: "arrow.up.left.and.arrow.down.right") }
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(.secondary)
+                    .help("Show everything")
+                    .accessibilityLabel("Show everything")
+            }
+            .font(.system(size: 11))
+            .frame(width: 18)
+        }
+        .padding(.horizontal, 10)
+        .frame(height: Self.height)
+        .onAppear {
+            // After the first layout: set any earlier, the carousel settles back on the first macro.
+            let start = macros.first { $0.id.uuidString == storedID }?.id ?? model.selectedMacro?.id ?? macros.first?.id
+            DispatchQueue.main.async {
+                state.current = start
+                state.ready = true
             }
         }
-        .frame(width: 440)
+        .onChange(of: state.current) { _, id in if state.ready { storedID = id?.uuidString ?? "" } }
+        // ← and → move between macros too.
+        .background {
+            Group {
+                Button("") { step(-1) }.keyboardShortcut(.leftArrow, modifiers: [])
+                Button("") { step(1) }.keyboardShortcut(.rightArrow, modifiers: [])
+            }
+            .opacity(0).allowsHitTesting(false).accessibilityHidden(true)
+        }
+    }
+
+    private var index: Int { macros.firstIndex { $0.id == state.current } ?? 0 }
+
+    private func step(_ by: Int) {
+        guard !macros.isEmpty else { return }
+        let next = (index + by + macros.count) % macros.count // wraps around
+        withAnimation(.snappy(duration: 0.25)) { state.current = macros[next].id }
+    }
+
+    private func arrow(_ by: Int) -> some View {
+        Button { step(by) } label: {
+            Image(systemName: by < 0 ? "chevron.left" : "chevron.right")
+                .font(.system(size: 12, weight: .semibold))
+                .frame(width: 16, height: 40)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(macros.count > 1 ? Color.secondary : Color.secondary.opacity(0.3))
+        .disabled(macros.count < 2)
+        .help(by < 0 ? "Previous macro (←)" : "Next macro (→)")
+        .accessibilityLabel(by < 0 ? "Previous macro" : "Next macro")
+    }
+
+    /// A dot per macro (up to 12): the one on show is solid, running ones are green.
+    private var dots: some View {
+        HStack(spacing: 5) {
+            ForEach(Array(macros.prefix(12).enumerated()), id: \.element.id) { i, m in
+                Circle()
+                    .fill(isRunning(m) ? Color.green : i == index ? Color.primary.opacity(0.7) : Color.primary.opacity(0.18))
+                    .frame(width: 5, height: 5)
+                    .onTapGesture { withAnimation(.snappy(duration: 0.25)) { state.current = m.id } }
+            }
+        }
+        .frame(height: 6)
+        .accessibilityHidden(true)
     }
 
     private func isRunning(_ m: Macro) -> Bool { model.playingMacroID == m.id || model.isRunningInBackground(m.id) }
 
-    private func row(_ m: Macro, now: Date) -> some View {
-        let running = isRunning(m)
-        return HStack(spacing: 10) {
-            Button {
-                if m.runsInBackground { model.toggleBackground(m.id) }
-                else if model.playingMacroID == m.id { model.stopPlayback() }
-                else { model.play(m) }
-            } label: {
-                Image(systemName: running ? "stop.fill" : "play.fill")
-                    .font(.system(size: 12, weight: .bold))
-                    .foregroundStyle(running ? Color.white : Color.primary)
-                    .frame(width: 30, height: 30)
-                    .background(Circle().fill(running ? Color.green : Color.secondary.opacity(0.18)))
-            }
-            .buttonStyle(.plain)
-            .help(running ? "Stop “\(m.name)”" : "Play “\(m.name)”")
-            .accessibilityLabel(running ? "Stop \(m.name)" : "Play \(m.name)")
-            VStack(alignment: .leading, spacing: 1) {
-                Text(m.name).fontWeight(.medium).lineLimit(1)
-                Text(status(m, running: running, now: now))
-                    .font(.caption).foregroundStyle(running ? Color.green : Color.secondary)
-                    .lineLimit(1).monospacedDigit()
-            }
-            Spacer(minLength: 6)
-            Menu {
-                Button("Show in Heron") { model.show(m.id); onExpand() }
-                Menu("Swap For") {
-                    ForEach(model.macros.filter { mm in !slots.contains { $0.id == mm.id } }) { other in
-                        Button(other.name) { save(slots.map { $0.id == m.id ? other : $0 }) }
-                    }
-                }
-                Button("Remove From Mini Mode") { save(slots.filter { $0.id != m.id }) }
-                    .disabled(slots.count <= 1)
-            } label: {
-                Image(systemName: "ellipsis")
-            }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
-            .fixedSize()
-            .accessibilityLabel("Options for \(m.name)")
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-    }
-
-    /// “Round 3 of 5 · 4:12” while running; otherwise its steps and app, and when it next runs on its own.
-    private func status(_ m: Macro, running: Bool, now: Date) -> String {
-        if running { return model.liveLines(now: now).first { $0.id == m.id }?.line ?? "Running" }
-        let n = ActionGrouper.stepCount(m.steps)
-        var s = (m.runsInBackground ? "Background · " : "") + "\(n) step\(n == 1 ? "" : "s")"
-            + (m.target.app.map { " in \($0.name)" } ?? "")
-        if let next = model.nextScheduledRun(m) { s += " · next \(next.formatted(date: .omitted, time: .shortened))" }
-        return s
-    }
-
-    private var footer: some View {
-        HStack(spacing: 10) {
-            if slots.count < 3, slots.count < model.macros.count {
-                Menu {
-                    ForEach(model.macros.filter { mm in !slots.contains { $0.id == mm.id } }) { other in
-                        Button(other.name) { save(slots + [other]) }
-                    }
+    private func card(_ m: Macro) -> some View {
+        // Ticks once a second, so its time and round stay current.
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            let running = isRunning(m)
+            HStack(spacing: 10) {
+                Button {
+                    if m.runsInBackground { model.toggleBackground(m.id) }
+                    else if model.playingMacroID == m.id { model.stopPlayback() }
+                    else { model.play(m) }
                 } label: {
-                    Label("Add a Macro", systemImage: "plus")
+                    Image(systemName: running ? "stop.fill" : "play.fill")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(running ? Color.white : Color.primary)
+                        .frame(width: 32, height: 32)
+                        .background(Circle().fill(running ? Color.green : Color.primary.opacity(0.1)))
+                        .contentShape(Circle())
                 }
-                .menuStyle(.borderlessButton)
-                .fixedSize()
+                .buttonStyle(.plain)
+                .accessibilityLabel(running ? "Stop \(m.name)" : "Play \(m.name)")
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(m.name).font(.callout.weight(.semibold)).lineLimit(1)
+                    Text(status(m, running: running, now: context.date))
+                        .font(.caption2).foregroundStyle(running ? Color.green : Color.secondary)
+                        .lineLimit(1).monospacedDigit()
+                }
+                Spacer(minLength: 4)
+                counter(m, running: running)
             }
-            Spacer()
-            MiniOnTopToggle(onTop: $onTop)
-            Button(action: onExpand) { Image(systemName: "arrow.up.left.and.arrow.down.right") }
-                .accessibilityLabel("Show everything")
-                .buttonStyle(.borderless)
-                .help("Show everything")
+            .padding(.leading, 10).padding(.trailing, 12)
+            .frame(width: Self.cardWidth - 8, height: 54)
+            .background(RoundedRectangle(cornerRadius: 13, style: .continuous)
+                .fill(running ? Color.green.opacity(0.14) : Color.primary.opacity(0.05)))
+            .overlay(RoundedRectangle(cornerRadius: 13, style: .continuous)
+                .strokeBorder(running ? Color.green.opacity(0.45) : Color.primary.opacity(0.08), lineWidth: 1))
+            .frame(width: Self.cardWidth)
+            .contextMenu { Button("Show in Heron") { model.show(m.id); onExpand() } }
         }
-        .font(.callout)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
+    }
+
+    /// The round, big, when the macro counts rounds: the current one while it runs, the last run's total otherwise.
+    @ViewBuilder
+    private func counter(_ m: Macro, running: Bool) -> some View {
+        if m.playback.stopAfterStep != nil {
+            // A last run that got through no rounds shows nothing rather than a lone 0.
+            let rounds = running ? (model.live[m.id]?.rounds ?? 0) + 1 : model.lastRounds[m.id].flatMap { $0 > 0 ? $0 : nil }
+            if let rounds {
+                VStack(alignment: .trailing, spacing: 0) {
+                    Text("\(rounds)")
+                        .font(.system(size: 22, weight: .semibold, design: .rounded)).monospacedDigit()
+                        .foregroundStyle(running ? Color.green : Color.primary)
+                        .contentTransition(.numericText())
+                    Text(running ? (m.playback.roundLimit.map { "of \($0)" } ?? "round") : "last run")
+                        .font(.system(size: 9)).foregroundStyle(.secondary)
+                }
+                .accessibilityElement(children: .combine)
+            }
+        }
+    }
+
+    /// While running: how long. Otherwise: Ready, background, or its next scheduled run.
+    private func status(_ m: Macro, running: Bool, now: Date) -> String {
+        if running {
+            let time = model.live[m.id].map { AppModel.clock(now.timeIntervalSince($0.started)) } ?? ""
+            return (m.runsInBackground ? "Watching · " : "Running · ") + time
+        }
+        if let next = model.nextScheduledRun(m) { return "Next \(next.formatted(date: .omitted, time: .shortened))" }
+        return m.runsInBackground ? "Background" : "Ready"
     }
 }
 

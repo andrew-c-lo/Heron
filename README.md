@@ -145,8 +145,8 @@ scripts/setup-signing.sh   # once: a personal signing certificate, so permission
 - See a macro as a map of the window with every tap, a readable list, or every raw event
 - Reorder by dragging, from the right-click menu, or with ⌥⌘↑ and ⌥⌘↓; switch steps off without deleting
   them; keep macros in folders
-- Mini mode for macros: up to three macros in a small window, each with Play and what it's doing ("Round 3
-  of 6"), above other windows or not
+- Mini mode for macros: one macro at a time on a small card you swipe through (or arrow through), with Play,
+  what it's doing and its round count, in a window that stays on top (or not)
 - If, Otherwise and End: run steps only when a picture or words are (or aren't) on screen, a number has
   reached a value, a spot is a colour, or it's a certain round (every 3rd, from round 5 on). Ifs can go
   inside Ifs
