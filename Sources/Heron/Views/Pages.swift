@@ -153,9 +153,10 @@ private struct MacroList: View {
 
 // MARK: - Simple mode
 
-/// A small strip with just the speed, the button, where to click and Start, that floats above other windows.
+/// Mini mode on the Clicker tab: just the speed, the button, where to click and Start, above other windows.
 struct SimpleStrip: View {
     @EnvironmentObject var model: AppModel
+    @Binding var onTop: Bool
     let onExpand: () -> Void
 
     var body: some View {
@@ -194,6 +195,7 @@ struct SimpleStrip: View {
             }
             .buttonStyle(PrimaryActionStyle(tint: model.isAutoClicking ? .green : .primary))
             .fixedSize()
+            MiniOnTopToggle(onTop: $onTop)
             Button(action: onExpand) { Image(systemName: "arrow.up.left.and.arrow.down.right") }
                 .accessibilityLabel("Show everything")
                 .buttonStyle(.borderless)
@@ -209,6 +211,143 @@ struct SimpleStrip: View {
     }
 }
 
+
+/// Mini mode on the Macros tab: up to three macros, each one click from running, with what it's doing now.
+struct MacroMiniStrip: View {
+    @EnvironmentObject var model: AppModel
+    /// The macros picked for mini mode (comma-separated ids). Empty: the one you're looking at and the newest others.
+    @AppStorage("miniMacros") private var stored = ""
+    @Binding var onTop: Bool
+    let onExpand: () -> Void
+
+    private var slots: [Macro] {
+        let picked = stored.split(separator: ",").compactMap { UUID(uuidString: String($0)) }
+            .compactMap { id in model.macros.first { $0.id == id } }
+        if !picked.isEmpty { return Array(picked.prefix(3)) }
+        var out: [Macro] = []
+        for m in [model.selectedMacro].compactMap({ $0 }) + model.macros.reversed() where !out.contains(where: { $0.id == m.id }) {
+            out.append(m)
+            if out.count == 3 { break }
+        }
+        return out
+    }
+
+    private func save(_ ms: [Macro]) { stored = ms.prefix(3).map(\.id.uuidString).joined(separator: ",") }
+
+    var body: some View {
+        // Ticks once a second while something runs, so round and time stay current.
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            VStack(spacing: 0) {
+                if slots.isEmpty {
+                    Text("No macros yet. Show everything to record or build one.")
+                        .foregroundStyle(.secondary).padding(14)
+                }
+                ForEach(slots) { m in
+                    row(m, now: context.date)
+                    Divider()
+                }
+                footer
+            }
+        }
+        .frame(width: 440)
+    }
+
+    private func isRunning(_ m: Macro) -> Bool { model.playingMacroID == m.id || model.isRunningInBackground(m.id) }
+
+    private func row(_ m: Macro, now: Date) -> some View {
+        let running = isRunning(m)
+        return HStack(spacing: 10) {
+            Button {
+                if m.runsInBackground { model.toggleBackground(m.id) }
+                else if model.playingMacroID == m.id { model.stopPlayback() }
+                else { model.play(m) }
+            } label: {
+                Image(systemName: running ? "stop.fill" : "play.fill")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(running ? Color.white : Color.primary)
+                    .frame(width: 30, height: 30)
+                    .background(Circle().fill(running ? Color.green : Color.secondary.opacity(0.18)))
+            }
+            .buttonStyle(.plain)
+            .help(running ? "Stop “\(m.name)”" : "Play “\(m.name)”")
+            .accessibilityLabel(running ? "Stop \(m.name)" : "Play \(m.name)")
+            VStack(alignment: .leading, spacing: 1) {
+                Text(m.name).fontWeight(.medium).lineLimit(1)
+                Text(status(m, running: running, now: now))
+                    .font(.caption).foregroundStyle(running ? Color.green : Color.secondary)
+                    .lineLimit(1).monospacedDigit()
+            }
+            Spacer(minLength: 6)
+            Menu {
+                Button("Show in Heron") { model.show(m.id); onExpand() }
+                Menu("Swap For") {
+                    ForEach(model.macros.filter { mm in !slots.contains { $0.id == mm.id } }) { other in
+                        Button(other.name) { save(slots.map { $0.id == m.id ? other : $0 }) }
+                    }
+                }
+                Button("Remove From Mini Mode") { save(slots.filter { $0.id != m.id }) }
+                    .disabled(slots.count <= 1)
+            } label: {
+                Image(systemName: "ellipsis")
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .accessibilityLabel("Options for \(m.name)")
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+    }
+
+    /// “Round 3 of 5 · 4:12” while running; otherwise its steps and app, and when it next runs on its own.
+    private func status(_ m: Macro, running: Bool, now: Date) -> String {
+        if running { return model.liveLines(now: now).first { $0.id == m.id }?.line ?? "Running" }
+        let n = ActionGrouper.stepCount(m.steps)
+        var s = (m.runsInBackground ? "Background · " : "") + "\(n) step\(n == 1 ? "" : "s")"
+            + (m.target.app.map { " in \($0.name)" } ?? "")
+        if let next = model.nextScheduledRun(m) { s += " · next \(next.formatted(date: .omitted, time: .shortened))" }
+        return s
+    }
+
+    private var footer: some View {
+        HStack(spacing: 10) {
+            if slots.count < 3, slots.count < model.macros.count {
+                Menu {
+                    ForEach(model.macros.filter { mm in !slots.contains { $0.id == mm.id } }) { other in
+                        Button(other.name) { save(slots + [other]) }
+                    }
+                } label: {
+                    Label("Add a Macro", systemImage: "plus")
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+            }
+            Spacer()
+            MiniOnTopToggle(onTop: $onTop)
+            Button(action: onExpand) { Image(systemName: "arrow.up.left.and.arrow.down.right") }
+                .accessibilityLabel("Show everything")
+                .buttonStyle(.borderless)
+                .help("Show everything")
+        }
+        .font(.callout)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+    }
+}
+
+/// Pins the mini strip above other windows (on by default), or lets it go behind them like any window.
+struct MiniOnTopToggle: View {
+    @Binding var onTop: Bool
+
+    var body: some View {
+        Toggle(isOn: $onTop) { Image(systemName: onTop ? "pin.fill" : "pin") }
+            .toggleStyle(.button)
+            .buttonStyle(.borderless)
+            .foregroundStyle(onTop ? Color.accentColor : Color.secondary)
+            .help(onTop ? "Always on top. Click to let other windows cover it." : "Click to keep it above other windows")
+            .accessibilityLabel("Always on top")
+    }
+}
 
 /// A macro's run state at a glance: an empty ring when idle, green when running. Click to start or stop.
 struct RunDot: View {

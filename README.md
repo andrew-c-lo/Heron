@@ -50,7 +50,7 @@ when a “finished” screen appears. Heron keeps the screen awake while it work
 macro plays or you keep working. With background delivery it doesn't even borrow your pointer: it taps
 straight into the app, iPhone Mirroring included, while you keep using your Mac.
 
-**And a proper auto clicker.** For plain fast clicking: set the speed, press a hotkey, done. Simple mode shrinks it to a small strip
+**And a proper auto clicker.** For plain fast clicking: set the speed, press a hotkey, done. Mini mode shrinks it to a small strip
 that stays on top.
 
 **Free, private and made for the Mac.** No account, no subscription, no network code. Everything stays on
@@ -75,11 +75,11 @@ your Mac.
   </tr>
   <tr>
     <td><img src="docs/screenshots/auto-clicker.png" alt="The auto clicker with a large speed readout and its settings"></td>
-    <td><img src="docs/screenshots/simple.png" alt="Simple mode: a small strip with the speed and a Start button"></td>
+    <td><img src="docs/screenshots/simple.png" alt="Mini mode: a small strip with the speed and a Start button"></td>
   </tr>
   <tr>
     <td align="center">Auto clicker</td>
-    <td align="center">Simple mode</td>
+    <td align="center">Mini mode</td>
   </tr>
 </table>
 
@@ -125,7 +125,7 @@ scripts/setup-signing.sh   # once: a personal signing certificate, so permission
 - Stop after a number of clicks, after some time, or when you press the hotkey
 - Vary the timing a little so the rhythm isn't exact
 - Only click when the color at a spot matches, picked with the eyedropper or typed as a hex code
-- Simple mode: a small strip with just the speed and Start that stays above other windows
+- Mini mode: a small strip with just the speed and Start that stays above other windows (pin it or not)
 
 </details>
 
@@ -145,6 +145,8 @@ scripts/setup-signing.sh   # once: a personal signing certificate, so permission
 - See a macro as a map of the window with every tap, a readable list, or every raw event
 - Reorder by dragging, from the right-click menu, or with ⌥⌘↑ and ⌥⌘↓; switch steps off without deleting
   them; keep macros in folders
+- Mini mode for macros: up to three macros in a small window, each with Play and what it's doing ("Round 3
+  of 6"), above other windows or not
 - If, Otherwise and End: run steps only when a picture or words are (or aren't) on screen, a number has
   reached a value, a spot is a colour, or it's a certain round (every 3rd, from round 5 on). Ifs can go
   inside Ifs

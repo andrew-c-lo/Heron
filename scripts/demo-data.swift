@@ -146,6 +146,7 @@ let claimStep = MacroStep(delay: 0, action: .findImage(claimText))
 claimAll.steps = [claimStep]
 claimAll.playback.stopAfterStep = claimStep.id
 claimAll.playback.stopAfterCount = 6
+claimAll.playback.roundGap = 0.5 // each claim is its own round, about a second apart
 save(claimAll, snapshot: false)
 
 // MARK: Watcher

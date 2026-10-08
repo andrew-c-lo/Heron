@@ -27,19 +27,26 @@ extension AppModel {
 struct ContentView: View {
     @EnvironmentObject var model: AppModel
     @AppStorage("simpleMode") private var simple = false
+    /// Mini mode stays above other windows unless unpinned.
+    @AppStorage("miniOnTop") private var onTop = true
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         Group {
             if simple {
-                SimpleStrip { simple = false }
+                // Mini mode follows the tab you were on: the auto clicker, or up to three macros.
+                if model.tab == .macros {
+                    MacroMiniStrip(onTop: $onTop) { simple = false }
+                } else {
+                    SimpleStrip(onTop: $onTop) { simple = false }
+                }
             } else {
                 full
             }
         }
         .toolbar(simple ? .hidden : .visible, for: .windowToolbar)
         // The small strip stays above other windows, like a remote control.
-        .background(WindowLevel(floating: simple))
+        .background(WindowLevel(floating: simple && onTop))
     }
 
     private var full: some View {
@@ -79,8 +86,9 @@ struct ContentView: View {
             }
             ToolbarItemGroup(placement: .primaryAction) {
                 Button { simple = true } label: { Image(systemName: "arrow.down.right.and.arrow.up.left") }
-                    .accessibilityLabel("Simple mode")
-                    .help("Simple mode: a small strip that stays on top")
+                    .accessibilityLabel("Mini mode")
+                    .help(model.tab == .macros ? "Mini mode: up to three macros in a small window that stays on top"
+                                               : "Mini mode: a small strip that stays on top")
                 SettingsLink { Image(systemName: "gearshape") }
                     .accessibilityLabel("Settings")
                     .help("Settings (⌘,)")
