@@ -895,5 +895,12 @@ if let words = boxLookup.matchText(in: screenPx) {
     check("found by its words, a step with a click box clicks inside its box (the left of the button), not on the words", false, "words not found")
 }
 
+// Tap when stuck: quiet means no click from Heron and no click or key press of your own.
+let mineIdle = [CGEventType.leftMouseDown, .rightMouseDown, .keyDown]
+    .map { CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: $0) }.min() ?? .infinity
+check("a click from Heron just now means it isn't quiet", Player.quietFor(since: Timing.now()) < 0.1)
+check("…and your own last click or key press caps how quiet it is",
+      Player.quietFor(since: Timing.now() - 100_000) <= mineIdle + 1, "\(Player.quietFor(since: Timing.now() - 100_000)) vs \(mineIdle)")
+
 print(failures == 0 ? "ALL PASSED" : "\(failures) FAILED")
 exit(failures == 0 ? 0 : 1)

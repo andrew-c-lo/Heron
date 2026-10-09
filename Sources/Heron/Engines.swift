@@ -669,6 +669,8 @@ final class Player {
                 // Nothing changed on screen since the last look: whatever was found is standing still.
                 still = Set(found.keys)
             }
+            // One of the steps is on screen (even if it isn't being clicked right now): not stuck.
+            if !found.isEmpty { lastAction = tick }
             if let index = chooser.choose(found: found, clickable: opts.waitForStill ? still : nil, now: tick),
                let rect = found[index], let item = items.first(where: { $0.index == index }) {
                 let s = item.step
@@ -705,7 +707,7 @@ final class Player {
                     }
                 }
             } else if opts.idleTapAfter > 0, let ix = opts.idleTapX, let iy = opts.idleTapY,
-                      Timing.now() - lastAction >= opts.idleTapAfter {
+                      Self.quietFor(since: lastAction) >= opts.idleTapAfter {
                 // Nothing known on screen for a while (a “tap to continue” screen, or one never seen before):
                 // tap the idle spot, and keep the screen so it can be looked at later.
                 switch RouteBuilder.route(for: target, resolver: resolver) {
@@ -722,6 +724,15 @@ final class Player {
             _ = Timing.wait(until: tick + 1.0 / 30, token) // ~30 checks a second at most
         }
         return nil
+    }
+
+    /// How long it's been quiet: no click from Heron since `lastAction`, and no click or key press of your own.
+    /// Something you did yourself (tapping past a screen, typing) means it isn't stuck.
+    static func quietFor(since lastAction: Double) -> Double {
+        let mine = [CGEventType.leftMouseDown, .rightMouseDown, .keyDown]
+            .map { CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: $0) }
+            .min() ?? .infinity
+        return min(Timing.now() - lastAction, mine)
     }
 
     /// Looks for the picture in the target window and acts on it.
