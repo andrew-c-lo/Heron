@@ -82,10 +82,54 @@ struct TargetOptions: Codable, Equatable {
     var windowSize: CGSize?
 
     /// How much bigger (or smaller) the window is now than when the macro was made (1 = same size).
-    func scale(for current: CGSize?, reference: CGSize? = nil) -> Double {
-        guard let r = reference ?? windowSize, let c = current, r.width > 0, c.width > 0 else { return 1 }
+    func scale(for current: CGSize?, reference: CGSize? = nil) -> Double { fit(for: current, reference: reference).s }
+
+    /// How the macro's window coordinates land on the window as it is now (see `WindowFit`).
+    func fit(for current: CGSize?, reference: CGSize? = nil) -> WindowFit {
+        .between(reference ?? windowSize, current, emulator: isAndroidEmulator)
+    }
+
+    /// An Android emulator (BlueStacks): only its Android screen scales; its toolbars stay the same size.
+    var isAndroidEmulator: Bool { app.map { AndroidBridge.emulators.contains($0.bundleID) } ?? false }
+}
+
+/// How a macro's window coordinates map onto the window as it is now: scaled, and for an emulator shifted, so
+/// positions, areas and pictures follow its Android screen rather than the whole window.
+struct WindowFit: Equatable {
+    var s: Double = 1
+    var dx: Double = 0
+    var dy: Double = 0
+
+    static let same = WindowFit()
+    var isSame: Bool { self == .same }
+
+    func point(_ p: CGPoint) -> CGPoint { CGPoint(x: p.x * s + dx, y: p.y * s + dy) }
+    func rect(_ r: CGRect) -> CGRect {
+        CGRect(x: r.minX * s + dx, y: r.minY * s + dy, width: r.width * s, height: r.height * s)
+    }
+
+    static func between(_ reference: CGSize?, _ current: CGSize?, emulator: Bool) -> WindowFit {
+        guard let r = reference, let c = current, r.width > 0, c.width > 0 else { return .same }
+        if emulator, let a = androidScreen(in: r), let b = androidScreen(in: c), a.width > 0 {
+            let s = Double(b.width / a.width)
+            let fit = WindowFit(s: s, dx: Double(b.minX) - Double(a.minX) * s, dy: Double(b.minY) - Double(a.minY) * s)
+            return abs(s - 1) < 0.02 && abs(fit.dx) < 1 && abs(fit.dy) < 1 ? .same : fit
+        }
         let s = Double(c.width / r.width)
-        return abs(s - 1) < 0.02 ? 1 : s
+        return abs(s - 1) < 0.02 ? .same : WindowFit(s: s)
+    }
+
+    /// Where BlueStacks' Android screen sits in a window this size: under its 32 pt top bar, as tall as it fits,
+    /// at 9:16 (16:9 when the window is wider than tall). Whatever width is left over is its right-hand toolbar,
+    /// open or collapsed, which is why the whole window's size alone can't be used to resize.
+    static func androidScreen(in w: CGSize, aspect: CGFloat = 16.0 / 9) -> CGRect? {
+        let top: CGFloat = 32
+        let available = w.height - top
+        guard available > 50, w.width > 50, aspect >= 1 else { return nil }
+        let ratio: CGFloat = w.width > w.height ? aspect : 1 / aspect
+        var width = available * ratio, height = available
+        if width > w.width { width = w.width; height = width / ratio }
+        return CGRect(x: 0, y: top + (available - height) / 2, width: width, height: height)
     }
 }
 

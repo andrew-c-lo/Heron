@@ -112,7 +112,7 @@ struct AndroidScreen {
     let serial: String
 
     /// BlueStacks keeps a transparent “Keymap Overlay” window exactly over the Android screen; without it, the
-    /// window minus its top bar (32 pt) and right-hand toolbar (32 pt).
+    /// the Android screen's shape fitted under the window's top bar (32 pt).
     static func find(pid: pid_t, windowFrame: CGRect) -> AndroidScreen? {
         guard let serial = AndroidBridge.serial(), let natural = AndroidBridge.physicalSize(serial) else { return nil }
         var rect: CGRect?
@@ -125,9 +125,12 @@ struct AndroidScreen {
             else { continue }
             rect = CGRect(x: x, y: y, width: wd, height: ht)
         }
-        let r = rect ?? CGRect(x: windowFrame.minX, y: windowFrame.minY + 32,
-                               width: max(1, windowFrame.width - 32), height: max(1, windowFrame.height - 32))
         let long = max(natural.width, natural.height), short = min(natural.width, natural.height)
+        // No overlay: the Android screen keeps its shape under the top bar, whether the sidebar is showing or not.
+        let r = rect ?? WindowFit.androidScreen(in: windowFrame.size, aspect: long / short)
+            .map { $0.offsetBy(dx: windowFrame.minX, dy: windowFrame.minY) }
+            ?? CGRect(x: windowFrame.minX, y: windowFrame.minY + 32,
+                      width: max(1, windowFrame.width - 32), height: max(1, windowFrame.height - 32))
         let size = r.height >= r.width ? CGSize(width: short, height: long) : CGSize(width: long, height: short)
         return AndroidScreen(rect: r, size: size, serial: serial)
     }

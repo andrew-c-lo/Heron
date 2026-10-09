@@ -16,16 +16,19 @@ struct Lookup {
     /// The window size the picture and area belong to; when the window is now a different size, both are
     /// resized to match (nil = use them as they are).
     var reference: CGSize?
+    /// The target is an Android emulator: resizing follows its Android screen, not the whole window (`WindowFit`).
+    var emulator = false
     /// Where the words are inside the picture, as fractions of it (for steps with a click box).
     var wordsInPicture: CGRect?
     /// The pictures as stored, for resizing.
     private var sources: [(png: Data, width: Double, height: Double)] = []
     private let resized = ResizedCache()
 
-    init?(step s: ImageStep, reference: CGSize? = nil) {
+    init?(step s: ImageStep, reference: CGSize? = nil, emulator: Bool = false) {
         self.init(png: s.png, width: s.width, height: s.height, text: s.text, area: s.area,
                   strictness: s.strictness, alsoPicture: s.alsoPicture)
         self.reference = s.captureWindow ?? reference
+        self.emulator = emulator
         // A click box is drawn on the picture: when the words are what's found, the box is placed by where the
         // words sit in the picture, not squeezed onto the words themselves.
         if s.clickArea != nil, !s.png.isEmpty, let t = self.text, !t.isEmpty {
@@ -44,17 +47,16 @@ struct Lookup {
     }
 
     /// How much bigger the window is than the one the picture was picked in (1 = same).
-    func scale(for size: CGSize) -> Double {
-        guard let r = reference, r.width > 0, size.width > 0 else { return 1 }
-        let s = Double(size.width / r.width)
-        return abs(s - 1) < 0.02 ? 1 : s
-    }
+    func scale(for size: CGSize) -> Double { fit(for: size).s }
+
+    /// How the step's window coordinates land on a window this size.
+    func fit(for size: CGSize) -> WindowFit { .between(reference, size, emulator: emulator) }
 
     /// The search area in this window's coordinates.
     func scaledArea(for size: CGSize) -> CGRect? {
-        let s = CGFloat(scale(for: size))
-        guard s != 1, let a = area else { return area }
-        return CGRect(x: a.minX * s, y: a.minY * s, width: a.width * s, height: a.height * s)
+        let f = fit(for: size)
+        guard !f.isSame, let a = area else { return area }
+        return f.rect(a)
     }
 
     /// The pictures prepared at scale `s`.

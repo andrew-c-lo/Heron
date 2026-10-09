@@ -197,8 +197,7 @@ final class Player {
                             // Set to its spot: click there without looking.
                             let win = resolver?.window()
                             if let win { performer.route.origin = win.frame.origin }
-                            let ps = target.scale(for: win?.frame.size, reference: pic.captureWindow)
-                            let p = CGPoint(x: p0.x * ps, y: p0.y * ps)
+                            let p = target.fit(for: win?.frame.size, reference: pic.captureWindow).point(p0)
                             performer.perform(.mouseDown(button: pic.button, x: Double(p.x), y: Double(p.y), clickCount: 1, flags: 0))
                             performer.perform(.mouseUp(button: pic.button, x: Double(p.x), y: Double(p.y), clickCount: 1, flags: 0))
                             let stepID = step.id
@@ -218,7 +217,8 @@ final class Player {
                             Task { @MainActor in waiting(looking) }
                             let stepID = step.id
                             let result = Self.runPictureStep(pic, performer: performer, resolver: resolver, token: token,
-                                                             reference: target.windowSize, waitForStill: opts.waitForStill,
+                                                             reference: target.windowSize, emulator: target.isAndroidEmulator,
+                                                             waitForStill: opts.waitForStill,
                                                              onFound: { r in Task { @MainActor in clicked(stepID, r) } })
                             Task { @MainActor in waiting(nil) }
                             if pic.mode == .stop {
@@ -260,8 +260,8 @@ final class Player {
                             t = Timing.now()
                         } else if case .waitForColor(let x, let y, let hex, let tol, let timeout, let otherwise, _) = step.action {
                             Task { @MainActor in waiting(hex) }
-                            let cs = target.scale(for: resolver?.window()?.frame.size)
-                            let result = Self.waitForColor(at: performer.route.absolute(x * cs, y * cs), hex: hex, tolerance: tol,
+                            let cp = target.fit(for: resolver?.window()?.frame.size).point(CGPoint(x: x, y: y))
+                            let result = Self.waitForColor(at: performer.route.absolute(Double(cp.x), Double(cp.y)), hex: hex, tolerance: tol,
                                                            timeout: timeout, token: token)
                             Task { @MainActor in waiting(nil) }
                             switch result {
@@ -351,7 +351,7 @@ final class Player {
                         } else if step.action.isFlowMarker {
                             // End of an If, or a Run step whose macro couldn't be found: nothing to do.
                         } else {
-                            t += performer.perform(Self.scaled(step.action, target.scale(for: resolver?.window()?.frame.size)))
+                            t += performer.perform(Self.scaled(step.action, target.fit(for: resolver?.window()?.frame.size)))
                         }
 
                         // Counted toward “stop after it happens N times” (a step that timed out didn't happen).
@@ -416,11 +416,13 @@ final class Player {
     }
 
     /// An action with its window position resized for a window `s` times the size it was recorded in.
-    static func scaled(_ action: StepAction, _ s: Double) -> StepAction {
-        guard s != 1, let p = action.point else { return action }
+    static func scaled(_ action: StepAction, _ s: Double) -> StepAction { scaled(action, WindowFit(s: s)) }
+
+    static func scaled(_ action: StepAction, _ fit: WindowFit) -> StepAction {
+        guard !fit.isSame, let p = action.point else { return action }
         if case .findImage = action { return action }
         var a = action
-        a.point = CGPoint(x: p.x * s, y: p.y * s)
+        a.point = fit.point(p)
         return a
     }
 
@@ -474,7 +476,7 @@ final class Player {
             look.spotOnly = false
             if c.kind == .picture { look.text = nil } else { look.png = Data() }
             switch runPictureStep(look, performer: performer, resolver: resolver, token: token,
-                                  reference: target.windowSize, waitForStill: false) {
+                                  reference: target.windowSize, emulator: target.isAndroidEmulator, waitForStill: false) {
             case .cancelled: return .cancelled
             case .unreadable: return .unreadable
             case .matched: return flip(true)
@@ -484,6 +486,7 @@ final class Player {
             guard let resolver else { return .needsTarget }
             guard var lookup = Lookup(png: nil, width: 0, height: 0, text: "0", area: c.look.area, strictness: 0.8) else { return .no }
             lookup.reference = c.look.captureWindow ?? target.windowSize
+            lookup.emulator = target.isAndroidEmulator
             let deadline = Timing.now() + max(0, c.lookFor)
             var frameNumber = 0, read = false
             while true {
@@ -498,8 +501,8 @@ final class Player {
             }
         case .color:
             guard let hex = c.colorHex else { return flip(false) }
-            let cs = target.scale(for: resolver?.window()?.frame.size)
-            switch waitForColor(at: performer.route.absolute(c.colorX * cs, c.colorY * cs), hex: hex,
+            let cp = target.fit(for: resolver?.window()?.frame.size).point(CGPoint(x: c.colorX, y: c.colorY))
+            switch waitForColor(at: performer.route.absolute(Double(cp.x), Double(cp.y)), hex: hex,
                                 tolerance: c.tolerance, timeout: max(0, c.lookFor), token: token) {
             case .cancelled: return .cancelled
             case .unreadable: return .unreadable
@@ -510,9 +513,12 @@ final class Player {
     }
 
     static func killswitchLookup(_ kill: ImageStep, _ opts: PlaybackOptions, _ target: TargetOptions) -> Lookup? {
-        guard opts.stopAtNumber != nil else { return Lookup(step: kill, reference: target.windowSize) }
+        guard opts.stopAtNumber != nil else {
+            return Lookup(step: kill, reference: target.windowSize, emulator: target.isAndroidEmulator)
+        }
         var l = Lookup(png: nil, width: 0, height: 0, text: "0", area: kill.area, strictness: kill.strictness)
         l?.reference = kill.captureWindow ?? target.windowSize
+        l?.emulator = target.isAndroidEmulator
         return l
     }
 
@@ -574,12 +580,13 @@ final class Player {
         struct Item { let index: Int; let step: ImageStep; let lookup: Lookup }
         let items: [Item] = steps.enumerated().compactMap { i, s in
             guard case .findImage(let p) = s.action, p.mode == .click, !p.spotOnly,
-                  let l = Lookup(step: p, reference: target.windowSize) else { return nil }
+                  let l = Lookup(step: p, reference: target.windowSize, emulator: target.isAndroidEmulator) else { return nil }
             return Item(index: i, step: p, lookup: l)
         }
         // Stop conditions: the chain ends as soon as one of these shows up.
         var stops: [Item] = steps.enumerated().compactMap { i, s in
-            guard case .findImage(let p) = s.action, p.mode == .stop, let l = Lookup(step: p, reference: target.windowSize) else { return nil }
+            guard case .findImage(let p) = s.action, p.mode == .stop,
+                  let l = Lookup(step: p, reference: target.windowSize, emulator: target.isAndroidEmulator) else { return nil }
             return Item(index: i, step: p, lookup: l)
         }
         // The killswitch too, checked on every frame before anything is clicked (so it wins over a step that would
@@ -715,9 +722,9 @@ final class Player {
                 case .failure(let e): return e.message
                 }
                 performer.route.origin = win.frame.origin
-                let ts = target.scale(for: win.frame.size)
-                performer.perform(.mouseDown(button: .left, x: ix * ts, y: iy * ts, clickCount: 1, flags: 0))
-                performer.perform(.mouseUp(button: .left, x: ix * ts, y: iy * ts, clickCount: 1, flags: 0))
+                let tp = target.fit(for: win.frame.size).point(CGPoint(x: ix, y: iy))
+                performer.perform(.mouseDown(button: .left, x: Double(tp.x), y: Double(tp.y), clickCount: 1, flags: 0))
+                performer.perform(.mouseUp(button: .left, x: Double(tp.x), y: Double(tp.y), clickCount: 1, flags: 0))
                 lastAction = Timing.now()
                 if let screen = latest { Task { @MainActor in stuck(screen) } }
             }
@@ -737,9 +744,9 @@ final class Player {
 
     /// Looks for the picture in the target window and acts on it.
     static func runPictureStep(_ s: ImageStep, performer: Performer, resolver: TargetResolver, token: CancelToken,
-                               reference: CGSize? = nil, waitForStill: Bool = true,
+                               reference: CGSize? = nil, emulator: Bool = false, waitForStill: Bool = true,
                                onFound: (CGRect) -> Void = { _ in }) -> ColorResult {
-        guard let lookup = Lookup(step: s, reference: reference) else { return .unreadable }
+        guard let lookup = Lookup(step: s, reference: reference, emulator: emulator) else { return .unreadable }
         let deadline = s.timeout < 0 ? .infinity : Timing.now() + s.timeout
 
         enum Look { case found(CGRect, TargetWindow), missing, unreadable }
@@ -838,8 +845,8 @@ final class Player {
                 if s.mode == .click, let fx0 = s.fallbackX, let fy0 = s.fallbackY {
                     let win = resolver.window()
                     if let win { performer.route.origin = win.frame.origin }
-                    let fs = TargetOptions(windowSize: lookup.reference).scale(for: win?.frame.size)
-                    let fx = fx0 * fs, fy = fy0 * fs
+                    let fp = lookup.fit(for: win?.frame.size ?? .zero).point(CGPoint(x: fx0, y: fy0))
+                    let fx = Double(fp.x), fy = Double(fp.y)
                     performer.perform(.mouseDown(button: s.button, x: fx, y: fy, clickCount: 1, flags: 0))
                     performer.perform(.mouseUp(button: s.button, x: fx, y: fy, clickCount: 1, flags: 0))
                     return .matched

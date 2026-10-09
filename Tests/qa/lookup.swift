@@ -902,5 +902,20 @@ check("a click from Heron just now means it isn't quiet", Player.quietFor(since:
 check("…and your own last click or key press caps how quiet it is",
       Player.quietFor(since: Timing.now() - 100_000) <= mineIdle + 1, "\(Player.quietFor(since: Timing.now() - 100_000)) vs \(mineIdle)")
 
+// Emulator windows: resizing (or collapsing the sidebar) maps the old Android screen onto the new one.
+let emuFit = WindowFit.between(CGSize(width: 457, height: 788), CGSize(width: 597, height: 1094), emulator: true)
+let oldScreen = WindowFit.androidScreen(in: CGSize(width: 457, height: 788))!
+let newScreen = WindowFit.androidScreen(in: CGSize(width: 597, height: 1094))!
+let mappedCorner = emuFit.point(CGPoint(x: oldScreen.maxX, y: oldScreen.maxY))
+check("emulator resize: the old Android screen's corner lands on the new one's",
+      abs(mappedCorner.x - newScreen.maxX) < 1 && abs(mappedCorner.y - newScreen.maxY) < 1, "\(mappedCorner) vs \(newScreen)")
+check("emulator resize: the top bar stays put", abs(emuFit.point(CGPoint(x: 0, y: 32)).y - 32) < 0.5, "\(emuFit)")
+check("emulator resize scales by the Android screen, not the window (\(emuFit.s))", emuFit.s > 1.36 && emuFit.s < 1.45)
+let plainFit = WindowFit.between(CGSize(width: 400, height: 300), CGSize(width: 800, height: 600), emulator: false)
+check("other apps still scale by window width", plainFit.s == 2 && plainFit.dx == 0 && plainFit.dy == 0)
+check("Android screen with the sidebar showing stops before it", abs(oldScreen.width - 425) < 1, "\(oldScreen)")
+check("Android screen with the sidebar collapsed fills the width", abs(newScreen.width - 597) < 1 && newScreen.minX == 0, "\(newScreen)")
+check("same size is no change", WindowFit.between(CGSize(width: 457, height: 788), CGSize(width: 457, height: 788), emulator: true).isSame)
+
 print(failures == 0 ? "ALL PASSED" : "\(failures) FAILED")
 exit(failures == 0 ? 0 : 1)
