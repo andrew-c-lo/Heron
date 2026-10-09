@@ -163,7 +163,7 @@ final class MiniPanel {
             case .leftMouseDragged:
                 guard let s = start else { break }
                 let m = NSEvent.mouseLocation
-                if !moving, hypot(m.x - s.mouse.x, m.y - s.mouse.y) > 4 {
+                if !moving, hypot(m.x - s.mouse.x, m.y - s.mouse.y) > 6 {
                     moving = true
                     if let up = NSEvent.mouseEvent(with: .leftMouseUp, location: NSPoint(x: -10_000, y: -10_000),
                                                    modifierFlags: [], timestamp: e.timestamp, windowNumber: windowNumber,
@@ -222,6 +222,31 @@ final class MiniPanel {
 
 }
 
+/// A message on the mini card, with its button when there's an obvious fix; click it to dismiss.
+private struct MiniMessage: View {
+    @EnvironmentObject var model: AppModel
+    let text: String
+    let action: AppModel.StatusAction?
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "info.circle").foregroundStyle(.secondary)
+            Text(text).font(.caption).lineLimit(3).fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 4)
+            if let action {
+                Button(action.title, action: action.perform).controlSize(.small).fixedSize()
+            }
+        }
+        .padding(.horizontal, 12)
+        .frame(width: MiniCard.width, height: MacroMiniStrip.height - 12)
+        .background(RoundedRectangle(cornerRadius: 13, style: .continuous).fill(Color(nsColor: .windowBackgroundColor)))
+        .overlay(RoundedRectangle(cornerRadius: 13, style: .continuous).strokeBorder(Color.primary.opacity(0.12)))
+        .contentShape(Rectangle())
+        .onTapGesture { model.dismissMessage() }
+        .help("Click to dismiss")
+    }
+}
+
 /// The mini card: macros or the clicker, with a switch between them, the pin and the way back.
 private struct MiniPanelRoot: View {
     @EnvironmentObject var model: AppModel
@@ -230,11 +255,21 @@ private struct MiniPanelRoot: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            if model.tab == .macros {
-                MacroMiniStrip { simple = false }
-            } else {
-                ClickerMiniCard()
+            Group {
+                if model.tab == .macros {
+                    MacroMiniStrip { simple = false }
+                } else {
+                    ClickerMiniCard()
+                }
             }
+            // Heron's messages (“Can't find a window for …”) show here: the main window is out of sight.
+            .overlay {
+                if let message = model.statusMessage {
+                    MiniMessage(text: message, action: model.statusAction)
+                        .transition(.opacity)
+                }
+            }
+            .animation(.easeOut(duration: 0.15), value: model.statusMessage)
             VStack(spacing: 9) {
                 Button { model.tab = model.tab == .macros ? .clicker : .macros } label: {
                     Image(systemName: model.tab == .macros ? "cursorarrow.click.2" : "list.bullet.rectangle")

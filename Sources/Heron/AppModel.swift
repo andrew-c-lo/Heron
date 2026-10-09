@@ -28,7 +28,15 @@ final class AppModel: ObservableObject {
     @Published var columnVisibility: NavigationSplitViewVisibility = .all
     /// What the window's sidebar shows.
     @Published var sidebar: SidebarItem? = .autoClicker {
-        didSet { if case .macro(let id) = sidebar, selectedMacroID != id { selectedMacroID = id } }
+        didSet {
+            if case .macro(let id) = sidebar, selectedMacroID != id { selectedMacroID = id }
+            // Remembered, so Heron (and mini mode) reopens on the tab you were on.
+            switch sidebar {
+            case .macro, .macros: UserDefaults.standard.set("macros", forKey: "lastTab")
+            case .autoClicker: UserDefaults.standard.set("clicker", forKey: "lastTab")
+            default: break
+            }
+        }
     }
 
     // Live state
@@ -161,6 +169,9 @@ final class AppModel: ObservableObject {
         convertOldWatchers()
         refreshPermissions()
         registerHotkeys()
+        if UserDefaults.standard.string(forKey: "lastTab") == "macros" {
+            sidebar = selectedMacroID.map { .macro($0) } ?? .macros
+        }
         ScreenshotTour.runIfRequested(self)
         permissionTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.refreshPermissions(); self?.updateAwake() }
@@ -382,6 +393,12 @@ final class AppModel: ObservableObject {
         messageClear = work
         // Longer when there's a button to reach for.
         DispatchQueue.main.asyncAfter(deadline: .now() + (action == nil ? 4 : 8), execute: work)
+    }
+
+    func dismissMessage() {
+        messageClear?.cancel()
+        statusMessage = nil
+        statusAction = nil
     }
 
     /// “Can't find a window for X”, with a button that opens X.
