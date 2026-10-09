@@ -968,5 +968,13 @@ check("Android screen with the sidebar showing stops before it", abs(oldScreen.w
 check("Android screen with the sidebar collapsed fills the width", abs(newScreen.width - 597) < 1 && newScreen.minX == 0, "\(newScreen)")
 check("same size is no change", WindowFit.between(CGSize(width: 457, height: 788), CGSize(width: 457, height: 788), emulator: true).isSame)
 
+var pw = PointerWatch()
+let here = CGEvent(source: nil)!.location
+_ = pw.active(over: CGRect(x: here.x - 50, y: here.y - 50, width: 100, height: 100))
+check("the pointer sitting still over the window isn't you using it, unless you just scrolled",
+      pw.active(over: CGRect(x: here.x - 50, y: here.y - 50, width: 100, height: 100))
+          == (CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: .scrollWheel) < 0.5))
+check("…and the pointer elsewhere never is", !pw.active(over: CGRect(x: here.x + 500, y: here.y + 500, width: 10, height: 10)))
+
 print(failures == 0 ? "ALL PASSED" : "\(failures) FAILED")
 exit(failures == 0 ? 0 : 1)

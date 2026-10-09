@@ -714,7 +714,7 @@ struct MacroDetailView: View {
             Toggle(isOn: Binding(get: { macro.playback.idleTapAfter > 0 },
                                  set: { macro.playback.idleTapAfter = $0 ? 4 : 0 })) {
                 Text("Tap when stuck")
-                Text("If for a while none of the steps is on screen and nothing has been clicked, by Heron or by you, tap a spot you choose, like the middle of a “tap to continue” screen. Each time, the screen is kept under Stuck Screens.")
+                Text("If for a while none of the steps is on screen, Heron hasn't clicked, and you haven't clicked, typed, or moved the pointer over the window, tap a spot you choose, like the middle of a “tap to continue” screen. Each time, the screen is kept under Stuck Screens.")
             }
             if macro.playback.idleTapAfter > 0 {
                 HStack(spacing: 6) {

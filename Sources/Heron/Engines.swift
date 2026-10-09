@@ -613,6 +613,7 @@ final class Player {
                                             repeatEvery: $0.step.repeatEvery, settleMax: $0.step.settleMax))
         }), prioritized: opts.prioritized)
         var lastAction = began
+        var pointer = PointerWatch()
         var latest: ScreenReader.WindowPixels?
 
         var frameNumber = 0
@@ -688,6 +689,8 @@ final class Player {
             }
             // One of the steps is on screen (even if it isn't being clicked right now): not stuck.
             if !found.isEmpty { lastAction = tick }
+            // You moving the pointer or scrolling over the window: you're using it, so it isn't stuck.
+            if pointer.active(over: win.frame) { lastAction = max(lastAction, tick) }
             if let index = chooser.choose(found: found, clickable: opts.waitForStill ? still : nil, now: tick),
                let rect = found[index], let item = items.first(where: { $0.index == index }) {
                 let s = item.step
@@ -747,7 +750,7 @@ final class Player {
     /// How long it's been quiet: no click from Heron since `lastAction`, and no click or key press of your own.
     /// Something you did yourself (tapping past a screen, typing) means it isn't stuck.
     static func quietFor(since lastAction: Double) -> Double {
-        let mine = [CGEventType.leftMouseDown, .rightMouseDown, .keyDown]
+        let mine = [CGEventType.leftMouseDown, .rightMouseDown, .otherMouseDown, .keyDown]
             .map { CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: $0) }
             .min() ?? .infinity
         return min(Timing.now() - lastAction, mine)
@@ -1015,6 +1018,21 @@ final class AutoClicker {
 /// per appearance, or every `repeatEvery` seconds while showing if it should be clicked until gone.
 /// One character of a “Type from a list” item: a key press, or the character itself when no key types it.
 enum ListKey { case key(UInt16, shift: Bool), text(String) }
+
+/// Notices you using a window: the pointer moving over it, or scrolling while it's over it.
+struct PointerWatch {
+    private var last: CGPoint?
+
+    /// Whether the pointer moved (or scrolled) over `frame` (screen points, top-left origin) since the last call.
+    mutating func active(over frame: CGRect) -> Bool {
+        guard let p = CGEvent(source: nil)?.location else { return false }
+        defer { last = p }
+        guard frame.contains(p) else { return false }
+        let moved = last.map { hypot($0.x - p.x, $0.y - p.y) > 2 } ?? false
+        let scrolled = CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: .scrollWheel) < 0.5
+        return moved || scrolled
+    }
+}
 
 struct AllAtOnceChooser {
     struct Rule {
