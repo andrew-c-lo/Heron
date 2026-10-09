@@ -1,3 +1,4 @@
+import AppKit
 import CoreGraphics
 import Foundation
 import Vision
@@ -15,6 +16,8 @@ struct Lookup {
     /// The window size the picture and area belong to; when the window is now a different size, both are
     /// resized to match (nil = use them as they are).
     var reference: CGSize?
+    /// Where the words are inside the picture, as fractions of it (for steps with a click box).
+    var wordsInPicture: CGRect?
     /// The pictures as stored, for resizing.
     private var sources: [(png: Data, width: Double, height: Double)] = []
     private let resized = ResizedCache()
@@ -23,6 +26,11 @@ struct Lookup {
         self.init(png: s.png, width: s.width, height: s.height, text: s.text, area: s.area,
                   strictness: s.strictness, alsoPicture: s.alsoPicture)
         self.reference = s.captureWindow ?? reference
+        // A click box is drawn on the picture: when the words are what's found, the box is placed by where the
+        // words sit in the picture, not squeezed onto the words themselves.
+        if s.clickArea != nil, !s.png.isEmpty, let t = self.text, !t.isEmpty {
+            wordsInPicture = Self.wordsRect(t, inPicture: s.png)
+        }
         if template != nil {
             variants = s.variants.compactMap { TemplateMatcher.prepare(png: $0.png, width: $0.width, height: $0.height) }
             sources = [(s.png, s.width, s.height)] + s.variants.map { ($0.png, $0.width, $0.height) }
@@ -108,8 +116,36 @@ struct Lookup {
     func matchText(in px: ScreenReader.WindowPixels) -> TemplateMatcher.Match? {
         guard let text, !text.isEmpty else { return nil }
         return TextFinder.find(text, in: TextFinder.read(px), area: scaledArea(for: CGSize(width: px.width, height: px.height)))
-            .map { TemplateMatcher.Match(rect: $0, score: 1) }
+            .map { TemplateMatcher.Match(rect: pictureFrame(forWords: $0), score: 1) }
     }
+
+    /// Where the picture would be, given where its words were found (window coordinates); the words' own rect
+    /// when it isn't known where they sit in the picture.
+    func pictureFrame(forWords r: CGRect) -> CGRect {
+        guard let w = wordsInPicture, w.width > 0.01, w.height > 0.01 else { return r }
+        let width = r.width / w.width, height = r.height / w.height
+        return CGRect(x: r.minX - w.minX * width, y: r.minY - w.minY * height, width: width, height: height)
+    }
+
+    /// Where `text` is inside a picture, as fractions of it (read once per picture and text, then remembered).
+    static func wordsRect(_ text: String, inPicture png: Data) -> CGRect? {
+        let key = "\(png.count):\(png.hashValue):\(text)"
+        if let hit = wordsCache.lock.withLock({ wordsCache.rects[key] }) { return hit }
+        var rect: CGRect?
+        if let image = NSImage(data: png), let px = ScreenReader.WindowPixels(image: image), px.width > 0, px.height > 0,
+           let r = TextFinder.find(text, in: TextFinder.read(px), area: nil) {
+            rect = CGRect(x: r.minX / CGFloat(px.width), y: r.minY / CGFloat(px.height),
+                          width: r.width / CGFloat(px.width), height: r.height / CGFloat(px.height))
+        }
+        wordsCache.lock.withLock { wordsCache.rects[key] = rect }
+        return rect
+    }
+
+    private final class WordsCache: @unchecked Sendable {
+        let lock = NSLock()
+        var rects: [String: CGRect?] = [:]
+    }
+    private static let wordsCache = WordsCache()
 
     /// The biggest whole number read inside the search area (“x35”, “1,250” and “Lv. 31” all count).
     func largestNumber(in px: ScreenReader.WindowPixels) -> Int? {

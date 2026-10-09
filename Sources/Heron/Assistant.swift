@@ -125,20 +125,3 @@ enum PlannedStep: Equatable {
     }
 }
 
-extension ScreenReader.WindowPixels {
-    /// Pixels of a saved picture (for reading text from stuck screens).
-    init?(image: NSImage) {
-        guard let cg = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return nil }
-        let w = cg.width, h = cg.height
-        var data = [UInt8](repeating: 0, count: w * h * 4)
-        let ok = data.withUnsafeMutableBytes { buf -> Bool in
-            guard let ctx = CGContext(data: buf.baseAddress, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
-                                      space: CGColorSpace(name: CGColorSpace.sRGB)!,
-                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }
-            ctx.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: h))
-            return true
-        }
-        guard ok else { return nil }
-        self.init(rgba: data, width: w, height: h)
-    }
-}

@@ -660,7 +660,7 @@ final class Player {
                         found[it.index] = r
                     } else if let text = it.lookup.text, !text.isEmpty {
                         if readText { textFound[it.index] = TextFinder.find(text, in: lines, area: it.lookup.scaledArea(for: size)) }
-                        if let r = textFound[it.index] ?? nil { found[it.index] = r }
+                        if let r = textFound[it.index] ?? nil { found[it.index] = it.lookup.pictureFrame(forWords: r) }
                     }
                 }
                 // Still: in the same place as in the previous frame (not sliding or animating in).

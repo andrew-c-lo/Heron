@@ -863,5 +863,37 @@ check("a round step with no limit only counts: the run carries on", countOnlyRun
 check("older macros: rounds count at most once every 5 s",
       (try! JSONDecoder().decode(PlaybackOptions.self, from: Data("{}".utf8))).roundGap == 5)
 
+// A click box drawn on the picture still applies when the step finds its words instead.
+func buttonImage(_ w: Int, _ h: Int, drawIn: CGSize? = nil, at: CGPoint = .zero) -> NSBitmapImageRep {
+    let full = drawIn ?? CGSize(width: w, height: h)
+    let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(full.width), pixelsHigh: Int(full.height), bitsPerSample: 8,
+                               samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
+    NSGraphicsContext.saveGraphicsState(); NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+    NSColor.white.setFill(); NSRect(origin: .zero, size: full).fill()
+    // AppKit draws from the bottom left: flip `at` (top-left) into that.
+    let r = NSRect(x: at.x, y: full.height - at.y - CGFloat(h), width: CGFloat(w), height: CGFloat(h))
+    NSColor.systemBlue.setFill(); NSBezierPath(roundedRect: r, xRadius: 8, yRadius: 8).fill()
+    ("Claim" as NSString).draw(at: NSPoint(x: r.minX + CGFloat(w) * 0.6, y: r.minY + CGFloat(h) / 2 - 14),
+                               withAttributes: [.font: NSFont.boldSystemFont(ofSize: 22), .foregroundColor: NSColor.white])
+    NSGraphicsContext.restoreGraphicsState()
+    return rep
+}
+let pictureRep = buttonImage(240, 70)
+var boxStep = ImageStep(png: pictureRep.representation(using: .png, properties: [:])!, width: 240, height: 70, originX: 0, originY: 0)
+boxStep.text = "Claim"; boxStep.alsoPicture = true
+boxStep.clickArea = CGRect(x: 0, y: 0, width: 0.4, height: 1) // the left part of the button, away from the word
+let boxLookup = Lookup(step: boxStep)!
+check("where the words sit in the picture is read from the picture", boxLookup.wordsInPicture.map { $0.minX > 0.5 } == true,
+      "\(String(describing: boxLookup.wordsInPicture))")
+let screenRep = buttonImage(240, 70, drawIn: CGSize(width: 800, height: 500), at: CGPoint(x: 300, y: 200))
+let screenPx = ScreenReader.WindowPixels(image: { let i = NSImage(size: NSSize(width: 800, height: 500)); i.addRepresentation(screenRep); return i }())!
+if let words = boxLookup.matchText(in: screenPx) {
+    let spot = boxStep.clickTarget(in: words.rect).point
+    check("found by its words, a step with a click box clicks inside its box (the left of the button), not on the words",
+          spot.x > 300 && spot.x < 300 + 240 * 0.45 && spot.y > 200 && spot.y < 270, "\(spot) in frame \(words.rect)")
+} else {
+    check("found by its words, a step with a click box clicks inside its box (the left of the button), not on the words", false, "words not found")
+}
+
 print(failures == 0 ? "ALL PASSED" : "\(failures) FAILED")
 exit(failures == 0 ? 0 : 1)
