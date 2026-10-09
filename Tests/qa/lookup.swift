@@ -201,6 +201,18 @@ let m1 = missed.choose(found: [0: spotA], now: 11.5)
 let m2 = missed.choose(found: [0: spotA], now: 10 + AllAtOnceChooser.retryAfter + 0.05)
 check("a click that didn't take (still there, unmoved, a few seconds on) is tried again, not before", m1 == nil && m2 == 0, "\([m1, m2])")
 
+var dimmed = AllAtOnceChooser(rules: [0: .init(settle: 0, repeatUntilGone: false, repeatEvery: 0.4)])
+_ = dimmed.choose(found: [0: spotA], now: 20); dimmed.clicked(0, at: 20); dimmed.clickTookEffect(0)
+check("a click that dimmed its button (it opened something) isn't tried again while it stays",
+      dimmed.choose(found: [0: spotA], now: 30) == nil)
+func flat(_ v: UInt8) -> ScreenReader.WindowPixels {
+    ScreenReader.WindowPixels(rgba: [UInt8](repeating: v, count: 200 * 100 * 4), width: 200, height: 100)
+}
+let lookBright = AllAtOnceChooser.look(of: CGRect(x: 10, y: 10, width: 120, height: 50), in: flat(200))
+check("a button dimmed by a popup counts as changed; the same button doesn't",
+      AllAtOnceChooser.changed(lookBright, AllAtOnceChooser.look(of: CGRect(x: 10, y: 10, width: 120, height: 50), in: flat(90)))
+      && !AllAtOnceChooser.changed(lookBright, AllAtOnceChooser.look(of: CGRect(x: 10, y: 10, width: 120, height: 50), in: flat(205))))
+
 // Saved window sizes: a picture or area past the edge of the window it says it was picked in was really picked
 // in a bigger one, so the size can't be trusted (used as it is, not resized wrongly).
 var stale = ImageStep(png: Data([1]), width: 216, height: 61, originX: 58, originY: 1001)

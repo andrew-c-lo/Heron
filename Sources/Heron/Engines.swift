@@ -621,6 +621,8 @@ final class Player {
         var timesHappened = 0
         var lastRoundAt = -Double.infinity
         var clicks = 0
+        /// How each clicked step looked just before its click, until it's seen to change.
+        var lookAtClick: [Int: [Double]] = [:]
         while !token.isCancelled {
             if opts.maxClicks > 0, clicks >= opts.maxClicks { break }
             let tick = Timing.now()
@@ -671,6 +673,13 @@ final class Player {
                         if let r = textFound[it.index] ?? nil { found[it.index] = it.lookup.pictureFrame(forWords: r) }
                     }
                 }
+                for (k, before) in lookAtClick {
+                    guard let r = found[k] else { lookAtClick[k] = nil; continue }
+                    if AllAtOnceChooser.changed(before, AllAtOnceChooser.look(of: r, in: frame.pixels)) {
+                        chooser.clickTookEffect(k)
+                        lookAtClick[k] = nil
+                    }
+                }
                 // Still: in the same place as in the previous frame (not sliding or animating in).
                 still = Set(found.keys.filter { k in before[k].map { Self.samePlace($0, found[k]!) } ?? false })
             } else {
@@ -697,6 +706,7 @@ final class Player {
                 performer.spreadBounds = nil
                 performer.spreadPicked = false
                 let firstThisTime = chooser.isFirstClick(index)
+                if let px = latest, !s.repeatUntilGone { lookAtClick[index] = AllAtOnceChooser.look(of: rect, in: px) }
                 chooser.clicked(index, at: Timing.now())
                 idle.touch()
                 clicks += 1
@@ -1019,6 +1029,8 @@ struct AllAtOnceChooser {
     private var seenSince: [Int: Double] = [:]
     private var lastClick: [Int: Double] = [:]
     private var clickedThisAppearance = Set<Int>()
+    /// Clicked this appearance and the click visibly did something (the button dimmed, a popup covered it).
+    private var tookEffect = Set<Int>()
     private var settleFor: [Int: Double] = [:]
 
     init(rules: [Int: Rule], prioritized: Bool = false) {
@@ -1044,6 +1056,7 @@ struct AllAtOnceChooser {
                 lastSeen[index] = nil
                 lastRect[index] = nil
                 clickedThisAppearance.remove(index)
+                tookEffect.remove(index)
                 continue
             }
             if let before = lastRect[index], Self.moved(before, rect) {
@@ -1051,6 +1064,7 @@ struct AllAtOnceChooser {
                 seenSince[index] = nil
                 settleFor[index] = nil
                 clickedThisAppearance.remove(index)
+                tookEffect.remove(index)
             }
             lastSeen[index] = now
             lastRect[index] = rect
@@ -1067,7 +1081,11 @@ struct AllAtOnceChooser {
                 let since = now - (lastClick[index] ?? 0) + 0.01
                 // Clicked once per appearance; but still there, in the same place, a while after the click means the
                 // click didn't take (it landed mid-transition, or the app was busy): click it again.
-                guard since >= (rule.repeatUntilGone ? max(0.1, rule.repeatEvery) : Self.retryAfter) else { continue }
+                if rule.repeatUntilGone {
+                    guard since >= max(0.1, rule.repeatEvery) else { continue }
+                } else {
+                    guard !tookEffect.contains(index), since >= Self.retryAfter else { continue }
+                }
             }
             ready.append(index)
         }
@@ -1091,6 +1109,38 @@ struct AllAtOnceChooser {
 
     /// Whether the next click is the first since it appeared (repeat taps on the same appearance aren't).
     func isFirstClick(_ index: Int) -> Bool { !clickedThisAppearance.contains(index) }
+
+    /// The click on `index` changed how it looks (dimmed, covered): it worked, so it isn't tried again while it stays.
+    mutating func clickTookEffect(_ index: Int) { tookEffect.insert(index) }
+
+    /// What a spot looks like, coarsely: the average colour of a 6 × 4 grid over it (to tell whether it changed).
+    static func look(of r: CGRect, in px: ScreenReader.WindowPixels) -> [Double] {
+        let x0 = max(0, Int(r.minX)), y0 = max(0, Int(r.minY))
+        let x1 = min(px.width, Int(r.maxX)), y1 = min(px.height, Int(r.maxY))
+        guard x1 - x0 >= 6, y1 - y0 >= 4 else { return [] }
+        var out: [Double] = []
+        for gy in 0..<4 {
+            for gx in 0..<6 {
+                let cx0 = x0 + (x1 - x0) * gx / 6, cx1 = x0 + (x1 - x0) * (gx + 1) / 6
+                let cy0 = y0 + (y1 - y0) * gy / 4, cy1 = y0 + (y1 - y0) * (gy + 1) / 4
+                var sum = [0.0, 0, 0], n = 0.0
+                for y in stride(from: cy0, to: cy1, by: 2) {
+                    for x in stride(from: cx0, to: cx1, by: 2) {
+                        let i = (y * px.width + x) * 4
+                        sum[0] += Double(px.rgba[i]); sum[1] += Double(px.rgba[i + 1]); sum[2] += Double(px.rgba[i + 2]); n += 1
+                    }
+                }
+                out += sum.map { $0 / max(n, 1) }
+            }
+        }
+        return out
+    }
+
+    /// Whether two looks of the same spot differ clearly (more than a subtle shimmer).
+    static func changed(_ a: [Double], _ b: [Double]) -> Bool {
+        guard a.count == b.count, !a.isEmpty else { return false }
+        return zip(a, b).map { abs($0 - $1) }.reduce(0, +) / Double(a.count) > 18
+    }
 
     mutating func clicked(_ index: Int, at time: Double) {
         lastClick[index] = time
