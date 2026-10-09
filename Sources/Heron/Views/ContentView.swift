@@ -27,29 +27,15 @@ extension AppModel {
 struct ContentView: View {
     @EnvironmentObject var model: AppModel
     @AppStorage("simpleMode") private var simple = false
-    /// Mini mode stays above other windows unless unpinned.
-    @AppStorage("miniOnTop") private var onTop = true
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    private var macroMini: Bool { simple && model.tab == .macros }
-
     var body: some View {
-        Group {
-            // Mini mode follows the tab you were on: the auto clicker's strip here, or (Macros) a separate
-            // floating card while this window steps aside.
-            if simple && model.tab != .macros {
-                SimpleStrip(onTop: $onTop) { simple = false }
-            } else {
-                full
-            }
-        }
+        // Mini mode is a separate floating card (macros or the clicker) while this window steps aside.
+        full
         // The card is put up before the window steps aside, so Heron always has a window showing.
-        .onAppear { MiniPanel.shared.show(macroMini, model: model) }
-        .onChange(of: macroMini) { _, on in MiniPanel.shared.show(on, model: model) }
-        .background(MainWindowAside(aside: macroMini) { simple = false })
-        .toolbar(simple && model.tab != .macros ? .hidden : .visible, for: .windowToolbar)
-        // The small strip stays above other windows, like a remote control.
-        .background(WindowLevel(floating: simple && model.tab != .macros && onTop))
+        .onAppear { MiniPanel.shared.show(simple, model: model) }
+        .onChange(of: simple) { _, on in MiniPanel.shared.show(on, model: model) }
+        .background(MainWindowAside(aside: simple) { simple = false })
     }
 
     private var full: some View {
@@ -90,8 +76,7 @@ struct ContentView: View {
             ToolbarItemGroup(placement: .primaryAction) {
                 Button { simple = true } label: { Image(systemName: "arrow.down.right.and.arrow.up.left") }
                     .accessibilityLabel("Mini mode")
-                    .help(model.tab == .macros ? "Mini mode: up to three macros in a small window that stays on top"
-                                               : "Mini mode: a small strip that stays on top")
+                    .help("Mini mode: a small card that stays on top, for your macros or the auto clicker")
                 SettingsLink { Image(systemName: "gearshape") }
                     .accessibilityLabel("Settings")
                     .help("Settings (⌘,)")
@@ -99,38 +84,6 @@ struct ContentView: View {
         }
         .frame(minWidth: 860, idealWidth: 1000, maxWidth: .infinity, minHeight: 600, idealHeight: 720, maxHeight: .infinity)
     }
-}
-
-/// Keeps the window above others while `floating` (the simple strip), and hides the window title: the tabs
-/// say where you are.
-struct WindowLevel: NSViewRepresentable {
-    let floating: Bool
-
-    final class Probe: NSView {
-        var floating = false { didSet { apply() } }
-        private var observers: [NSObjectProtocol] = []
-
-        override func viewDidMoveToWindow() {
-            observers.forEach(NotificationCenter.default.removeObserver)
-            observers = []
-            apply()
-            guard let window else { return }
-            for name in [NSWindow.didResizeNotification, NSWindow.didBecomeKeyNotification, NSWindow.didEndLiveResizeNotification] {
-                observers.append(NotificationCenter.default.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in
-                    MainActor.assumeIsolated { self?.apply() }
-                })
-            }
-        }
-        override func layout() { super.layout(); apply() }
-        func apply() {
-            guard let window else { return }
-            let level: NSWindow.Level = floating ? .floating : .normal
-            if window.level != level { window.level = level }
-        }
-    }
-
-    func makeNSView(context: Context) -> Probe { Probe() }
-    func updateNSView(_ view: Probe, context: Context) { view.floating = floating }
 }
 
 /// Puts the main window away while the macro mini card is up, and back when it closes. Opening the window
@@ -194,9 +147,42 @@ final class MiniPanel {
     private var moveObserver: NSObjectProtocol?
     private static let cornerKey = "miniTopLeft"
 
-    /// A panel that takes key presses (← →) when clicked, without activating the app.
+    /// A panel that takes key presses (← →) when clicked, without activating the app, and that moves when
+    /// dragged from anywhere: a press that travels more than a few points moves it, and whatever was pressed
+    /// (a button) is told the press ended away from it, so it doesn't fire.
     final class KeyPanel: NSPanel {
         override var canBecomeKey: Bool { true }
+        private var start: (origin: NSPoint, mouse: NSPoint)?
+        private var moving = false
+
+        override func sendEvent(_ e: NSEvent) {
+            switch e.type {
+            case .leftMouseDown:
+                start = (frame.origin, NSEvent.mouseLocation)
+                moving = false
+            case .leftMouseDragged:
+                guard let s = start else { break }
+                let m = NSEvent.mouseLocation
+                if !moving, hypot(m.x - s.mouse.x, m.y - s.mouse.y) > 4 {
+                    moving = true
+                    if let up = NSEvent.mouseEvent(with: .leftMouseUp, location: NSPoint(x: -10_000, y: -10_000),
+                                                   modifierFlags: [], timestamp: e.timestamp, windowNumber: windowNumber,
+                                                   context: nil, eventNumber: 0, clickCount: 1, pressure: 0) {
+                        super.sendEvent(up)
+                    }
+                }
+                if moving {
+                    setFrameOrigin(NSPoint(x: s.origin.x + m.x - s.mouse.x, y: s.origin.y + m.y - s.mouse.y))
+                    return
+                }
+            case .leftMouseUp:
+                defer { start = nil; moving = false }
+                if moving { return }
+            default:
+                break
+            }
+            super.sendEvent(e)
+        }
     }
 
     func show(_ visible: Bool, model: AppModel) {
@@ -232,15 +218,43 @@ final class MiniPanel {
     func setOnTop(_ on: Bool) { panel?.level = on ? .floating : .normal }
 
     var isShowing: Bool { panel?.isVisible == true }
+
+
 }
 
-/// The mini card with its rounded, material background.
+/// The mini card: macros or the clicker, with a switch between them, the pin and the way back.
 private struct MiniPanelRoot: View {
+    @EnvironmentObject var model: AppModel
     @AppStorage("miniOnTop") private var onTop = true
     @AppStorage("simpleMode") private var simple = false
 
     var body: some View {
-        MacroMiniStrip(onTop: $onTop) { simple = false }
+        HStack(spacing: 6) {
+            if model.tab == .macros {
+                MacroMiniStrip { simple = false }
+            } else {
+                ClickerMiniCard()
+            }
+            VStack(spacing: 9) {
+                Button { model.tab = model.tab == .macros ? .clicker : .macros } label: {
+                    Image(systemName: model.tab == .macros ? "cursorarrow.click.2" : "list.bullet.rectangle")
+                }
+                .buttonStyle(.borderless)
+                .foregroundStyle(.secondary)
+                .help(model.tab == .macros ? "Switch to the auto clicker" : "Switch to macros")
+                .accessibilityLabel(model.tab == .macros ? "Switch to the auto clicker" : "Switch to macros")
+                MiniOnTopToggle(onTop: $onTop)
+                Button { simple = false } label: { Image(systemName: "arrow.up.left.and.arrow.down.right") }
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(.secondary)
+                    .help("Show everything")
+                    .accessibilityLabel("Show everything")
+            }
+            .font(.system(size: 11))
+            .frame(width: 18)
+        }
+        .padding(.horizontal, 10)
+        .frame(height: MacroMiniStrip.height)
             .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(.regularMaterial))
             .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Color.primary.opacity(0.1)))
             .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))

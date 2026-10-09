@@ -151,58 +151,97 @@ private struct MacroList: View {
     }
 }
 
-// MARK: - Simple mode
+// MARK: - Mini mode
 
-/// Mini mode on the Clicker tab: just the speed, the button, where to click and Start, above other windows.
-struct SimpleStrip: View {
+/// Shared look for mini mode's cards.
+enum MiniCard {
+    /// The card area's width, the same for macros and the clicker so the panel doesn't jump when switching.
+    static let width: CGFloat = 312
+}
+
+extension View {
+    func miniCardStyle(active: Bool) -> some View {
+        self
+            .background(RoundedRectangle(cornerRadius: 13, style: .continuous)
+                .fill(active ? Color.green.opacity(0.14) : Color.primary.opacity(0.05)))
+            .overlay(RoundedRectangle(cornerRadius: 13, style: .continuous)
+                .strokeBorder(active ? Color.green.opacity(0.45) : Color.primary.opacity(0.08), lineWidth: 1))
+    }
+}
+
+/// Mini mode on the Clicker tab: start and stop, the speed, and where it clicks, on the same small card as macros.
+struct ClickerMiniCard: View {
     @EnvironmentObject var model: AppModel
-    @Binding var onTop: Bool
-    let onExpand: () -> Void
 
     var body: some View {
-        HStack(spacing: 12) {
-            HStack(alignment: .firstTextBaseline, spacing: 5) {
-                TextField("", value: cps, format: .number.precision(.fractionLength(0...1)))
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 30, weight: .ultraLight).monospacedDigit())
-                    .multilineTextAlignment(.trailing)
-                    .frame(width: 64)
-                    .help("Clicks a second")
-                Text("a second").foregroundStyle(.secondary)
-            }
-            Picker("Button", selection: $model.autoClick.button) {
-                ForEach(MouseButton.allCases) { Text($0.label).tag($0) }
-            }
-            .labelsHidden().fixedSize()
-            Picker("Where", selection: $model.autoClick.location) {
-                Text("Pointer").tag(AutoClickSettings.LocationMode.cursor)
-                Text("Spots").tag(AutoClickSettings.LocationMode.points)
-            }
-            .labelsHidden().fixedSize()
-            Spacer(minLength: 8)
-            VStack(alignment: .trailing, spacing: 1) {
-                Text(model.isAutoClicking ? "Running" : "Stopped")
-                    .font(.callout.weight(.semibold))
-                    .foregroundStyle(model.isAutoClicking ? Color.green : Color.secondary)
-                Text(model.isAutoClicking ? "\(model.autoClickCount) clicks" : " ")
-                    .font(.caption).foregroundStyle(.secondary).monospacedDigit()
-            }
-            Button { model.toggleAutoClick() } label: {
-                HStack(spacing: 10) {
-                    Text(model.isAutoClicking ? "Stop" : "Start")
-                    if let d = model.liveHotkey(.toggleAutoClick)?.display { KeyCaps(d, onDark: true) }
+        let running = model.isAutoClicking
+        VStack(spacing: 5) {
+            HStack(spacing: 10) {
+                Button { model.toggleAutoClick() } label: {
+                    Image(systemName: running ? "stop.fill" : "play.fill")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(running ? Color.white : Color.primary)
+                        .frame(width: 32, height: 32)
+                        .background(Circle().fill(running ? Color.green : Color.primary.opacity(0.1)))
+                        .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .help((running ? "Stop" : "Start") + (model.liveHotkey(.toggleAutoClick).map { " (\($0.display))" } ?? ""))
+                .accessibilityLabel(running ? "Stop clicking" : "Start clicking")
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Auto clicker").font(.callout.weight(.semibold)).lineLimit(1)
+                    Text(status).font(.caption2).lineLimit(1).monospacedDigit()
+                        .foregroundStyle(model.countdown != nil ? Color.orange : running ? Color.green : Color.secondary)
+                }
+                Spacer(minLength: 4)
+                VStack(alignment: .trailing, spacing: 0) {
+                    TextField("", value: cps, format: .number.precision(.fractionLength(0...1)))
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 22, weight: .semibold, design: .rounded)).monospacedDigit()
+                        .multilineTextAlignment(.trailing)
+                        .frame(width: 60)
+                        .help("Clicks a second")
+                    Text("a second").font(.system(size: 9)).foregroundStyle(.secondary)
                 }
             }
-            .buttonStyle(PrimaryActionStyle(tint: model.isAutoClicking ? .green : .primary))
-            .fixedSize()
-            MiniOnTopToggle(onTop: $onTop)
-            Button(action: onExpand) { Image(systemName: "arrow.up.left.and.arrow.down.right") }
-                .accessibilityLabel("Show everything")
-                .buttonStyle(.borderless)
-                .help("Show everything")
+            .padding(.leading, 10).padding(.trailing, 12)
+            .frame(width: MiniCard.width, height: 54)
+            .miniCardStyle(active: running)
+            HStack(spacing: 8) {
+                Picker("Where", selection: $model.autoClick.location) {
+                    Text("Pointer").tag(AutoClickSettings.LocationMode.cursor)
+                    Text("Spots").tag(AutoClickSettings.LocationMode.points)
+                }
+                .pickerStyle(.segmented).labelsHidden().controlSize(.mini).fixedSize()
+                if model.autoClick.location == .points {
+                    // Set Spot replaces the spot(s); the menu adds one more instead.
+                    Menu {
+                        Button("Add Another Spot (hover, 3 s)") { model.capturePointAfterDelay(3) }
+                        if !model.autoClick.points.isEmpty { Button("Clear All Spots") { model.autoClick.points = [] } }
+                    } label: {
+                        Label("Set Spot", systemImage: "scope")
+                    } primaryAction: {
+                        model.replacePointAfterDelay(3)
+                    }
+                    .menuStyle(.borderlessButton)
+                    .controlSize(.mini)
+                    .fixedSize()
+                    .help("Hover over the new spot; it's set after 3 seconds. The menu adds another spot instead.")
+                }
+            }
+            .font(.caption2)
+            .frame(height: 16)
         }
-        .padding(.horizontal, 14)
-        .frame(width: 700, height: 58)
+        .frame(width: MiniCard.width, height: MacroMiniStrip.height)
+    }
+
+    private var status: String {
+        if let c = model.countdown { return "Hover over the spot… \(c)" }
+        if model.isAutoClicking { return "Running · \(model.autoClickCount) clicks" }
+        let s = model.autoClick
+        let where_ = s.location == .cursor ? "At the pointer"
+            : s.points.isEmpty ? "No spot yet: Set Spot" : "\(s.points.count) spot\(s.points.count == 1 ? "" : "s")"
+        return "\(s.button.label) · " + where_ + (s.target.app.map { " in \($0.name)" } ?? "")
     }
 
     private var cps: Binding<Double> {
@@ -211,7 +250,6 @@ struct SimpleStrip: View {
     }
 }
 
-
 /// Mini mode on the Macros tab: one macro at a time on a small card, swiped (or arrowed) through like a carousel,
 /// with its round count up front and a dot per macro (green while running).
 struct MacroMiniStrip: View {
@@ -219,7 +257,6 @@ struct MacroMiniStrip: View {
     /// The macro on show, kept between launches.
     @AppStorage("miniMacro") private var storedID = ""
     @StateObject private var state = Carousel()
-    @Binding var onTop: Bool
     let onExpand: () -> Void
 
     final class Carousel: ObservableObject {
@@ -251,19 +288,8 @@ struct MacroMiniStrip: View {
                 dots
             }
             arrow(1)
-            VStack(spacing: 10) {
-                MiniOnTopToggle(onTop: $onTop)
-                Button(action: onExpand) { Image(systemName: "arrow.up.left.and.arrow.down.right") }
-                    .buttonStyle(.borderless)
-                    .foregroundStyle(.secondary)
-                    .help("Show everything")
-                    .accessibilityLabel("Show everything")
-            }
-            .font(.system(size: 11))
-            .frame(width: 18)
         }
-        .padding(.horizontal, 10)
-        .frame(height: Self.height)
+        .frame(width: MiniCard.width, height: Self.height)
         .onAppear {
             // After the first layout: set any earlier, the carousel settles back on the first macro.
             let start = macros.first { $0.id.uuidString == storedID }?.id ?? model.selectedMacro?.id ?? macros.first?.id
@@ -351,10 +377,7 @@ struct MacroMiniStrip: View {
             }
             .padding(.leading, 10).padding(.trailing, 12)
             .frame(width: Self.cardWidth - 8, height: 54)
-            .background(RoundedRectangle(cornerRadius: 13, style: .continuous)
-                .fill(running ? Color.green.opacity(0.14) : Color.primary.opacity(0.05)))
-            .overlay(RoundedRectangle(cornerRadius: 13, style: .continuous)
-                .strokeBorder(running ? Color.green.opacity(0.45) : Color.primary.opacity(0.08), lineWidth: 1))
+            .miniCardStyle(active: running)
             .frame(width: Self.cardWidth)
             .contextMenu { Button("Show in Heron") { model.show(m.id); onExpand() } }
         }

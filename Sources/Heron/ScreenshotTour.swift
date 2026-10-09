@@ -91,7 +91,7 @@ enum ScreenshotTour {
             // Simple mode strip.
             UserDefaults.standard.set(true, forKey: "simpleMode")
             try? await Task.sleep(for: .seconds(1.2))
-            if let win = NSApp.windows.first(where: { $0.isVisible && $0.canBecomeMain }), let png = capture(win) {
+            if let win = NSApp.windows.first(where: { $0.isVisible && $0 is MiniPanel.KeyPanel }), let png = capture(win) {
                 try? png.write(to: out.appendingPathComponent("simple.png"))
             }
             UserDefaults.standard.set(false, forKey: "simpleMode")
@@ -193,7 +193,7 @@ enum ScreenshotTour {
             NSApp.windows.first { $0.isVisible && $0 !== main && $0.frame.width > 300 }?.close()
             // Simple mode, stopped and running.
             UserDefaults.standard.set(true, forKey: "simpleMode")
-            await shot("simple")
+            await shot("simple", NSApp.windows.first { $0.isVisible && $0 is MiniPanel.KeyPanel })
             UserDefaults.standard.set(false, forKey: "simpleMode")
             try? await Task.sleep(for: .seconds(0.8))
             NSApp.terminate(nil)

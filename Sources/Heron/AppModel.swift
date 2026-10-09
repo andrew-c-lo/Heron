@@ -748,6 +748,17 @@ final class AppModel: ObservableObject {
         runCountdown(seconds) { [weak self] in self?.addPoint(EventSynth.cursor) }
     }
 
+    /// Like `capturePointAfterDelay`, but the new spot replaces the ones there were (kept if it can't be used).
+    func replacePointAfterDelay(_ seconds: Int = 3) {
+        runCountdown(seconds) { [weak self] in
+            guard let self else { return }
+            let old = autoClick.points
+            autoClick.points = []
+            addPoint(EventSynth.cursor)
+            if autoClick.points.isEmpty { autoClick.points = old }
+        }
+    }
+
     // MARK: - Recording
 
     func toggleRecording(fromUI: Bool) {

@@ -50,7 +50,7 @@ when a “finished” screen appears. Heron keeps the screen awake while it work
 macro plays or you keep working. With background delivery it doesn't even borrow your pointer: it taps
 straight into the app, iPhone Mirroring included, while you keep using your Mac.
 
-**And a proper auto clicker.** For plain fast clicking: set the speed, press a hotkey, done. Mini mode shrinks it to a small strip
+**And a proper auto clicker.** For plain fast clicking: set the speed, press a hotkey, done. Mini mode shrinks it to a small card
 that stays on top.
 
 **Free, private and made for the Mac.** No account, no subscription, no network code. Everything stays on
@@ -125,7 +125,8 @@ scripts/setup-signing.sh   # once: a personal signing certificate, so permission
 - Stop after a number of clicks, after some time, or when you press the hotkey
 - Vary the timing a little so the rhythm isn't exact
 - Only click when the color at a spot matches, picked with the eyedropper or typed as a hex code
-- Mini mode: a small strip with just the speed and Start that stays above other windows (pin it or not)
+- Mini mode: a small card with Start, the speed and where it clicks (Set Spot picks a new one in 3 seconds),
+  that floats above other windows (pin it or not) and moves wherever you drag it
 
 </details>
 
