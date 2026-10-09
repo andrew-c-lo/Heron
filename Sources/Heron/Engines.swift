@@ -365,7 +365,7 @@ final class Player {
                                 let n = timesHappened
                                 Task { @MainActor in counted(n) }
                                 if let limit = opts.roundLimit, timesHappened >= limit {
-                                    error = Self.done("\(limit) round\(limit == 1 ? "" : "s") (\(Self.stepName(step, i)))")
+                                    error = Self.done("\(limit) run\(limit == 1 ? "" : "s") (\(Self.stepName(step, i)))")
                                     break outer
                                 }
                             }
@@ -721,7 +721,7 @@ final class Player {
                     let n = timesHappened
                     Task { @MainActor in counted(n) }
                     if let limit = opts.roundLimit, timesHappened >= limit {
-                        return Self.done("\(limit) round\(limit == 1 ? "" : "s") (\(Self.stepName(steps[index], index)))")
+                        return Self.done("\(limit) run\(limit == 1 ? "" : "s") (\(Self.stepName(steps[index], index)))")
                     }
                 }
             } else if opts.idleTapAfter > 0, let ix = opts.idleTapX, let iy = opts.idleTapY,

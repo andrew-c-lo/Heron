@@ -383,19 +383,19 @@ struct MacroMiniStrip: View {
         }
     }
 
-    /// The round, big, when the macro counts rounds: the current one while it runs, the last run's total otherwise.
+    /// Runs done, big, when the macro counts them: from 0 while it plays, the last time's total otherwise.
     @ViewBuilder
     private func counter(_ m: Macro, running: Bool) -> some View {
         if m.playback.stopAfterStep != nil {
-            // A last run that got through no rounds shows nothing rather than a lone 0.
-            let rounds = running ? (model.live[m.id]?.rounds ?? 0) + 1 : model.lastRounds[m.id].flatMap { $0 > 0 ? $0 : nil }
+            // A last time that got through none shows nothing rather than a lone 0.
+            let rounds = running ? (model.live[m.id]?.rounds ?? 0) : model.lastRounds[m.id].flatMap { $0 > 0 ? $0 : nil }
             if let rounds {
                 VStack(alignment: .trailing, spacing: 0) {
                     Text("\(rounds)")
                         .font(.system(size: 22, weight: .semibold, design: .rounded)).monospacedDigit()
                         .foregroundStyle(running ? Color.green : Color.primary)
                         .contentTransition(.numericText())
-                    Text(running ? (m.playback.roundLimit.map { "of \($0)" } ?? "round") : "last run")
+                    Text(running ? (m.playback.roundLimit.map { "of \($0)" } ?? "runs") : "last time")
                         .font(.system(size: 9)).foregroundStyle(.secondary)
                 }
                 .accessibilityElement(children: .combine)

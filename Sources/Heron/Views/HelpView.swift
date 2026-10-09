@@ -12,7 +12,7 @@ struct HelpView: View {
         Topic(id: "Macros and steps", icon: "list.bullet", body: [
             "A macro is a list of steps that play from top to bottom: clicks, key presses, typing, waits, and steps that look at the screen.",
             "Record what you do, add steps with Add or Find Picture, or start from a template. Drag steps to reorder them, or use ⌥⌘↑ and ⌥⌘↓.",
-            "Mini mode (the arrows button at the top) shrinks Heron to a small card you can drag anywhere: one macro at a time (swipe or use ‹ › to move between them, and play or stop it there; the big number is its round), or the auto clicker (start, speed, and Set Spot to pick a new spot in 3 seconds). The button at the top right switches between the two. It stays above other windows; the pin turns that off.",
+            "Mini mode (the arrows button at the top) shrinks Heron to a small card you can drag anywhere: one macro at a time (swipe or use ‹ › to move between them, and play or stop it there; the big number counts its runs, from 0), or the auto clicker (start, speed, and Set Spot to pick a new spot in 3 seconds). The button at the top right switches between the two. It stays above other windows; the pin turns that off.",
             "Select a step to edit it in the panel beside the list, and double-click a picture step to pick its picture again. Click the pencil next to a step's title to give it a name.",
         ]),
         Topic(id: "Pictures and words", icon: "viewfinder", body: [
@@ -22,7 +22,7 @@ struct HelpView: View {
             "A picture with no words is named by its colour, like “Tap the red picture”. Rename it to anything you like.",
         ]),
         Topic(id: "If and other macros", icon: "arrow.triangle.branch", body: [
-            "An If runs some steps only when something holds: a picture or words are (or aren't) on screen, a number has reached a value, a spot is a colour, or it's a certain round. Select steps and choose Add › If… to wrap them.",
+            "An If runs some steps only when something holds: a picture or words are (or aren't) on screen, a number has reached a value, a spot is a colour, or it's a certain run. Select steps and choose Add › If… to wrap them.",
             "Turn on Otherwise for steps that run when it doesn't hold. Steps after End always run. Ifs can go inside Ifs.",
             "Add › Run Another Macro plays another macro's steps right there, then carries on. Its own Playback, Stops and Schedule aren't used, and a macro can't end up running itself.",
             "Ifs work when steps run in order (Playback). Deleting an If, Otherwise or End row keeps the steps inside.",

@@ -552,7 +552,7 @@ struct StepCondition: Codable, Equatable {
             case .words: "Words"
             case .number: "Number"
             case .color: "Colour"
-            case .round: "Round"
+            case .round: "Run"
             }
         }
     }
@@ -567,8 +567,8 @@ struct StepCondition: Codable, Equatable {
         var label: String {
             switch self {
             case .every: "Every"
-            case .from: "From round"
-            case .upTo: "Up to round"
+            case .from: "From run"
+            case .upTo: "Up to run"
             }
         }
     }
@@ -622,9 +622,9 @@ struct StepCondition: Codable, Equatable {
         case .round:
             let n = max(1, roundN)
             switch roundRule {
-            case .every: return n == 1 ? "it's any round" : "it's every \(Self.ordinal(n)) round"
-            case .from: return "it's round \(n) or later"
-            case .upTo: return "it's round \(n) or earlier"
+            case .every: return n == 1 ? "it's any run" : "it's every \(Self.ordinal(n)) run"
+            case .from: return "it's run \(n) or later"
+            case .upTo: return "it's run \(n) or earlier"
             }
         }
     }
@@ -638,7 +638,7 @@ struct StepCondition: Codable, Equatable {
             return t.isEmpty ? "some words" : "“\(t)”"
         case .number: return "a number of \(atLeast) or more"
         case .color: return colorHex ?? "a colour"
-        case .round: return "round"
+        case .round: return "run"
         }
     }
 

@@ -70,15 +70,15 @@ final class AppModel: ObservableObject {
     /// Rounds the last run of each macro got through (macros that count rounds), for mini mode.
     @Published private(set) var lastRounds: [UUID: Int] = [:]
 
-    /// Running macros, in a line each, for the menu bar: “Round 3 of 5 · quiet 0:42 · 4:12”.
+    /// Running macros, in a line each, for the menu bar: “2 of 5 runs · quiet 0:42 · 4:12”.
     func liveLines(now: Date = Date()) -> [(id: UUID, name: String, line: String)] {
         live.compactMap { id, run in
             guard let m = macros.first(where: { $0.id == id }) else { return nil }
             var parts: [String] = []
             if let limit = m.playback.roundLimit {
-                parts.append("Round \(min(run.rounds + 1, limit)) of \(limit)")
+                parts.append("\(min(run.rounds, limit)) of \(limit) runs")
             } else if m.playback.stopAfterStep != nil {
-                parts.append("Round \(run.rounds + 1)")
+                parts.append("\(run.rounds) run\(run.rounds == 1 ? "" : "s")")
             }
             let quiet = now.timeIntervalSince(run.lastActivity)
             if m.playback.stopIfIdleMinutes > 0 || quiet >= 15 { parts.append("quiet \(Self.clock(quiet))") }
@@ -88,7 +88,6 @@ final class AppModel: ObservableObject {
         .sorted { $0.name < $1.name }
     }
 
-    /// Beside the menu bar icon while a macro with a round goal runs: “3/5”.
     /// Next to the menu bar icon while something runs: rounds of a goal (“3/5”), time left (“12m left”),
     /// or how long it has run (“5m”); with several running, how many.
     var menuBarProgress: String? {
@@ -97,9 +96,9 @@ final class AppModel: ObservableObject {
             return "\(live.count) running"
         }
         if let limit = m.playback.roundLimit {
-            return "\(min(run.rounds + 1, limit))/\(limit)"
+            return "\(min(run.rounds, limit))/\(limit)"
         }
-        if m.playback.stopAfterStep != nil { return "R\(run.rounds + 1)" }
+        if m.playback.stopAfterStep != nil { return "R\(run.rounds)" }
         let ran = Date().timeIntervalSince(run.started) / 60
         if m.playback.stopAfterMinutes > 0 {
             return "\(Int(max(0, m.playback.stopAfterMinutes - ran).rounded(.up)))m left"

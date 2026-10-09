@@ -150,11 +150,11 @@ struct ConditionEditor: View {
             Picker("When", selection: $condition.roundRule) {
                 ForEach(StepCondition.RoundRule.allCases) { Text($0.label).tag($0) }
             }
-            LabeledContent(c.roundRule == .every ? "Rounds" : "Round") {
-                Stepper(c.roundRule == .every ? "\(StepCondition.ordinal(max(1, c.roundN))) round" : "\(max(1, c.roundN))",
+            LabeledContent(c.roundRule == .every ? "Runs" : "Run") {
+                Stepper(c.roundRule == .every ? "\(StepCondition.ordinal(max(1, c.roundN))) run" : "\(max(1, c.roundN))",
                         value: Binding(get: { max(1, c.roundN) }, set: { condition.roundN = max(1, $0) }), in: 1...10_000)
             }
-            Text("Rounds count from 1 each time you press Play. Set how many there are in Playback › Repeat (⌘2).")
+            Text("Runs are numbered from 1 each time you press Play: the first time through is run 1. They're counted by the step set in Playback (⌘2).")
                 .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
         }
     }

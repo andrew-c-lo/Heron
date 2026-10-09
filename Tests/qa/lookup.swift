@@ -863,7 +863,7 @@ let wordsIf = Macro(name: "words", steps: [MacroStep(delay: 0, action: .ifStart(
 let wordsRun = playTaps(wordsIf)
 check("checking the screen without a target app says so", wordsRun.end?.contains("target app") == true, wordsRun.end ?? "nil")
 check("If titles read plainly",
-      everyOther.summary == "it's every 2nd round" && fromThree.summary == "it's round 3 or later"
+      everyOther.summary == "it's every 2nd run" && fromThree.summary == "it's run 3 or later"
       && { var w = StepCondition(kind: .words); w.look.text = "Level up"; w.negate = true; return w.summary }() == "“Level up” isn't on screen")
 
 let helper = Macro(name: "Helper", steps: [tapAt(5), tapAt(6)])

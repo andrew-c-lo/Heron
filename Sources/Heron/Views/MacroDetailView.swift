@@ -201,18 +201,17 @@ struct MacroDetailView: View {
                 Spacer(minLength: 8)
                 if let limit = pb.roundLimit {
                     VStack(alignment: .trailing, spacing: 3) {
-                        Text("Round \(min(run.rounds + 1, limit)) of \(limit)")
+                        Text("\(min(run.rounds, limit)) of \(limit) runs")
                             .font(.callout).monospacedDigit()
                         ProgressView(value: Double(run.rounds), total: Double(max(1, limit)))
                             .progressViewStyle(.linear).frame(width: 90)
                     }
-                    .help("Stops after \(limit) rounds; \(run.rounds) done")
+                    .help("Stops after \(limit) runs; \(run.rounds) done")
                 } else if pb.stopAfterStep != nil {
                     VStack(alignment: .trailing, spacing: 1) {
-                        Text("Round \(run.rounds + 1)").font(.callout).monospacedDigit()
-                        Text("\(run.rounds) done").font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                        Text("\(run.rounds) run\(run.rounds == 1 ? "" : "s")").font(.callout).monospacedDigit()
                     }
-                    .help("Counts a round each time the round step happens (Playback)")
+                    .help("Counts a run each time the counted step happens (Playback)")
                 }
                 let quiet = now.timeIntervalSince(run.lastActivity)
                 if pb.stopIfIdleMinutes > 0 || quiet >= 15 {
@@ -295,7 +294,7 @@ struct MacroDetailView: View {
                 SettingsChip(icon: "stop.circle", title: "Stops", value: stopsSummary, isSet: hasAutoStop, style: style)
             }
             .buttonStyle(.plain)
-            .help("When a run ends on its own (after a number of rounds, when something appears, after a set time, or if nothing happens) (⌘3): \(stopsSummary.lowercased())")
+            .help("When playing ends on its own (after a number of runs, when something appears, after a set time, or if nothing happens) (⌘3): \(stopsSummary.lowercased())")
             .popover(isPresented: $ui.showingStops, arrowEdge: .bottom) { stopsPanel }
 
             Button { ui.showingSchedule = true } label: {
@@ -520,7 +519,7 @@ struct MacroDetailView: View {
                 Text("Don't count").tag(UUID?.none)
                 ForEach(choices, id: \.id) { c in Text(c.title).tag(Optional(c.id)) }
             } label: {
-                Text("Count a round each time")
+                Text("Count a run each time")
             }
             .disabled(choices.isEmpty)
             if macro.playback.stopAfterStep != nil {
@@ -531,7 +530,7 @@ struct MacroDetailView: View {
                         Text("s").foregroundStyle(.secondary)
                     }
                 }
-                Text("Pick the step that happens once per round, like Attempt Again. A double press or a flicker within the time above counts once. The live strip and menu bar show the round; Stops can end the run after some.")
+                Text("Pick the step that happens once per run, like Attempt Again. A double press or a flicker within the time above counts once. The live strip, menu bar and mini mode show the count from 0; Stops can stop playing after some.")
                     .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
         }
@@ -580,7 +579,7 @@ struct MacroDetailView: View {
     private var stopsSummary: String {
         let pb = macro.playback
         var parts: [String] = []
-        if let limit = pb.roundLimit { parts.append("after \(limit) round\(limit == 1 ? "" : "s")") }
+        if let limit = pb.roundLimit { parts.append("after \(limit) run\(limit == 1 ? "" : "s")") }
         if let k = pb.stopWhen {
             if let n = pb.stopAtNumber, k.text != nil { parts.append("at \(n)") }
             else if let t = k.text, !t.trimmingCharacters(in: .whitespaces).isEmpty { parts.append("at “\(t)”") }
@@ -672,14 +671,14 @@ struct MacroDetailView: View {
                                          macro.playback.stopAfterCount = 0 // keeps counting rounds, just doesn't stop
                                      }
                                  })) {
-                Text("After a number of rounds")
-                Text("A round is each time the round step happens, like an Attempt Again button. Double presses count once.")
+                Text("After a number of runs")
+                Text("A run is each time the counted step happens, like an Attempt Again button. Double presses count once.")
             }
             .disabled(choices.isEmpty)
             if macro.playback.roundLimit != nil {
                 HStack {
                     TextField("", value: Binding(get: { macro.playback.stopAfterCount }, set: { macro.playback.stopAfterCount = max(1, $0) }), format: .number).frame(width: 50)
-                    Text("rounds of").foregroundStyle(.secondary)
+                    Text("runs of").foregroundStyle(.secondary)
                     Picker("", selection: Binding(get: { macro.playback.stopAfterStep }, set: { macro.playback.stopAfterStep = $0 })) {
                         ForEach(choices, id: \.id) { c in Text(c.title).tag(Optional(c.id)) }
                     }

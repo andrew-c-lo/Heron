@@ -27,7 +27,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/demo.gif" width="880" alt="Heron watching a rewards window: each time a Claim button lights up on a different card, Heron clicks it, counting rounds until it has claimed all six and stops by itself">
+  <img src="docs/demo.gif" width="880" alt="Heron watching a rewards window: each time a Claim button lights up on a different card, Heron clicks it, counting runs until it has claimed all six and stops by itself">
 </p>
 
 ## Why Heron
@@ -147,9 +147,9 @@ scripts/setup-signing.sh   # once: a personal signing certificate, so permission
 - Reorder by dragging, from the right-click menu, or with ⌥⌘↑ and ⌥⌘↓; switch steps off without deleting
   them; keep macros in folders
 - Mini mode for macros: one macro at a time on a small card you swipe through (or arrow through), with Play,
-  what it's doing and its round count, in a window that stays on top (or not)
+  what it's doing and its run count, in a window that stays on top (or not)
 - If, Otherwise and End: run steps only when a picture or words are (or aren't) on screen, a number has
-  reached a value, a spot is a colour, or it's a certain round (every 3rd, from round 5 on). Ifs can go
+  reached a value, a spot is a colour, or it's a certain run (every 3rd, from run 5 on). Ifs can go
   inside Ifs
 - Run another macro as a step, so a shared routine lives in one place
 - Branch and repeat: a step that isn't found can go to another step, and a Repeat step goes back to an
