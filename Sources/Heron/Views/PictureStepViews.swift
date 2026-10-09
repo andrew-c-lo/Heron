@@ -16,6 +16,10 @@ struct PictureStepEditor: View {
     let app: TargetApp?
     let touch: Bool
     var allAtOnce = false
+    /// The macro's window size and whether its app is an emulator, so pictures and areas picked now are
+    /// measured the same way as the rest of the step.
+    var macroWindow: CGSize? = nil
+    var emulator = false
     /// Steps it can jump to with “Go to another step”.
     var stepChoices: [(id: UUID, title: String)] = []
     @StateObject private var ui = WatcherUIState()
@@ -25,13 +29,16 @@ struct PictureStepEditor: View {
         form
             .sheet(item: Binding(get: { ui.picker.map(ImageSheetItem.init) }, set: { ui.picker = $0?.image })) { item in
                 RegionPickerSheet(image: item.image) { rect in
+                    let size = item.image.size
                     if ui.pickingArea {
-                        step.wrappedValue.area = rect.integral
+                        step.wrappedValue.setArea(rect, in: size, fallback: macroWindow, emulator: emulator)
                         ui.testResult = nil
                     } else if ui.pickingVariant, let c = PictureCrop.crop(rect, from: item.image) {
-                        step.wrappedValue.variants.append(PictureVariant(png: c.png, width: c.width, height: c.height))
+                        let k = s.variantScale(pickedIn: size, fallback: macroWindow, emulator: emulator)
+                        step.wrappedValue.variants.append(PictureVariant(png: c.png, width: c.width * k, height: c.height * k))
                         ui.testResult = nil
                     } else if let c = PictureCrop.crop(rect, from: item.image) {
+                        step.wrappedValue.adoptWindow(size, fallback: macroWindow, emulator: emulator)
                         step.wrappedValue.png = c.png
                         step.wrappedValue.pictureWords = nil // read again for the new picture
                         step.wrappedValue.pictureColor = nil

@@ -5,6 +5,8 @@ struct ConditionEditor: View {
     @EnvironmentObject var model: AppModel
     @Binding var condition: StepCondition
     let app: TargetApp?
+    var macroWindow: CGSize? = nil
+    var emulator = false
     let hasOtherwise: Bool
     let setOtherwise: (Bool) -> Void
     let wait: Binding<Double>
@@ -76,8 +78,9 @@ struct ConditionEditor: View {
             RegionPickerSheet(image: item.image) { rect in
                 var v = condition
                 if ui.pickingArea {
-                    v.look.area = rect.integral
+                    v.look.setArea(rect, in: item.image.size, fallback: macroWindow, emulator: emulator)
                 } else if let crop = PictureCrop.crop(rect, from: item.image) {
+                    v.look.adoptWindow(item.image.size, fallback: macroWindow, emulator: emulator)
                     v.look.png = crop.png
                     v.look.width = crop.width
                     v.look.height = crop.height
@@ -86,7 +89,6 @@ struct ConditionEditor: View {
                     v.look.pictureWords = nil
                     v.look.pictureColor = nil
                 }
-                v.look.captureWindow = item.image.size
                 condition = v
                 ui.picker = nil
             } onCancel: {

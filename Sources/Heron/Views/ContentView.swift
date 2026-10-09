@@ -210,9 +210,26 @@ final class MiniPanel {
                 }
             }
             panel = p
+            NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { _ in
+                MainActor.assumeIsolated { Self.keepOnScreen(p) }
+            }
         }
         setOnTop(UserDefaults.standard.object(forKey: "miniOnTop") as? Bool ?? true)
+        if let p = panel { Self.keepOnScreen(p) }
         panel?.orderFrontRegardless()
+    }
+
+    /// A spot saved on a display that's since been unplugged (or a resolution that shrank) would leave the card
+    /// out of sight: bring it inside the screen it's nearest to.
+    static func keepOnScreen(_ p: NSWindow) {
+        let f = p.frame
+        let screens = NSScreen.screens.map(\.visibleFrame)
+        if screens.contains(where: { $0.intersection(f).width >= min(80, f.width) && $0.intersection(f).height >= min(40, f.height) }) { return }
+        func gap(_ r: CGRect) -> CGFloat { hypot(max(r.minX - f.midX, 0, f.midX - r.maxX), max(r.minY - f.midY, 0, f.midY - r.maxY)) }
+        guard let v = screens.min(by: { gap($0) < gap($1) }) else { return }
+        let x = min(max(f.minX, v.minX + 12), v.maxX - f.width - 12)
+        let top = min(max(f.maxY, v.minY + f.height + 12), v.maxY - 12)
+        p.setFrameTopLeftPoint(NSPoint(x: x, y: top))
     }
 
     func setOnTop(_ on: Bool) { panel?.level = on ? .floating : .normal }

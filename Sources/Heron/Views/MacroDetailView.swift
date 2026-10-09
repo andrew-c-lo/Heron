@@ -1291,7 +1291,11 @@ struct MacroDetailView: View {
     private func narrowSearches(_ narrow: [(id: UUID, area: CGRect)]) {
         for n in narrow {
             if let i = macro.steps.firstIndex(where: { $0.id == n.id }), case .findImage(var p) = macro.steps[i].action {
-                p.area = n.area
+                if let size = model.foundWindow(for: n.id) {
+                    p.setArea(n.area, in: size, fallback: macro.target.windowSize, emulator: macro.target.isAndroidEmulator)
+                } else {
+                    p.area = n.area
+                }
                 macro.steps[i].action = .findImage(p)
             }
         }

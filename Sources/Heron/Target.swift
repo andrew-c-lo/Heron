@@ -119,6 +119,9 @@ struct WindowFit: Equatable {
         return abs(s - 1) < 0.02 ? .same : WindowFit(s: s)
     }
 
+    /// The other way round: from the current window back to the reference one.
+    var inverse: WindowFit { WindowFit(s: 1 / s, dx: -dx / s, dy: -dy / s) }
+
     /// Where BlueStacks' Android screen sits in a window this size: under its 32 pt top bar, as tall as it fits,
     /// at 9:16 (16:9 when the window is wider than tall). Whatever width is left over is its right-hand toolbar,
     /// open or collapsed, which is why the whole window's size alone can't be used to resize.
@@ -204,5 +207,50 @@ final class TargetResolver {
             lastLookup = now
         }
         return cached
+    }
+}
+
+extension ImageStep {
+    /// The window size the picture and area are measured in: the one it was picked in, else the macro's.
+    /// nil when unknown, or when what's saved can't be right (the picture or area sits past the edge of that
+    /// window, so they were really picked in a bigger one): then they're used as they are.
+    func reference(fallback: CGSize?) -> CGSize? {
+        guard let r = captureWindow ?? fallback else { return nil }
+        let slack = 4.0
+        if !png.isEmpty, width > 0, originX + width > r.width + slack || originY + height > r.height + slack { return nil }
+        if let a = area, a.minX > r.width - slack || a.minY > r.height - slack { return nil }
+        return r
+    }
+
+    /// An area drawn on (or found in) a window of `size`, kept in the step's own measurements.
+    mutating func setArea(_ rect: CGRect, in size: CGSize, fallback: CGSize?, emulator: Bool) {
+        guard let ref = reference(fallback: fallback), !png.isEmpty else {
+            // Words only, or the saved size was wrong (the picture is used as it is, so it belongs to this window
+            // as much as any): measure the step in this window.
+            area = rect.integral
+            if png.isEmpty || captureWindow != nil || fallback != nil { captureWindow = size }
+            return
+        }
+        area = WindowFit.between(ref, size, emulator: emulator).inverse.rect(rect).integral
+    }
+
+    /// A new picture picked in a window of `size`: from now on the step is measured in that window, and its area
+    /// and other pictures are carried over to match.
+    mutating func adoptWindow(_ size: CGSize, fallback: CGSize?, emulator: Bool) {
+        if let old = reference(fallback: fallback) {
+            let f = WindowFit.between(old, size, emulator: emulator)
+            if let a = area { area = f.rect(a).integral }
+            for i in variants.indices {
+                variants[i].width *= f.s
+                variants[i].height *= f.s
+            }
+        }
+        captureWindow = size
+    }
+
+    /// A picture picked in a window of `size`, at the step's own measurements (for “also looks like” pictures).
+    func variantScale(pickedIn size: CGSize, fallback: CGSize?, emulator: Bool) -> Double {
+        guard let ref = reference(fallback: fallback) else { return 1 }
+        return 1 / WindowFit.between(ref, size, emulator: emulator).s
     }
 }

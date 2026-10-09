@@ -27,7 +27,7 @@ struct Lookup {
     init?(step s: ImageStep, reference: CGSize? = nil, emulator: Bool = false) {
         self.init(png: s.png, width: s.width, height: s.height, text: s.text, area: s.area,
                   strictness: s.strictness, alsoPicture: s.alsoPicture)
-        self.reference = s.captureWindow ?? reference
+        self.reference = s.reference(fallback: reference)
         self.emulator = emulator
         // A click box is drawn on the picture: when the words are what's found, the box is placed by where the
         // words sit in the picture, not squeezed onto the words themselves.
@@ -93,6 +93,13 @@ struct Lookup {
     /// Only words (no picture).
     var isText: Bool { hasText && !hasPicture }
 
+    /// Where words may be: the search area, unless it misses the window altogether (then anywhere).
+    func textArea(for size: CGSize) -> CGRect? {
+        guard let a = scaledArea(for: size) else { return nil }
+        let inside = a.intersection(CGRect(origin: .zero, size: size))
+        return inside.isNull || inside.width < 4 || inside.height < 4 ? nil : a
+    }
+
     /// The pixels inside the search area, and where they sit in the window.
     private func searchPixels(_ px: ScreenReader.WindowPixels) -> (ScreenReader.WindowPixels, CGPoint) {
         if let a = scaledArea(for: CGSize(width: px.width, height: px.height))?.integral.intersection(CGRect(x: 0, y: 0, width: px.width, height: px.height)),
@@ -108,16 +115,30 @@ struct Lookup {
         let (pixels, offset) = searchPixels(px)
         let sc = (offset == .zero && area == nil ? scene : nil)
             ?? TemplateMatcher.Scene(rgba: pixels.rgba, width: pixels.width, height: pixels.height)
-        let pics = pictures(at: scale(for: CGSize(width: px.width, height: px.height)))
-        let m = pics.compactMap { TemplateMatcher.find($0, in: sc) }.max { $0.score < $1.score }
+        let base = scale(for: CGSize(width: px.width, height: px.height))
+        func best(at s: Double) -> TemplateMatcher.Match? {
+            pictures(at: s).compactMap { TemplateMatcher.find($0, in: sc) }.max { $0.score < $1.score }
+        }
+        var m = best(at: base)
+        // Just short of a match: it may be there at a slightly different size (the window's been resized, the
+        // picture came from another device, or the app scales its buttons). Look again a little smaller and bigger.
+        if let first = m, first.score < strictness, first.score >= strictness - Self.nearMiss {
+            for k in [0.96, 1.04, 0.92, 1.08] {
+                if let other = best(at: (base * k * 100).rounded() / 100), other.score > (m?.score ?? 0) { m = other }
+                if (m?.score ?? 0) >= strictness { break }
+            }
+        }
         return m.map { TemplateMatcher.Match(rect: $0.rect.offsetBy(dx: offset.x, dy: offset.y), score: $0.score) }
     }
+
+    /// How far below the strictness a picture can score and still get a second look at other sizes.
+    static let nearMiss = 0.15
 
     /// The words, if they're on screen (window coordinates). The whole window is read and only words inside the
     /// search area count: text recognition misreads tight crops (a big “31” came back as “LE”).
     func matchText(in px: ScreenReader.WindowPixels) -> TemplateMatcher.Match? {
         guard let text, !text.isEmpty else { return nil }
-        return TextFinder.find(text, in: TextFinder.read(px), area: scaledArea(for: CGSize(width: px.width, height: px.height)))
+        return TextFinder.find(text, in: TextFinder.read(px), area: textArea(for: CGSize(width: px.width, height: px.height)))
             .map { TemplateMatcher.Match(rect: pictureFrame(forWords: $0), score: 1) }
     }
 

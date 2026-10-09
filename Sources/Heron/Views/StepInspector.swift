@@ -99,7 +99,16 @@ struct StepInspector: View {
                         Text("It keeps showing up in one part of the window. Searching just there is faster and avoids look-alikes.")
                             .font(.caption)
                         Spacer(minLength: 4)
-                        Button("Use It") { binding.wrappedValue.area = area }
+                        Button("Use It") {
+                            // Found where the window was its size during the run.
+                            let m = editing.macro.wrappedValue
+                            if let size = model.foundWindow(for: id) {
+                                binding.wrappedValue.setArea(area, in: size, fallback: m.target.windowSize,
+                                                             emulator: m.target.isAndroidEmulator)
+                            } else {
+                                binding.wrappedValue.area = area
+                            }
+                        }
                             .controlSize(.small)
                     }
                     .padding(10)
@@ -107,9 +116,13 @@ struct StepInspector: View {
                     .padding(.horizontal, 10).padding(.top, 8)
                 }
                 PictureStepEditor(step: binding, app: app, touch: touch, allAtOnce: allAtOnce,
+                                  macroWindow: editing.macro.wrappedValue.target.windowSize,
+                                  emulator: editing.macro.wrappedValue.target.isAndroidEmulator,
                                   stepChoices: editing.stepChoices().filter { $0.id != id })
             } else if case .ifStart = g.kind, let condition = editing.conditionBinding(g) {
-                ConditionEditor(condition: condition, app: app, hasOtherwise: editing.hasOtherwise(g),
+                ConditionEditor(condition: condition, app: app, macroWindow: editing.macro.wrappedValue.target.windowSize,
+                                emulator: editing.macro.wrappedValue.target.isAndroidEmulator,
+                                hasOtherwise: editing.hasOtherwise(g),
                                 setOtherwise: { on in
                                     let removed = editing.setOtherwise(g, on)
                                     if removed > 0 {

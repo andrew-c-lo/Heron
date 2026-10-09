@@ -114,6 +114,8 @@ final class AppModel: ObservableObject {
     @Published private(set) var stepFound: [UUID: CGRect] = [:]
     /// The biggest single thing each step found last run (to tell one spot from matches all over the window).
     private var stepFoundSize: [UUID: CGSize] = [:]
+    /// The window's size when each step was found this run (areas are measured in it).
+    private var stepFoundWindow: [UUID: CGSize] = [:]
     /// Screens where the idle tap had to step in, per macro (newest first).
     @Published private(set) var stuckScreens: [UUID: [URL]] = [:]
     /// Things you pressed yourself while a macro played, per macro (most pressed first).
@@ -1086,7 +1088,7 @@ final class AppModel: ObservableObject {
 
     private func resetHits(for m: Macro) {
         live[m.id] = LiveRun()
-        for s in m.steps { stepHits[s.id] = nil; stepFound[s.id] = nil; stepFoundSize[s.id] = nil }
+        for s in m.steps { stepHits[s.id] = nil; stepFound[s.id] = nil; stepFoundSize[s.id] = nil; stepFoundWindow[s.id] = nil }
         runs[m.id] = RunLog(started: Date())
         _ = pressWatchers.removeValue(forKey: m.id)?.finish()
         if prefs.suggestFromMyPresses, hasInputMonitoring, let app = m.target.app {
@@ -1137,6 +1139,10 @@ final class AppModel: ObservableObject {
             live[id]!.lastActivity = Date()
         }
         if let found {
+            if stepFoundWindow[step] == nil, let app = macros.first(where: { $0.steps.contains { $0.id == step } })?.target.app,
+               let win = WindowFinder.find(app) {
+                stepFoundWindow[step] = win.frame.size
+            }
             stepFound[step] = stepFound[step].map { $0.union(found) } ?? found
             let old = stepFoundSize[step] ?? .zero
             stepFoundSize[step] = CGSize(width: max(old.width, found.width), height: max(old.height, found.height))
@@ -1144,7 +1150,10 @@ final class AppModel: ObservableObject {
     }
 
     /// Where each step was found in earlier runs (from the saved reports): the spot and how many runs saw it.
-    @Published private(set) var foundHistory: [UUID: (rect: CGRect, runs: Int, size: CGSize)] = [:]
+    @Published private(set) var foundHistory: [UUID: (rect: CGRect, runs: Int, size: CGSize, window: CGSize?)] = [:]
+
+    /// The window size the found spots (and so a suggested area) are measured in.
+    func foundWindow(for step: UUID) -> CGSize? { stepFoundWindow[step] ?? foundHistory[step]?.window }
 
     /// Reads where this macro's steps were found in its saved run reports.
     func loadFoundHistory(for m: Macro) {
@@ -1152,7 +1161,8 @@ final class AppModel: ObservableObject {
         let files = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? []
         let ids = Set(m.steps.map(\.id))
         for s in m.steps { foundHistory[s.id] = nil }
-        for url in files where url.pathExtension == "json" {
+        // Oldest first: when the window changed size, only runs since then count.
+        for url in files.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) where url.pathExtension == "json" {
             guard let data = try? Data(contentsOf: url),
                   let report = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let steps = report["steps"] as? [[String: Any]] else { continue }
@@ -1168,9 +1178,13 @@ final class AppModel: ObservableObject {
                 let r = CGRect(x: f[0], y: f[1], width: f[2], height: f[3])
                 var size = CGSize.zero
                 if let s = d["foundSize"] as? [Double], s.count == 2 { size = CGSize(width: s[0], height: s[1]) }
-                let old = foundHistory[id]
+                var window: CGSize?
+                if let w = d["foundWindow"] as? [Double], w.count == 2 { window = CGSize(width: w[0], height: w[1]) }
+                var old = foundHistory[id]
+                if let o = old, o.window != window { old = nil }
                 foundHistory[id] = (old.map { $0.rect.union(r) } ?? r, (old?.runs ?? 0) + 1,
-                                    CGSize(width: max(size.width, old?.size.width ?? 0), height: max(size.height, old?.size.height ?? 0)))
+                                    CGSize(width: max(size.width, old?.size.width ?? 0), height: max(size.height, old?.size.height ?? 0)),
+                                    window)
             }
         }
     }
@@ -1178,8 +1192,9 @@ final class AppModel: ObservableObject {
     /// The search area suggested for a step from where it showed up in every run so far (with some room
     /// around it): when it keeps appearing in one spot, searching just there is faster and avoids look-alikes.
     func suggestedArea(for step: UUID) -> CGRect? {
-        let past = foundHistory[step]
+        var past = foundHistory[step]
         let now = stepFound[step]
+        if now != nil, let p = past, p.window != stepFoundWindow[step] { past = nil } // a different window size
         let seen = (past?.runs ?? 0) + (now != nil && (stepHits[step] ?? 0) >= 2 ? 1 : 0)
         let rects = [past?.rect, now].compactMap { $0 }
         guard seen >= 2 || (stepHits[step] ?? 0) >= 3, var r = rects.first else { return nil }
@@ -1235,6 +1250,7 @@ final class AppModel: ObservableObject {
             }
             if let r = stepFound[s.id] { d["foundIn"] = [r.minX, r.minY, r.width, r.height].map { Int($0) } }
             if let z = stepFoundSize[s.id] { d["foundSize"] = [Int(z.width), Int(z.height)] }
+            if let w = stepFoundWindow[s.id] { d["foundWindow"] = [Int(w.width), Int(w.height)] }
             return d
         }
         let report: [String: Any] = [

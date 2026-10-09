@@ -197,7 +197,8 @@ final class Player {
                             // Set to its spot: click there without looking.
                             let win = resolver?.window()
                             if let win { performer.route.origin = win.frame.origin }
-                            let p = target.fit(for: win?.frame.size, reference: pic.captureWindow).point(p0)
+                            let p = WindowFit.between(pic.reference(fallback: target.windowSize), win?.frame.size,
+                                                      emulator: target.isAndroidEmulator).point(p0)
                             performer.perform(.mouseDown(button: pic.button, x: Double(p.x), y: Double(p.y), clickCount: 1, flags: 0))
                             performer.perform(.mouseUp(button: pic.button, x: Double(p.x), y: Double(p.y), clickCount: 1, flags: 0))
                             let stepID = step.id
@@ -485,7 +486,7 @@ final class Player {
         case .number:
             guard let resolver else { return .needsTarget }
             guard var lookup = Lookup(png: nil, width: 0, height: 0, text: "0", area: c.look.area, strictness: 0.8) else { return .no }
-            lookup.reference = c.look.captureWindow ?? target.windowSize
+            lookup.reference = c.look.reference(fallback: target.windowSize)
             lookup.emulator = target.isAndroidEmulator
             let deadline = Timing.now() + max(0, c.lookFor)
             var frameNumber = 0, read = false
@@ -517,7 +518,7 @@ final class Player {
             return Lookup(step: kill, reference: target.windowSize, emulator: target.isAndroidEmulator)
         }
         var l = Lookup(png: nil, width: 0, height: 0, text: "0", area: kill.area, strictness: kill.strictness)
-        l?.reference = kill.captureWindow ?? target.windowSize
+        l?.reference = kill.reference(fallback: target.windowSize)
         l?.emulator = target.isAndroidEmulator
         return l
     }
@@ -652,7 +653,7 @@ final class Player {
                     }
                     var seen = it.lookup.hasPicture && it.lookup.locatePicture(in: frame.pixels, scene: scene) != nil
                     if !seen, let text = it.lookup.text, !text.isEmpty {
-                        seen = TextFinder.find(text, in: lines, area: it.lookup.scaledArea(for: size)) != nil
+                        seen = TextFinder.find(text, in: lines, area: it.lookup.textArea(for: size)) != nil
                     }
                     if seen {
                         let words = it.step.isText ? "“\(it.step.text!.trimmingCharacters(in: .whitespaces))”" : nil
@@ -666,7 +667,7 @@ final class Player {
                     if it.lookup.hasPicture, let r = it.lookup.locatePicture(in: frame.pixels, scene: scene) {
                         found[it.index] = r
                     } else if let text = it.lookup.text, !text.isEmpty {
-                        if readText { textFound[it.index] = TextFinder.find(text, in: lines, area: it.lookup.scaledArea(for: size)) }
+                        if readText { textFound[it.index] = TextFinder.find(text, in: lines, area: it.lookup.textArea(for: size)) }
                         if let r = textFound[it.index] ?? nil { found[it.index] = it.lookup.pictureFrame(forWords: r) }
                     }
                 }
@@ -1063,13 +1064,19 @@ struct AllAtOnceChooser {
             guard clickable?.contains(index) ?? true else { continue }
             guard now - since + 0.01 >= settle else { continue }
             if clickedThisAppearance.contains(index) {
-                guard rule.repeatUntilGone, now - (lastClick[index] ?? 0) + 0.01 >= max(0.1, rule.repeatEvery) else { continue }
+                let since = now - (lastClick[index] ?? 0) + 0.01
+                // Clicked once per appearance; but still there, in the same place, a while after the click means the
+                // click didn't take (it landed mid-transition, or the app was busy): click it again.
+                guard since >= (rule.repeatUntilGone ? max(0.1, rule.repeatEvery) : Self.retryAfter) else { continue }
             }
             ready.append(index)
         }
         if prioritized { return ready.min() }
         return ready.min { (lastClick[$0] ?? -1, $0) < (lastClick[$1] ?? -1, $1) }
     }
+
+    /// A click that leaves its target on screen, unmoved, this long didn't take, and is tried again.
+    static let retryAfter = 3.0
 
     /// Missing for less than this is a flicker, not gone.
     static let goneAfter = 0.4

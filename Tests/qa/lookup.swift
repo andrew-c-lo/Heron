@@ -195,6 +195,45 @@ _ = once.choose(found: [:], now: 1.5)
 let o6 = once.choose(found: [:], now: 2.0)
 let o7 = once.choose(found: [0: spotB], now: 2.1)
 check("…and so is coming back after it was gone", o6 == nil && o7 == 0)
+var missed = AllAtOnceChooser(rules: [0: .init(settle: 0, repeatUntilGone: false, repeatEvery: 0.4)])
+_ = missed.choose(found: [0: spotA], now: 10); missed.clicked(0, at: 10)
+let m1 = missed.choose(found: [0: spotA], now: 11.5)
+let m2 = missed.choose(found: [0: spotA], now: 10 + AllAtOnceChooser.retryAfter + 0.05)
+check("a click that didn't take (still there, unmoved, a few seconds on) is tried again, not before", m1 == nil && m2 == 0, "\([m1, m2])")
+
+// Saved window sizes: a picture or area past the edge of the window it says it was picked in was really picked
+// in a bigger one, so the size can't be trusted (used as it is, not resized wrongly).
+var stale = ImageStep(png: Data([1]), width: 216, height: 61, originX: 58, originY: 1001)
+stale.captureWindow = CGSize(width: 450, height: 989)
+check("a picture below the bottom of its saved window means the size is stale", stale.reference(fallback: nil) == nil)
+var fine = ImageStep(png: Data([1]), width: 50, height: 40, originX: 100, originY: 600)
+fine.captureWindow = CGSize(width: 450, height: 989)
+check("…one inside it is trusted", fine.reference(fallback: nil) == CGSize(width: 450, height: 989))
+var wordsOnly = ImageStep(png: Data(), width: 0, height: 0, originX: 0, originY: 0)
+wordsOnly.area = CGRect(x: 49, y: 994, width: 237, height: 74)
+check("…an area starting past the edge too", wordsOnly.reference(fallback: CGSize(width: 450, height: 989)) == nil)
+let staleLookup = Lookup(png: nil, width: 0, height: 0, text: "Attempt Again", area: wordsOnly.area, strictness: 0.8)!
+var sl = staleLookup; sl.reference = CGSize(width: 100, height: 100)
+check("words with an area that misses the window entirely are looked for everywhere", sl.textArea(for: CGSize(width: 597, height: 1094)) == nil)
+
+// Re-picking at a new window size keeps the step's measurements together.
+var rp = ImageStep(png: Data([1]), width: 60, height: 40, originX: 100, originY: 100)
+rp.captureWindow = CGSize(width: 400, height: 800)
+rp.area = CGRect(x: 80, y: 80, width: 100, height: 80)
+rp.variants = [PictureVariant(png: Data([1]), width: 60, height: 40)]
+var drawn = rp
+drawn.setArea(CGRect(x: 160, y: 160, width: 200, height: 160), in: CGSize(width: 800, height: 1600), fallback: nil, emulator: false)
+check("an area drawn in a window twice the size is kept at the step's own size", drawn.area == CGRect(x: 80, y: 80, width: 100, height: 80)
+      && drawn.captureWindow == CGSize(width: 400, height: 800), "\(String(describing: drawn.area))")
+var adopted = rp
+adopted.adoptWindow(CGSize(width: 800, height: 1600), fallback: nil, emulator: false)
+check("a new picture picked in a bigger window moves the step to that window, area and variants with it",
+      adopted.captureWindow == CGSize(width: 800, height: 1600) && adopted.area == CGRect(x: 160, y: 160, width: 200, height: 160)
+      && adopted.variants[0].width == 120, "\(String(describing: adopted.area)) \(adopted.variants[0].width)")
+check("a variant picked in a window twice the size is halved to match", rp.variantScale(pickedIn: CGSize(width: 800, height: 1600), fallback: nil, emulator: false) == 0.5)
+var wo = wordsOnly
+wo.setArea(CGRect(x: 40, y: 900, width: 300, height: 90), in: CGSize(width: 597, height: 1094), fallback: CGSize(width: 450, height: 989), emulator: true)
+check("words only: an area is measured in the window it was drawn in", wo.captureWindow == CGSize(width: 597, height: 1094) && wo.area == CGRect(x: 40, y: 900, width: 300, height: 90))
 
 var pb = PlaybackOptions(); pb.prioritized = true; pb.idleTapAfter = 4; pb.idleTapX = 195; pb.idleTapY = 700
 let pb2 = try! JSONDecoder().decode(PlaybackOptions.self, from: JSONEncoder().encode(pb))
