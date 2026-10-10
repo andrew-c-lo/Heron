@@ -131,6 +131,10 @@ extension AppModel {
 /// Keeps Heron running while the main window steps aside for the macro mini card (otherwise putting the only
 /// window away would quit the app). Closing the window outside mini mode behaves as before.
 final class HeronDelegate: NSObject, NSApplicationDelegate {
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        MainActor.assumeIsolated { YouActivity.start() }
+    }
+
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         !MainActor.assumeIsolated { MiniPanel.shared.isShowing }
     }

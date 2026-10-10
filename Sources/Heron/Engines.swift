@@ -739,6 +739,7 @@ final class Player {
                 let tp = target.fit(for: win.frame.size).point(CGPoint(x: ix, y: iy))
                 performer.perform(.mouseDown(button: .left, x: Double(tp.x), y: Double(tp.y), clickCount: 1, flags: 0))
                 performer.perform(.mouseUp(button: .left, x: Double(tp.x), y: Double(tp.y), clickCount: 1, flags: 0))
+                Self.logStuckTap(lastAction: lastAction, pointerAt: CGEvent(source: nil)?.location, window: win.frame)
                 lastAction = Timing.now()
                 if let screen = latest { Task { @MainActor in stuck(screen) } }
             }
@@ -750,10 +751,33 @@ final class Player {
     /// How long it's been quiet: no click from Heron since `lastAction`, and no click or key press of your own.
     /// Something you did yourself (tapping past a screen, typing) means it isn't stuck.
     static func quietFor(since lastAction: Double) -> Double {
-        let mine = [CGEventType.leftMouseDown, .rightMouseDown, .otherMouseDown, .keyDown]
+        min(Timing.now() - lastAction, yourQuiet().min)
+    }
+
+    /// How long since your own last click or key press, from both places that notice it (the input system's
+    /// own record, and Heron watching events go by), the smaller of the two.
+    static func yourQuiet() -> (min: Double, system: Double, watched: Double) {
+        let system = [CGEventType.leftMouseDown, .rightMouseDown, .otherMouseDown, .keyDown]
             .map { CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: $0) }
             .min() ?? .infinity
-        return min(Timing.now() - lastAction, mine)
+        let watched = YouActivity.secondsSince
+        return (min(system, watched), system, watched)
+    }
+
+    /// One line per stuck tap in Stuck/why.txt: what Heron saw of you, so a tap while you were busy can be traced.
+    static func logStuckTap(lastAction: Double, pointerAt: CGPoint?, window: CGRect) {
+        let you = yourQuiet()
+        func f(_ v: Double) -> String { v.isFinite && v < 1e6 ? String(format: "%.1fs", v) : "never" }
+        let line = "\(ISO8601DateFormatter().string(from: Date()))  Heron quiet \(f(Timing.now() - lastAction))"
+            + "  your click/key: system \(f(you.system)), watched \(f(you.watched))"
+            + "  pointer \(pointerAt.map { "\(Int($0.x)),\(Int($0.y))" } ?? "?") window \(window.integral)\n"
+        let url = AppFolder.url.appendingPathComponent("Stuck/why.txt")
+        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        if let h = try? FileHandle(forWritingTo: url) {
+            h.seekToEndOfFile(); h.write(Data(line.utf8)); try? h.close()
+        } else {
+            try? Data(line.utf8).write(to: url)
+        }
     }
 
     /// Looks for the picture in the target window and acts on it.
@@ -1021,16 +1045,32 @@ enum ListKey { case key(UInt16, shift: Bool), text(String) }
 
 /// Notices you using a window: the pointer moving over it, or scrolling while it's over it.
 struct PointerWatch {
-    private var last: CGPoint?
+    /// Where the pointer was when it last counted as moving (slow movements add up until they count).
+    private var anchor: CGPoint?
 
     /// Whether the pointer moved (or scrolled) over `frame` (screen points, top-left origin) since the last call.
     mutating func active(over frame: CGRect) -> Bool {
-        guard let p = CGEvent(source: nil)?.location else { return false }
-        defer { last = p }
-        guard frame.contains(p) else { return false }
-        let moved = last.map { hypot($0.x - p.x, $0.y - p.y) > 2 } ?? false
-        let scrolled = CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: .scrollWheel) < 0.5
-        return moved || scrolled
+        guard let p = CGEvent(source: nil)?.location, frame.contains(p) else { anchor = nil; return false }
+        guard let a = anchor else { anchor = p; return false }
+        if hypot(a.x - p.x, a.y - p.y) >= 3 { anchor = p; return true }
+        return CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: .scrollWheel) < 0.5
+    }
+}
+
+/// Your own clicks, key presses, drags and scrolls anywhere, as Heron sees them go by: a second witness next to
+/// the input system's record, so being busy is noticed even when an app (an emulator) handles input its own way.
+enum YouActivity {
+    private static let lock = NSLock()
+    private nonisolated(unsafe) static var lastAt = -Double.infinity
+    private nonisolated(unsafe) static var monitor: Any?
+
+    static var secondsSince: Double { Timing.now() - lock.withLock { lastAt } }
+    static func mark() { lock.withLock { lastAt = Timing.now() } }
+
+    @MainActor static func start() {
+        guard monitor == nil else { return }
+        monitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown, .keyDown,
+                                                               .leftMouseDragged, .scrollWheel]) { _ in mark() }
     }
 }
 
