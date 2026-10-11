@@ -389,21 +389,14 @@ struct MacroMiniStrip: View {
     private func counter(_ m: Macro, running: Bool) -> some View {
         if m.playback.stopAfterStep != nil {
             let rounds = running ? (model.live[m.id]?.rounds ?? 0) : (model.lastRounds[m.id] ?? 0)
-            RunGoalMenu(macroID: m.id, limit: m.playback.roundLimit, done: rounds) {
-                VStack(alignment: .trailing, spacing: 0) {
-                    Text("\(rounds)")
-                        .font(.system(size: 22, weight: .semibold, design: .rounded)).monospacedDigit()
-                        .foregroundStyle(running ? Color.green : Color.primary)
-                        .contentTransition(.numericText())
-                    HStack(spacing: 2) {
-                        Text(m.playback.roundLimit.map { "of \($0)" } ?? "no limit")
-                        Image(systemName: "chevron.down").font(.system(size: 6, weight: .bold))
-                    }
-                    .font(.system(size: 9)).foregroundStyle(.secondary)
-                }
-                .contentShape(Rectangle())
+            VStack(alignment: .trailing, spacing: 0) {
+                Text("\(rounds)")
+                    .font(.system(size: 22, weight: .semibold, design: .rounded)).monospacedDigit()
+                    .foregroundStyle(running ? Color.green : Color.primary)
+                    .contentTransition(.numericText())
+                    .help(running ? "Runs done" : "Runs done last time")
+                RunGoalStepper(macroID: m.id, limit: m.playback.roundLimit, done: rounds, size: 9)
             }
-            .help(running ? "Runs done. Click to change how many to stop after." : "Runs done last time. Click to set how many to stop after.")
         }
     }
 
@@ -457,38 +450,44 @@ struct RunDot: View {
     }
 }
 
-/// How many runs to stop after, as a quick menu on a run counter: common goals, one more or fewer, or no limit.
-struct RunGoalMenu<Label: View>: View {
+/// How many runs to stop after, next to a run counter: − and + step it, and the number can be typed
+/// (empty or 0 = no limit, shown as ∞). Changes apply at once, also to a run in progress.
+struct RunGoalStepper: View {
     @EnvironmentObject var model: AppModel
     let macroID: UUID
     let limit: Int?
-    /// Runs done so far (goals at or below it would stop at the next run).
+    /// Runs done so far: + from no limit starts just past it.
     var done = 0
-    @ViewBuilder let label: () -> Label
+    var size: CGFloat = 10
 
     var body: some View {
-        Menu {
-            Section("Stop after") {
-                ForEach([1, 3, 5, 10, 20, 50, 100], id: \.self) { n in
-                    Toggle("\(n) run\(n == 1 ? "" : "s")", isOn: Binding(get: { limit == n }, set: { _ in model.setRunLimit(macroID, n) }))
-                }
-                if let limit, ![1, 3, 5, 10, 20, 50, 100].contains(limit) {
-                    Toggle("\(limit) runs", isOn: .constant(true))
-                }
-            }
-            if let limit {
-                Button("One More (\(limit + 1))") { model.setRunLimit(macroID, limit + 1) }
-                if limit > 1 { Button("One Fewer (\(limit - 1))") { model.setRunLimit(macroID, limit - 1) } }
-            }
-            Divider()
-            Toggle("No Limit (Just Count)", isOn: Binding(get: { limit == nil }, set: { _ in model.setRunLimit(macroID, 0) }))
-        } label: {
-            label()
+        HStack(spacing: 3) {
+            Text("of").foregroundStyle(.secondary)
+            step("minus", "One fewer run") { model.setRunLimit(macroID, max(1, (limit ?? 1) - 1)) }
+                .disabled(limit == nil || limit == 1)
+            TextField("∞", value: Binding(get: { limit }, set: { model.setRunLimit(macroID, max(0, $0 ?? 0)) }), format: .number)
+                .textFieldStyle(.plain)
+                .multilineTextAlignment(.center)
+                .monospacedDigit()
+                .frame(width: size * 3)
+                .padding(.vertical, 1)
+                .background(RoundedRectangle(cornerRadius: 3).fill(Color.primary.opacity(0.08)))
+                .help("How many runs to stop after. Empty or 0: no limit.")
+                .accessibilityLabel("Runs to stop after")
+            step("plus", "One more run") { model.setRunLimit(macroID, (limit ?? done) + 1) }
         }
-        .menuStyle(.button)
+        .font(.system(size: size))
+    }
+
+    private func step(_ symbol: String, _ label: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol).font(.system(size: size * 0.8, weight: .bold))
+                .frame(width: size * 1.5, height: size * 1.5)
+                .contentShape(Rectangle())
+        }
         .buttonStyle(.plain)
-        .menuIndicator(.hidden)
-        .fixedSize()
-        .accessibilityLabel(limit.map { "\(done) of \($0) runs. Change goal" } ?? "\(done) runs, no limit. Set a goal")
+        .foregroundStyle(.secondary)
+        .help(label)
+        .accessibilityLabel(label)
     }
 }

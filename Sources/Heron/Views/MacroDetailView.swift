@@ -200,23 +200,16 @@ struct MacroDetailView: View {
                 }
                 Spacer(minLength: 8)
                 if pb.stopAfterStep != nil {
-                    RunGoalMenu(macroID: macro.id, limit: pb.roundLimit, done: run.rounds) {
-                        VStack(alignment: .trailing, spacing: 3) {
-                            HStack(spacing: 3) {
-                                Text(pb.roundLimit.map { "\(min(run.rounds, $0)) of \($0) runs" }
-                                     ?? "\(run.rounds) run\(run.rounds == 1 ? "" : "s")")
-                                    .font(.callout).monospacedDigit()
-                                Image(systemName: "chevron.down").font(.system(size: 8, weight: .semibold)).foregroundStyle(.secondary)
-                            }
-                            if let limit = pb.roundLimit {
-                                ProgressView(value: Double(min(run.rounds, limit)), total: Double(max(1, limit)))
-                                    .progressViewStyle(.linear).frame(width: 90)
-                            }
+                    VStack(alignment: .trailing, spacing: 3) {
+                        HStack(spacing: 4) {
+                            Text("\(run.rounds) run\(run.rounds == 1 ? "" : "s")").font(.callout).monospacedDigit()
+                            RunGoalStepper(macroID: macro.id, limit: pb.roundLimit, done: run.rounds, size: 11)
                         }
-                        .contentShape(Rectangle())
+                        if let limit = pb.roundLimit {
+                            ProgressView(value: Double(min(run.rounds, limit)), total: Double(max(1, limit)))
+                                .progressViewStyle(.linear).frame(width: 90)
+                        }
                     }
-                    .help(pb.roundLimit.map { "Stops after \($0) runs; \(run.rounds) done. Click to change." }
-                          ?? "Counts a run each time the counted step happens. Click to set a goal.")
                 }
                 let quiet = now.timeIntervalSince(run.lastActivity)
                 if pb.stopIfIdleMinutes > 0 || quiet >= 15 {
