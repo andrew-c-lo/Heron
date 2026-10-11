@@ -364,7 +364,7 @@ final class Player {
                                 timesSoFar = timesHappened
                                 let n = timesHappened
                                 Task { @MainActor in counted(n) }
-                                if let limit = opts.roundLimit, timesHappened >= limit {
+                                if let limit = LiveRunLimits.limit(opts), timesHappened >= limit {
                                     error = Self.done("\(limit) run\(limit == 1 ? "" : "s") (\(Self.stepName(step, i)))")
                                     break outer
                                 }
@@ -723,7 +723,7 @@ final class Player {
                     timesHappened += 1
                     let n = timesHappened
                     Task { @MainActor in counted(n) }
-                    if let limit = opts.roundLimit, timesHappened >= limit {
+                    if let limit = LiveRunLimits.limit(opts), timesHappened >= limit {
                         return Self.done("\(limit) run\(limit == 1 ? "" : "s") (\(Self.stepName(steps[index], index)))")
                     }
                 }
@@ -1042,6 +1042,23 @@ final class AutoClicker {
 /// per appearance, or every `repeatEvery` seconds while showing if it should be clicked until gone.
 /// One character of a “Type from a list” item: a key press, or the character itself when no key types it.
 enum ListKey { case key(UInt16, shift: Bool), text(String) }
+
+/// Run goals changed while a macro plays (from the run counter), by its counted step: they apply at once.
+enum LiveRunLimits {
+    private static let lock = NSLock()
+    private nonisolated(unsafe) static var limits: [UUID: Int] = [:]
+
+    /// 0 = just count.
+    static func set(_ n: Int, for step: UUID) { lock.withLock { limits[step] = max(0, n) } }
+    static func clear(_ step: UUID) { lock.withLock { limits[step] = nil } }
+
+    /// The goal for a run counted by `opts.stopAfterStep`, nil when there's none.
+    static func limit(_ opts: PlaybackOptions) -> Int? {
+        guard let step = opts.stopAfterStep else { return nil }
+        guard let n = lock.withLock({ limits[step] }) else { return opts.roundLimit }
+        return n > 0 ? n : nil
+    }
+}
 
 /// Notices you using a window: the pointer moving over it, or scrolling while it's over it.
 struct PointerWatch {

@@ -386,6 +386,13 @@ final class AppModel: ObservableObject {
         if compactToolbar != compact { compactToolbar = compact }
     }
 
+    /// Sets how many runs a macro stops after (0 = keep going, just count). Applies to a run in progress too.
+    func setRunLimit(_ id: UUID, _ n: Int) {
+        guard var m = macros.first(where: { $0.id == id }), m.playback.stopAfterStep != nil else { return }
+        m.playback.stopAfterCount = max(0, n)
+        update(m)
+    }
+
     func flash(_ message: String, action: StatusAction? = nil) {
         statusMessage = message
         statusAction = action
@@ -1529,8 +1536,12 @@ final class AppModel: ObservableObject {
         let old = macros[i]
         macros[i] = m
         if !bookkeeping { readPictureWords() }
-        // A running background macro picks up edits by restarting with them.
-        if !bookkeeping, backgroundRunning.contains(m.id), old.steps != m.steps || old.target != m.target || old.playback != m.playback {
+        // The run goal applies to a run in progress straight away (no restart, so its count carries on).
+        if let step = m.playback.stopAfterStep { LiveRunLimits.set(m.playback.stopAfterCount, for: step) }
+        var oldPlayback = old.playback
+        oldPlayback.stopAfterCount = m.playback.stopAfterCount
+        // A running background macro picks up other edits by restarting with them.
+        if !bookkeeping, backgroundRunning.contains(m.id), old.steps != m.steps || old.target != m.target || oldPlayback != m.playback {
             stopBackground(m.id, quietly: true)
             startBackground(m.id, quietly: true)
         }

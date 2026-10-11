@@ -384,22 +384,26 @@ struct MacroMiniStrip: View {
     }
 
     /// Runs done, big, when the macro counts them: from 0 while it plays, the last time's total otherwise.
+    /// Clicking it sets how many runs to stop after, before or during a run.
     @ViewBuilder
     private func counter(_ m: Macro, running: Bool) -> some View {
         if m.playback.stopAfterStep != nil {
-            // A last time that got through none shows nothing rather than a lone 0.
-            let rounds = running ? (model.live[m.id]?.rounds ?? 0) : model.lastRounds[m.id].flatMap { $0 > 0 ? $0 : nil }
-            if let rounds {
+            let rounds = running ? (model.live[m.id]?.rounds ?? 0) : (model.lastRounds[m.id] ?? 0)
+            RunGoalMenu(macroID: m.id, limit: m.playback.roundLimit, done: rounds) {
                 VStack(alignment: .trailing, spacing: 0) {
                     Text("\(rounds)")
                         .font(.system(size: 22, weight: .semibold, design: .rounded)).monospacedDigit()
                         .foregroundStyle(running ? Color.green : Color.primary)
                         .contentTransition(.numericText())
-                    Text(running ? (m.playback.roundLimit.map { "of \($0)" } ?? "runs") : "last time")
-                        .font(.system(size: 9)).foregroundStyle(.secondary)
+                    HStack(spacing: 2) {
+                        Text(m.playback.roundLimit.map { "of \($0)" } ?? "no limit")
+                        Image(systemName: "chevron.down").font(.system(size: 6, weight: .bold))
+                    }
+                    .font(.system(size: 9)).foregroundStyle(.secondary)
                 }
-                .accessibilityElement(children: .combine)
+                .contentShape(Rectangle())
             }
+            .help(running ? "Runs done. Click to change how many to stop after." : "Runs done last time. Click to set how many to stop after.")
         }
     }
 
@@ -450,5 +454,41 @@ struct RunDot: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(running ? "Stop" : "Start")
+    }
+}
+
+/// How many runs to stop after, as a quick menu on a run counter: common goals, one more or fewer, or no limit.
+struct RunGoalMenu<Label: View>: View {
+    @EnvironmentObject var model: AppModel
+    let macroID: UUID
+    let limit: Int?
+    /// Runs done so far (goals at or below it would stop at the next run).
+    var done = 0
+    @ViewBuilder let label: () -> Label
+
+    var body: some View {
+        Menu {
+            Section("Stop after") {
+                ForEach([1, 3, 5, 10, 20, 50, 100], id: \.self) { n in
+                    Toggle("\(n) run\(n == 1 ? "" : "s")", isOn: Binding(get: { limit == n }, set: { _ in model.setRunLimit(macroID, n) }))
+                }
+                if let limit, ![1, 3, 5, 10, 20, 50, 100].contains(limit) {
+                    Toggle("\(limit) runs", isOn: .constant(true))
+                }
+            }
+            if let limit {
+                Button("One More (\(limit + 1))") { model.setRunLimit(macroID, limit + 1) }
+                if limit > 1 { Button("One Fewer (\(limit - 1))") { model.setRunLimit(macroID, limit - 1) } }
+            }
+            Divider()
+            Toggle("No Limit (Just Count)", isOn: Binding(get: { limit == nil }, set: { _ in model.setRunLimit(macroID, 0) }))
+        } label: {
+            label()
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .accessibilityLabel(limit.map { "\(done) of \($0) runs. Change goal" } ?? "\(done) runs, no limit. Set a goal")
     }
 }

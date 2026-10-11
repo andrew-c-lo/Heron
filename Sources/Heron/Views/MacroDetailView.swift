@@ -199,19 +199,24 @@ struct MacroDetailView: View {
                         .font(.caption).foregroundStyle(.secondary).monospacedDigit()
                 }
                 Spacer(minLength: 8)
-                if let limit = pb.roundLimit {
-                    VStack(alignment: .trailing, spacing: 3) {
-                        Text("\(min(run.rounds, limit)) of \(limit) runs")
-                            .font(.callout).monospacedDigit()
-                        ProgressView(value: Double(run.rounds), total: Double(max(1, limit)))
-                            .progressViewStyle(.linear).frame(width: 90)
+                if pb.stopAfterStep != nil {
+                    RunGoalMenu(macroID: macro.id, limit: pb.roundLimit, done: run.rounds) {
+                        VStack(alignment: .trailing, spacing: 3) {
+                            HStack(spacing: 3) {
+                                Text(pb.roundLimit.map { "\(min(run.rounds, $0)) of \($0) runs" }
+                                     ?? "\(run.rounds) run\(run.rounds == 1 ? "" : "s")")
+                                    .font(.callout).monospacedDigit()
+                                Image(systemName: "chevron.down").font(.system(size: 8, weight: .semibold)).foregroundStyle(.secondary)
+                            }
+                            if let limit = pb.roundLimit {
+                                ProgressView(value: Double(min(run.rounds, limit)), total: Double(max(1, limit)))
+                                    .progressViewStyle(.linear).frame(width: 90)
+                            }
+                        }
+                        .contentShape(Rectangle())
                     }
-                    .help("Stops after \(limit) runs; \(run.rounds) done")
-                } else if pb.stopAfterStep != nil {
-                    VStack(alignment: .trailing, spacing: 1) {
-                        Text("\(run.rounds) run\(run.rounds == 1 ? "" : "s")").font(.callout).monospacedDigit()
-                    }
-                    .help("Counts a run each time the counted step happens (Playback)")
+                    .help(pb.roundLimit.map { "Stops after \($0) runs; \(run.rounds) done. Click to change." }
+                          ?? "Counts a run each time the counted step happens. Click to set a goal.")
                 }
                 let quiet = now.timeIntervalSince(run.lastActivity)
                 if pb.stopIfIdleMinutes > 0 || quiet >= 15 {

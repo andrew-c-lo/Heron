@@ -976,5 +976,14 @@ check("the pointer sitting still over the window isn't you using it, unless you 
           == (CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: .scrollWheel) < 0.5))
 check("…and the pointer elsewhere never is", !pw.active(over: CGRect(x: here.x + 500, y: here.y + 500, width: 10, height: 10)))
 
+var goalOpts = PlaybackOptions(); goalOpts.stopAfterStep = UUID(); goalOpts.stopAfterCount = 5
+let goalBefore = LiveRunLimits.limit(goalOpts)
+LiveRunLimits.set(2, for: goalOpts.stopAfterStep!)
+let goalLowered = LiveRunLimits.limit(goalOpts)
+LiveRunLimits.set(0, for: goalOpts.stopAfterStep!)
+let goalNone = LiveRunLimits.limit(goalOpts)
+check("a run goal changed mid-run applies at once (5 → 2 → no limit)", goalBefore == 5 && goalLowered == 2 && goalNone == nil,
+      "\([goalBefore, goalLowered, goalNone])")
+
 print(failures == 0 ? "ALL PASSED" : "\(failures) FAILED")
 exit(failures == 0 ? 0 : 1)
