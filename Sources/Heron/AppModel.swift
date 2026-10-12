@@ -1145,8 +1145,10 @@ final class AppModel: ObservableObject {
             live[id]!.lastActivity = Date()
         }
         if let found {
-            if stepFoundWindow[step] == nil, let app = macros.first(where: { $0.steps.contains { $0.id == step } })?.target.app,
-               let win = WindowFinder.find(app) {
+            if stepFoundWindow[step] == nil, let target = macros.first(where: { $0.steps.contains { $0.id == step } })?.target,
+               let app = target.app,
+               let win = target.readsAndroid ? app.runningApp.flatMap({ AndroidFrames.window(pid: $0.processIdentifier) })
+                                              : WindowFinder.find(app) {
                 stepFoundWindow[step] = win.frame.size
             }
             stepFound[step] = stepFound[step].map { $0.union(found) } ?? found
@@ -1450,12 +1452,18 @@ final class AppModel: ObservableObject {
     }
 
     func testPicture(_ s: ImageStep, in app: TargetApp?) async -> String {
-        await testMatch(Lookup(step: s), in: app)
+        // Measured the way a run measures it: the macro's window size, and BlueStacks' Android screen.
+        let target = selectedMacro.flatMap { $0.target.app == app ? $0.target : nil }
+        return await testMatch(Lookup(step: s, reference: target?.windowSize, emulator: target?.isAndroidEmulator ?? false),
+                               in: app, android: target?.readsAndroid ?? false)
     }
 
-    private func testMatch(_ lookup: Lookup?, in app: TargetApp?) async -> String {
+    private func testMatch(_ lookup: Lookup?, in app: TargetApp?, android: Bool = false) async -> String {
         guard let app else { return "Choose the app to watch first." }
-        guard let win = WindowFinder.find(app) else { return "Can't find \(app.name)'s window. Is it open?" }
+        let found = android ? app.runningApp.flatMap { AndroidFrames.window(pid: $0.processIdentifier) } : WindowFinder.find(app)
+        guard let win = found else {
+            return android ? "Can't read Android in \(app.name). Is it open, with Android Debug Bridge on?" : "Can't find \(app.name)'s window. Is it open?"
+        }
         guard let lookup else { return "The picture couldn't be read. Pick it again." }
         guard let shot = await ScreenReader.captureWindowAsync(win) else {
             return "Couldn't capture \(app.name). Allow Screen Recording in Permissions."
@@ -1490,6 +1498,14 @@ final class AppModel: ObservableObject {
     /// A picture of the app's window to crop the button from.
     func windowPicture(for app: TargetApp?) async -> NSImage? {
         guard let app else { flash("Choose the app to watch first."); return nil }
+        // A macro that reads from Android picks from the Android screen too (full detail, any window size).
+        if let target = selectedMacro?.target, target.app == app, target.readsAndroid {
+            guard let px = await Task.detached(operation: { AndroidFrames.shared.snapshot() }).value, let cg = px.cgImage else {
+                flash("Couldn't read Android in \(app.name). Is it open, with Android Debug Bridge on in its Settings › Advanced?")
+                return nil
+            }
+            return NSImage(cgImage: cg, size: CGSize(width: px.width, height: px.height))
+        }
         guard let img = await ScreenReader.snapshot(of: app) else {
             flash("Couldn't capture \(app.name). Make sure it's open and Screen Recording is allowed.")
             return nil

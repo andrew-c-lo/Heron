@@ -80,6 +80,11 @@ struct TargetOptions: Codable, Equatable {
     /// The app window's size (points) the macro was made for. When the window is a different size, pictures,
     /// areas and positions are resized to match.
     var windowSize: CGSize?
+    /// BlueStacks only: read the screen straight from Android over ADB instead of capturing the window.
+    var screenFromAndroid: Bool?
+
+    /// Reads the Android screen over ADB (a BlueStacks macro with that turned on).
+    var readsAndroid: Bool { screenFromAndroid == true && isAndroidEmulator }
 
     /// How much bigger (or smaller) the window is now than when the macro was made (1 = same size).
     func scale(for current: CGSize?, reference: CGSize? = nil) -> Double { fit(for: current, reference: reference).s }
@@ -195,24 +200,6 @@ enum WindowFinder {
 
     static func frontmostPID() -> pid_t? {
         NSWorkspace.shared.frontmostApplication?.processIdentifier
-    }
-}
-
-/// Caches the target window lookup so per-event resolution stays cheap.
-final class TargetResolver {
-    let app: TargetApp
-    private var cached: TargetWindow?
-    private var lastLookup = -1.0
-
-    init(app: TargetApp) { self.app = app }
-
-    func window() -> TargetWindow? {
-        let now = Timing.now()
-        if now - lastLookup > 0.5 || cached == nil {
-            cached = WindowFinder.find(app, preferring: cached?.windowNumber)
-            lastLookup = now
-        }
-        return cached
     }
 }
 

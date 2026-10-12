@@ -152,3 +152,4 @@ struct AndroidScreen {
         AndroidBridge.send("input swipe \(Int(a.x)) \(Int(a.y)) \(Int(b.x)) \(Int(b.y)) \(ms)", serial: serial)
     }
 }
+

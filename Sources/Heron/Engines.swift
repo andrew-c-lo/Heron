@@ -15,6 +15,17 @@ enum RouteBuilder {
         guard let w = resolver.window() else {
             return .failure(RouteError(message: "The \(resolver.app.name) window went away, so the run stopped."))
         }
+        if w.windowNumber == AndroidFrames.windowNumber {
+            // Reading from Android: positions are its pixels (under the virtual top strip), and taps go in over ADB.
+            guard let serial = AndroidBridge.serial() else {
+                return .failure(RouteError(message: "Couldn't reach Android in \(resolver.app.name). Turn on Android Debug Bridge in its Settings › Advanced."))
+            }
+            var route = Route(mode: .background, pid: w.pid, windowNumber: w.windowNumber, origin: .zero)
+            let bar = CGFloat(AndroidFrames.topBar)
+            route.android = AndroidScreen(rect: CGRect(x: 0, y: bar, width: w.frame.width, height: w.frame.height - bar),
+                                          size: CGSize(width: w.frame.width, height: w.frame.height - bar), serial: serial)
+            return .success(route)
+        }
         var route = Route(mode: target.delivery, pid: w.pid, windowNumber: w.windowNumber, origin: w.frame.origin,
                           focusFlash: target.delivery == .background && FocusFlash.needed(for: resolver.app.bundleID))
         if target.delivery == .background, AndroidBridge.emulators.contains(resolver.app.bundleID) {
@@ -96,7 +107,7 @@ final class Player {
             let what = opts.stopAtNumber.map { "the number reached \($0)" }
                 ?? (kill.isText && !kill.usesPicture ? "“\(kill.text!.trimmingCharacters(in: .whitespaces))” appeared" : "the stop picture appeared")
             Thread.detachNewThread {
-                Self.watchKillswitch(lookup, atLeast: opts.stopAtNumber, resolver: TargetResolver(app: app), watch: watch) {
+                Self.watchKillswitch(lookup, atLeast: opts.stopAtNumber, resolver: TargetResolver(app: app, android: target.readsAndroid), watch: watch) {
                     tripped.message = Self.done(what.prefix(1).uppercased() + what.dropFirst())
                     token.cancel()
                 }
@@ -130,7 +141,7 @@ final class Player {
 
         Thread.detachNewThread { [weak self] in
             defer { watch.cancel() }
-            let resolver = target.app.map { TargetResolver(app: $0) }
+            let resolver = target.app.map { TargetResolver(app: $0, android: target.readsAndroid) }
             let performer = Performer(route: .screen)
             performer.token = token
             performer.stillThreshold = target.jumpWhenStillMs / 1000
@@ -263,7 +274,7 @@ final class Player {
                             Task { @MainActor in waiting(hex) }
                             let cp = target.fit(for: resolver?.window()?.frame.size).point(CGPoint(x: x, y: y))
                             let result = Self.waitForColor(at: performer.route.absolute(Double(cp.x), Double(cp.y)), hex: hex, tolerance: tol,
-                                                           timeout: timeout, token: token)
+                                                           timeout: timeout, token: token, android: resolver?.android == true)
                             Task { @MainActor in waiting(nil) }
                             switch result {
                             case .cancelled: break outer
@@ -506,7 +517,8 @@ final class Player {
             guard let hex = c.colorHex else { return flip(false) }
             let cp = target.fit(for: resolver?.window()?.frame.size).point(CGPoint(x: c.colorX, y: c.colorY))
             switch waitForColor(at: performer.route.absolute(Double(cp.x), Double(cp.y)), hex: hex,
-                                tolerance: c.tolerance, timeout: max(0, c.lookFor), token: token) {
+                                tolerance: c.tolerance, timeout: max(0, c.lookFor), token: token,
+                                android: resolver?.android == true) {
             case .cancelled: return .cancelled
             case .unreadable: return .unreadable
             case .matched: return flip(true)
@@ -559,16 +571,28 @@ final class Player {
     enum ColorResult { case matched, timedOut, unreadable, cancelled }
 
     /// Polls the pixel until it matches or `timeout` passes (0 = check once).
-    static func waitForColor(at p: CGPoint, hex: String, tolerance: Int, timeout: Double, token: CancelToken) -> ColorResult {
+    static func waitForColor(at p: CGPoint, hex: String, tolerance: Int, timeout: Double, token: CancelToken,
+                             android: Bool = false) -> ColorResult {
         guard let want = RGB(hex: hex) else { return .matched }
         let deadline = timeout < 0 ? .infinity : Timing.now() + timeout
         while true {
             if token.isCancelled { return .cancelled }
-            guard let got = ScreenReader.color(at: p) else { return .unreadable }
+            // Reading from Android: `p` is a point in its virtual window (see `AndroidFrames`).
+            let sample = android ? AndroidFrames.shared.frame(after: -1, timeout: 0.3).flatMap { Self.pixel(p, in: $0.pixels) }
+                                 : ScreenReader.color(at: p)
+            guard let got = sample else { return .unreadable }
             if got.matches(want, tolerance: tolerance) { return .matched }
             if Timing.now() >= deadline { return .timedOut }
             guard Timing.wait(until: Timing.now() + 0.05, token) else { return .cancelled }
         }
+    }
+
+    /// The colour of one pixel of a frame.
+    static func pixel(_ p: CGPoint, in px: ScreenReader.WindowPixels) -> RGB? {
+        let x = Int(p.x), y = Int(p.y)
+        guard x >= 0, y >= 0, x < px.width, y < px.height else { return nil }
+        let i = (y * px.width + x) * 4
+        return RGB(r: px.rgba[i], g: px.rgba[i + 1], b: px.rgba[i + 2])
     }
 
     /// "All at once": watch every picture step together and click whichever appears. No order, no timeouts.
@@ -638,6 +662,7 @@ final class Player {
             }
             // Wait for the next frame of the live feed (arrives as soon as anything on screen changes).
             guard let frame = FrameSource.shared.frame(for: win, after: frameNumber, timeout: 0.1) else {
+                if resolver.android { return "Couldn't read Android in \(resolver.app.name). Check that Android Debug Bridge is on in its Settings › Advanced." }
                 return "Couldn't see \(resolver.app.name). Picture steps need Screen Recording permission."
             }
             if frame.number != frameNumber {
@@ -694,7 +719,7 @@ final class Player {
             // One of the steps is on screen (even if it isn't being clicked right now): not stuck.
             if !found.isEmpty { lastAction = tick }
             // You moving the pointer or scrolling over the window: you're using it, so it isn't stuck.
-            if pointer.active(over: win.frame) { lastAction = max(lastAction, tick) }
+            if let real = resolver.realWindow(), pointer.active(over: real.frame) { lastAction = max(lastAction, tick) }
             if let index = chooser.choose(found: found, clickable: opts.waitForStill ? still : nil, now: tick),
                let rect = found[index], let item = items.first(where: { $0.index == index }) {
                 let s = item.step
@@ -743,7 +768,7 @@ final class Player {
                 let tp = target.fit(for: win.frame.size).point(CGPoint(x: ix, y: iy))
                 performer.perform(.mouseDown(button: .left, x: Double(tp.x), y: Double(tp.y), clickCount: 1, flags: 0))
                 performer.perform(.mouseUp(button: .left, x: Double(tp.x), y: Double(tp.y), clickCount: 1, flags: 0))
-                Self.logStuckTap(lastAction: lastAction, pointerAt: CGEvent(source: nil)?.location, window: win.frame)
+                Self.logStuckTap(lastAction: lastAction, pointerAt: CGEvent(source: nil)?.location, window: resolver.realWindow()?.frame ?? win.frame)
                 lastAction = Timing.now()
                 if let screen = latest { Task { @MainActor in stuck(screen) } }
             }
@@ -944,7 +969,7 @@ final class AutoClicker {
         self.token = token
 
         Thread.detachNewThread { [weak self] in
-            let resolver = s.target.app.map { TargetResolver(app: $0) }
+            let resolver = s.target.app.map { TargetResolver(app: $0, android: s.target.readsAndroid) }
             let performer = Performer(route: .screen)
             performer.token = token
             performer.stillThreshold = s.target.jumpWhenStillMs / 1000

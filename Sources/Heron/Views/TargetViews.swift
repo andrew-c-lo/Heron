@@ -43,41 +43,56 @@ struct TargetControls: View {
             Text("Positions are relative to the \(app.name) window, so you can move the window.")
                 .font(.caption).foregroundStyle(.secondary)
         }
-        Picker("Delivery", selection: $target.delivery) {
-            ForEach(DeliveryMode.choices) { Text($0.label).tag($0) }
+        if target.isAndroidEmulator, AndroidBridge.adbPath != nil {
+            Picker("Read the screen", selection: Binding(get: { target.screenFromAndroid == true },
+                                                         set: { target.screenFromAndroid = $0 ? true : nil })) {
+                Text("From the window").tag(false)
+                Text("From Android (ADB)").tag(true)
+            }
+            .pickerStyle(.segmented)
+            Text(target.readsAndroid
+                 ? "Heron reads the Android screen at full resolution, so the window's size, its sidebar and anything covering it don't matter. Each look takes about 0.2 s, and taps go in over ADB."
+                 : "Heron captures the BlueStacks window: the quickest to react, but it depends on the window's size and on nothing covering it.")
+                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
         }
-        .pickerStyle(.segmented)
-        HStack {
-            Text(target.delivery.explanation)
-                .font(.caption).foregroundStyle(target.delivery == .background && target.app == nil ? .red : .secondary)
-            Spacer()
-            if showsTest {
-                if target.delivery == .background, let app = target.app {
-                    Menu("Test") {
-                        Button("Test with \(app.name) in the background") { onTest(false) }
-                        Button("Test with \(app.name) in front (cursor kept off it)") { onTest(true) }
+        // Reading from Android, taps go in over ADB too: there's no delivery to choose.
+        if !target.readsAndroid {
+            Picker("Delivery", selection: $target.delivery) {
+                ForEach(DeliveryMode.choices) { Text($0.label).tag($0) }
+            }
+            .pickerStyle(.segmented)
+            HStack {
+                Text(target.delivery.explanation)
+                    .font(.caption).foregroundStyle(target.delivery == .background && target.app == nil ? .red : .secondary)
+                Spacer()
+                if showsTest {
+                    if target.delivery == .background, let app = target.app {
+                        Menu("Test") {
+                            Button("Test with \(app.name) in the background") { onTest(false) }
+                            Button("Test with \(app.name) in front (cursor kept off it)") { onTest(true) }
+                        }
+                        .fixedSize()
+                        .help("Sends one click to point 1. Don't touch the mouse during the test.")
+                    } else {
+                        Button("Test") { onTest(false) }
+                            .help("Sends one click to point 1.")
                     }
-                    .fixedSize()
-                    .help("Sends one click to point 1. Don't touch the mouse during the test.")
-                } else {
-                    Button("Test") { onTest(false) }
-                        .help("Sends one click to point 1.")
                 }
             }
-        }
-        if target.delivery == .jumpReturn {
-            LabeledContent {
-                HStack(spacing: 4) {
-                    TextField("", value: $target.jumpWhenStillMs, format: .number)
-                        .multilineTextAlignment(.trailing)
-                        .frame(width: 60)
-                    Text("ms").foregroundStyle(.secondary)
+            if target.delivery == .jumpReturn {
+                LabeledContent {
+                    HStack(spacing: 4) {
+                        TextField("", value: $target.jumpWhenStillMs, format: .number)
+                            .multilineTextAlignment(.trailing)
+                            .frame(width: 60)
+                        Text("ms").foregroundStyle(.secondary)
+                    }
+                } label: {
+                    Text("Wait for your mouse to be still")
+                    Text("0 doesn't wait: fastest when you're away from the Mac.")
                 }
-            } label: {
-                Text("Wait for your mouse to be still")
-                Text("0 doesn't wait: fastest when you're away from the Mac.")
+                .help("Before each jump, wait until you haven't moved the mouse (or held a button) for this long, so it never fights your hand. 0 = don't wait.")
             }
-            .help("Before each jump, wait until you haven't moved the mouse (or held a button) for this long, so it never fights your hand. 0 = don't wait.")
         }
         if target.delivery == .background && target.app == nil {
             Text("Choose a target app to use background delivery.")

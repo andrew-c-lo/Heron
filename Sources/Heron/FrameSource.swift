@@ -108,6 +108,7 @@ final class FrameSource: @unchecked Sendable {
 
     /// Latest frame of `win`, waiting up to `timeout` for one newer than `after`. Call from worker threads.
     func frame(for win: TargetWindow, after: Int, timeout: Double = 0.1) -> (pixels: ScreenReader.WindowPixels, number: Int)? {
+        if win.windowNumber == AndroidFrames.windowNumber { return AndroidFrames.shared.frame(after: after, timeout: timeout) }
         if let s = stream(for: win), let f = s.frame(after: after, timeout: timeout) { return f }
         // Fallback: a single screenshot (slower, but always works).
         guard let px = ScreenReader.captureWindow(win) else { return nil }

@@ -126,6 +126,9 @@ enum ScreenReader {
     }
 
     static func captureWindowAsync(_ win: TargetWindow) async -> WindowPixels? {
+        if win.windowNumber == AndroidFrames.windowNumber {
+            return await Task.detached { AndroidFrames.shared.snapshot() }.value
+        }
         guard let scWindow = await scWindow(win.windowNumber) else { return nil }
         let w = Int(win.frame.width.rounded()), h = Int(win.frame.height.rounded())
         let config = SCStreamConfiguration()

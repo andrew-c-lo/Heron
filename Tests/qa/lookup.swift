@@ -994,5 +994,19 @@ let goalNone = LiveRunLimits.limit(goalOpts)
 check("a run goal changed mid-run applies at once (5 → 2 → no limit)", goalBefore == 5 && goalLowered == 2 && goalNone == nil,
       "\([goalBefore, goalLowered, goalNone])")
 
+// Reading from Android: a raw screencap becomes a BlueStacks-shaped virtual window (32-pixel strip, then the screen).
+var raw = Data()
+for v in [UInt32(4), 2, 1, 1] { withUnsafeBytes(of: v.littleEndian) { raw.append(contentsOf: $0) } }
+raw.append(contentsOf: [UInt8](repeating: 200, count: 4 * 2 * 4))
+let vwin = AndroidFrames.parse(raw)
+check("a raw Android screenshot reads as a window with the top strip above it",
+      vwin?.width == 4 && vwin?.height == 2 + AndroidFrames.topBar && vwin?.rgba[(AndroidFrames.topBar * 4) * 4] == 200 && vwin?.rgba[0] == 0)
+let vfit = WindowFit.between(CGSize(width: 522, height: 960), CGSize(width: 1080, height: 1920 + 32), emulator: true)
+let vp = vfit.point(CGPoint(x: 261, y: 32 + 464))
+check("a point picked in the BlueStacks window lands on the same spot of the Android screen",
+      abs(vp.x - 540) < 2 && abs(vp.y - (32 + 960)) < 2, "\(vp)")
+let identity = AndroidScreen(rect: CGRect(x: 0, y: 32, width: 1080, height: 1920), size: CGSize(width: 1080, height: 1920), serial: "x")
+check("…and a tap there goes to that Android pixel", identity.pixel(CGPoint(x: 540, y: 992)) == CGPoint(x: 540, y: 960))
+
 print(failures == 0 ? "ALL PASSED" : "\(failures) FAILED")
 exit(failures == 0 ? 0 : 1)
