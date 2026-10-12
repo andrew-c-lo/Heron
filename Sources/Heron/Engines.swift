@@ -487,6 +487,8 @@ final class Player {
             guard let resolver else { return .needsTarget }
             guard var lookup = Lookup(png: nil, width: 0, height: 0, text: "0", area: c.look.area, strictness: 0.8) else { return .no }
             lookup.reference = c.look.reference(fallback: target.windowSize)
+            lookup.areaReference = c.look.areaReference(fallback: target.windowSize)
+            if c.look.areaUnreliable(fallback: target.windowSize) { lookup.area = nil }
             lookup.emulator = target.isAndroidEmulator
             let deadline = Timing.now() + max(0, c.lookFor)
             var frameNumber = 0, read = false
@@ -519,6 +521,8 @@ final class Player {
         }
         var l = Lookup(png: nil, width: 0, height: 0, text: "0", area: kill.area, strictness: kill.strictness)
         l?.reference = kill.reference(fallback: target.windowSize)
+        l?.areaReference = kill.areaReference(fallback: target.windowSize)
+        if kill.areaUnreliable(fallback: target.windowSize) { l?.area = nil }
         l?.emulator = target.isAndroidEmulator
         return l
     }

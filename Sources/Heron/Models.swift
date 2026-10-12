@@ -381,6 +381,13 @@ struct ImageStep: Codable, Equatable {
         get { captureWindowWidth.flatMap { w in captureWindowHeight.map { CGSize(width: w, height: $0) } } }
         set { captureWindowWidth = newValue.map { Double($0.width) }; captureWindowHeight = newValue.map { Double($0.height) } }
     }
+    /// The window's size (points) when the search area was drawn, when that's not the picture's window.
+    var areaWindowWidth: Double?
+    var areaWindowHeight: Double?
+    var areaWindow: CGSize? {
+        get { areaWindowWidth.flatMap { w in areaWindowHeight.map { CGSize(width: w, height: $0) } } }
+        set { areaWindowWidth = newValue.map { Double($0.width) }; areaWindowHeight = newValue.map { Double($0.height) } }
+    }
     /// With a value above `settle`: the wait before clicking is picked at random between the two each time it appears.
     var settleMax: Double?
 
@@ -494,6 +501,8 @@ extension ImageStep {
         settleMax = try c.decodeIfPresent(Double.self, forKey: .settleMax)
         captureWindowWidth = try c.decodeIfPresent(Double.self, forKey: .captureWindowWidth)
         captureWindowHeight = try c.decodeIfPresent(Double.self, forKey: .captureWindowHeight)
+        areaWindowWidth = try c.decodeIfPresent(Double.self, forKey: .areaWindowWidth)
+        areaWindowHeight = try c.decodeIfPresent(Double.self, forKey: .areaWindowHeight)
         spotX = try c.decodeIfPresent(Double.self, forKey: .spotX)
         spotY = try c.decodeIfPresent(Double.self, forKey: .spotY)
         clickArea = try c.decodeIfPresent(CGRect.self, forKey: .clickArea)

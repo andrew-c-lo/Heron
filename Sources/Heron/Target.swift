@@ -151,8 +151,8 @@ enum WindowFinder {
         guard let list = CGWindowListCopyWindowInfo([.optionAll, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else {
             return nil
         }
-        var onscreen: TargetWindow?
-        var fallback: TargetWindow?
+        var onscreen: [TargetWindow] = []
+        var offscreen: [TargetWindow] = []
         // The list is ordered front to back.
         for w in list {
             guard (w[kCGWindowOwnerPID as String] as? pid_t) == pid,
@@ -163,10 +163,16 @@ enum WindowFinder {
                   rect.width > 40, rect.height > 40 else { continue }
             let win = TargetWindow(pid: pid, windowNumber: number, frame: rect)
             if number == preferring { return win }
-            if onscreen == nil, (w[kCGWindowIsOnscreen as String] as? Bool) == true { onscreen = win }
-            if fallback == nil { fallback = win }
+            if (w[kCGWindowIsOnscreen as String] as? Bool) == true { onscreen.append(win) } else { offscreen.append(win) }
         }
-        return onscreen ?? fallback
+        return main(of: onscreen) ?? main(of: offscreen)
+    }
+
+    /// The frontmost of the app's sizeable windows: a small floating button or popup in front of the main window
+    /// (an emulator's toolbar, say) isn't it.
+    static func main(of windows: [TargetWindow]) -> TargetWindow? {
+        guard let biggest = windows.map({ $0.frame.width * $0.frame.height }).max() else { return nil }
+        return windows.first { $0.frame.width * $0.frame.height >= biggest * 0.25 }
     }
 
     /// The app window under a screen point (front to back), skipping Heron's own windows.
@@ -211,35 +217,54 @@ final class TargetResolver {
 }
 
 extension ImageStep {
-    /// The window size the picture and area are measured in: the one it was picked in, else the macro's.
-    /// nil when unknown, or when what's saved can't be right (the picture or area sits past the edge of that
-    /// window, so they were really picked in a bigger one): then they're used as they are.
+    private static let slack = 4.0
+
+    /// The window size the picture is measured in: the one it was picked in, else the macro's. nil when unknown,
+    /// or when what's saved can't be right (the picture sits past the edge of that window).
     func reference(fallback: CGSize?) -> CGSize? {
         guard let r = captureWindow ?? fallback else { return nil }
-        let slack = 4.0
-        if !png.isEmpty, width > 0, originX + width > r.width + slack || originY + height > r.height + slack { return nil }
-        if let a = area, a.minX > r.width - slack || a.minY > r.height - slack { return nil }
+        if !png.isEmpty, width > 0,
+           originX + width > r.width + Self.slack || originY + height > r.height + Self.slack { return nil }
         return r
     }
 
-    /// An area drawn on (or found in) a window of `size`, kept in the step's own measurements.
-    mutating func setArea(_ rect: CGRect, in size: CGSize, fallback: CGSize?, emulator: Bool) {
-        guard let ref = reference(fallback: fallback), !png.isEmpty else {
-            // Words only, or the saved size was wrong (the picture is used as it is, so it belongs to this window
-            // as much as any): measure the step in this window.
-            area = rect.integral
-            if png.isEmpty || captureWindow != nil || fallback != nil { captureWindow = size }
-            return
-        }
-        area = WindowFit.between(ref, size, emulator: emulator).inverse.rect(rect).integral
+    /// The picture's saved size is known to be wrong (not merely missing).
+    func pictureSizeUnreliable(fallback: CGSize?) -> Bool {
+        !png.isEmpty && (captureWindow ?? fallback) != nil && reference(fallback: fallback) == nil
     }
 
-    /// A new picture picked in a window of `size`: from now on the step is measured in that window, and its area
-    /// and other pictures are carried over to match.
+    /// The window size the search area is measured in. nil when unknown or impossible (an area drawn in a bigger
+    /// window than the one saved with it: it starts past that window's edge, or runs past it).
+    func areaReference(fallback: CGSize?) -> CGSize? {
+        guard let r = areaWindow ?? captureWindow ?? fallback else { return nil }
+        guard let a = area else { return r }
+        if a.minX > r.width - Self.slack || a.minY > r.height - Self.slack { return nil }
+        // Drawn areas stay inside the window, and suggested ones only spill over by their padding: one that starts
+        // inside but runs well off an edge was drawn in a bigger window.
+        let spill = 32.0
+        if a.minX >= 0, a.minY >= 0, a.maxX > r.width + spill || a.maxY > r.height + spill { return nil }
+        return r
+    }
+
+    /// The search area's saved size is known to be wrong: it's left out (the whole window is searched) rather than
+    /// put in the wrong place.
+    func areaUnreliable(fallback: CGSize?) -> Bool {
+        area != nil && (areaWindow ?? captureWindow ?? fallback) != nil && areaReference(fallback: fallback) == nil
+    }
+
+    /// An area drawn on (or found in) a window of `size`: kept exactly as drawn, with that window's size.
+    mutating func setArea(_ rect: CGRect, in size: CGSize, fallback: CGSize?, emulator: Bool) {
+        area = rect.integral
+        areaWindow = size
+    }
+
+    /// A new picture picked in a window of `size`: from now on the picture is measured in that window, and its other
+    /// pictures are resized to match. The search area keeps its own window size.
     mutating func adoptWindow(_ size: CGSize, fallback: CGSize?, emulator: Bool) {
+        if area != nil, areaWindow == nil { areaWindow = areaReference(fallback: fallback) }
+        if area != nil, areaWindow == nil { area = nil } // its size was wrong: drop it rather than misplace it
         if let old = reference(fallback: fallback) {
             let f = WindowFit.between(old, size, emulator: emulator)
-            if let a = area { area = f.rect(a).integral }
             for i in variants.indices {
                 variants[i].width *= f.s
                 variants[i].height *= f.s

@@ -18,6 +18,10 @@ struct Lookup {
     var reference: CGSize?
     /// The target is an Android emulator: resizing follows its Android screen, not the whole window (`WindowFit`).
     var emulator = false
+    /// The window size the search area is measured in, when it isn't `reference`.
+    var areaReference: CGSize?
+    /// The picture's saved window size is known to be wrong: it's looked for at a range of sizes instead.
+    var pictureSizeUnknown = false
     /// Where the words are inside the picture, as fractions of it (for steps with a click box).
     var wordsInPicture: CGRect?
     /// The pictures as stored, for resizing.
@@ -29,6 +33,9 @@ struct Lookup {
                   strictness: s.strictness, alsoPicture: s.alsoPicture)
         self.reference = s.reference(fallback: reference)
         self.emulator = emulator
+        self.areaReference = s.areaReference(fallback: reference)
+        if s.areaUnreliable(fallback: reference) { self.area = nil }
+        self.pictureSizeUnknown = s.pictureSizeUnreliable(fallback: reference)
         // A click box is drawn on the picture: when the words are what's found, the box is placed by where the
         // words sit in the picture, not squeezed onto the words themselves.
         if s.clickArea != nil, !s.png.isEmpty, let t = self.text, !t.isEmpty {
@@ -54,9 +61,9 @@ struct Lookup {
 
     /// The search area in this window's coordinates.
     func scaledArea(for size: CGSize) -> CGRect? {
-        let f = fit(for: size)
-        guard !f.isSame, let a = area else { return area }
-        return f.rect(a)
+        guard let a = area else { return nil }
+        let f = WindowFit.between(areaReference ?? reference, size, emulator: emulator)
+        return f.isSame ? a : f.rect(a)
     }
 
     /// The pictures prepared at scale `s`.
@@ -120,6 +127,13 @@ struct Lookup {
             pictures(at: s).compactMap { TemplateMatcher.find($0, in: sc) }.max { $0.score < $1.score }
         }
         var m = best(at: base)
+        // Its saved size is wrong, so its real size is unknown: look across the sizes a window is likely to have been.
+        if pictureSizeUnknown, (m?.score ?? 0) < strictness {
+            for k in [0.8, 0.88, 1.12, 1.25, 1.4, 0.7] {
+                if let other = best(at: (base * k * 100).rounded() / 100), other.score > (m?.score ?? 0) { m = other }
+                if (m?.score ?? 0) >= strictness { break }
+            }
+        }
         // Just short of a match: it may be there at a slightly different size (the window's been resized, the
         // picture came from another device, or the app scales its buttons). Look again a little smaller and bigger.
         if let first = m, first.score < strictness, first.score >= strictness - Self.nearMiss {
