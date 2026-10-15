@@ -66,6 +66,14 @@ struct Lookup {
         return f.isSame ? a : f.rect(a)
     }
 
+    /// The size that last matched when the expected one didn't, and when other sizes were last tried.
+    private final class SizeMemory: @unchecked Sendable {
+        let lock = NSLock()
+        var factor = 1.0
+        var lastSweep = -Double.infinity
+    }
+    private let sizes = SizeMemory()
+
     /// The pictures prepared at scale `s`.
     private func pictures(at s: Double) -> [TemplateMatcher.Prepared] {
         if s == 1 { return (template.map { [$0] } ?? []) + variants }
@@ -126,19 +134,28 @@ struct Lookup {
         func best(at s: Double) -> TemplateMatcher.Match? {
             pictures(at: s).compactMap { TemplateMatcher.find($0, in: sc) }.max { $0.score < $1.score }
         }
-        var m = best(at: base)
-        // Its saved size is wrong, so its real size is unknown: look across the sizes a window is likely to have been.
-        if pictureSizeUnknown, (m?.score ?? 0) < strictness {
-            for k in [0.8, 0.88, 1.12, 1.25, 1.4, 0.7] {
-                if let other = best(at: (base * k * 100).rounded() / 100), other.score > (m?.score ?? 0) { m = other }
-                if (m?.score ?? 0) >= strictness { break }
-            }
+        // A size that matched before (see below) is tried first.
+        let learned = sizes.lock.withLock { sizes.factor }
+        var m = best(at: (base * learned * 100).rounded() / 100)
+        if learned != 1, (m?.score ?? 0) < strictness, let plain = best(at: base), plain.score > (m?.score ?? 0) { m = plain }
+        // Other sizes are tried at most once a second: searching several sizes on every look kept the CPU busy.
+        let now = Timing.now()
+        guard (m?.score ?? 0) < strictness, sizes.lock.withLock({ now - sizes.lastSweep >= 1 }) else {
+            return m.map { TemplateMatcher.Match(rect: $0.rect.offsetBy(dx: offset.x, dy: offset.y), score: $0.score) }
         }
+        var factors: [Double] = []
+        // Its saved size is wrong, so its real size is unknown: look across the sizes a window is likely to have been.
+        if pictureSizeUnknown { factors = [0.8, 0.88, 1.12, 1.25, 1.4, 0.7] }
         // Just short of a match: it may be there at a slightly different size (the window's been resized, the
         // picture came from another device, or the app scales its buttons). Look again a little smaller and bigger.
-        if let first = m, first.score < strictness, first.score >= strictness - Self.nearMiss {
-            for k in [0.96, 1.04, 0.92, 1.08] {
-                if let other = best(at: (base * k * 100).rounded() / 100), other.score > (m?.score ?? 0) { m = other }
+        else if let first = m, first.score >= strictness - Self.nearMiss { factors = [0.96, 1.04, 0.92, 1.08] }
+        if !factors.isEmpty {
+            sizes.lock.withLock { sizes.lastSweep = now }
+            for k in factors {
+                if let other = best(at: (base * k * 100).rounded() / 100), other.score > (m?.score ?? 0) {
+                    m = other
+                    if other.score >= strictness { sizes.lock.withLock { sizes.factor = k } }
+                }
                 if (m?.score ?? 0) >= strictness { break }
             }
         }

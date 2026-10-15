@@ -81,8 +81,23 @@ enum TemplateMatcher {
         let inner: (img: GrayImage, x: Int, y: Int)?
         /// Ever finer copies between `coarse` and `full` (factors halving down to 1), so a match is pinned down a
         /// little at a time instead of searching a big area at full size (which made large pictures take seconds).
-        var levels: [(factor: Int, img: GrayImage)] = []
+        var levels: [(factor: Int, img: GrayImage)] = [] {
+            didSet { zeroMeans = levels.map { TemplateMatcher.zeroMean($0.img) } }
+        }
+        /// Each level made zero-mean, worked out once rather than on every look.
+        private(set) var zeroMeans: [(pixels: [Float], norm: Double, mean: Float)] = []
+
+        init(full: GrayImage, coarse: GrayImage, factor: Int, meanColor: SIMD3<Float>,
+             inner: (img: GrayImage, x: Int, y: Int)?, levels: [(factor: Int, img: GrayImage)] = []) {
+            self.full = full; self.coarse = coarse; self.factor = factor; self.meanColor = meanColor; self.inner = inner
+            self.levels = levels
+            zeroMeans = levels.map { TemplateMatcher.zeroMean($0.img) }
+        }
     }
+
+    /// Pictures bigger than this (pixels, at a given level) are compared at fewer positions around where the level
+    /// before put them: every position costs the whole picture, and the level before already pins it down.
+    static let finestComparison = 40_000
 
     struct Match {
         /// Window-relative rectangle, in points.
@@ -204,8 +219,10 @@ enum TemplateMatcher {
         let tw = Int(width.rounded()), th = Int(height.rounded())
         guard let px = rgba(cg, width: tw, height: th) else { return nil }
         let full = smooth(gray(px, width: tw, height: th))
-        // Keep the coarse template at least ~8 px on its short side.
-        let factor = max(1, min(tw, th) / 8)
+        // Keep the coarse template at least ~8 px on its short side. Powers of two only: each factor needs its own
+        // shrunken copy of the whole screen on every look, and this way every step shares the same few.
+        var factor = 1
+        while factor * 2 <= min(tw, th) / 8 { factor *= 2 }
         var inner: (img: GrayImage, x: Int, y: Int)?
         let ix = tw / 5, iy = th / 4, iw = tw - 2 * ix, ih = th - 2 * iy
         if iw >= 6, ih >= 6 {
@@ -280,7 +297,7 @@ enum TemplateMatcher {
         // 2. Refine each candidate, one finer level at a time, down to full resolution: at each level only a few
         //    positions around the previous best are checked.
         let levels = t.levels.isEmpty ? [(factor: 1, img: t.full)] : t.levels
-        let zms = levels.map { zeroMean($0.img) }
+        let zms = t.levels.isEmpty ? [zeroMean(t.full)] : t.zeroMeans
         var best: (x: Int, y: Int, s: Double) = (0, 0, -1)
         for c in candidates {
             var pos = (x: c.x, y: c.y), level = f
@@ -289,7 +306,7 @@ enum TemplateMatcher {
                 let (img, lii) = l.factor == 1 ? (image, scene.integral) : scene.coarse(l.factor)
                 let lw = l.img.width, lh = l.img.height
                 let ratio = Double(level) / Double(l.factor)
-                let r = Int(ratio.rounded(.up)) + 1
+                let r = lw * lh > finestComparison ? Int(ratio.rounded(.up)) : Int(ratio.rounded(.up)) + 1
                 let cx = Int((Double(pos.x) * ratio).rounded()), cy = Int((Double(pos.y) * ratio).rounded())
                 let x0 = max(0, cx - r), x1 = min(img.width - lw, cx + r)
                 let y0 = max(0, cy - r), y1 = min(img.height - lh, cy + r)
@@ -388,7 +405,7 @@ enum TemplateMatcher {
         }
     }
 
-    private static func zeroMean(_ t: GrayImage) -> (pixels: [Float], norm: Double, mean: Float) {
+    static func zeroMean(_ t: GrayImage) -> (pixels: [Float], norm: Double, mean: Float) {
         let mean = t.pixels.reduce(0, +) / Float(max(1, t.pixels.count))
         let z = t.pixels.map { $0 - mean }
         let norm = sqrt(z.reduce(0) { $0 + Double($1 * $1) })
@@ -410,9 +427,11 @@ enum TemplateMatcher {
         var cross: Float = 0
         img.pixels.withUnsafeBufferPointer { ip in
             tz.withUnsafeBufferPointer { tp in
+                // One vectorized dot product per row (a plain loop adds one product at a time).
+                var rowSum: Float = 0
                 for j in 0..<th {
-                    let row = (y + j) * img.width + x, trow = j * tw
-                    for i in 0..<tw { cross += ip[row + i] * tp[trow + i] }
+                    vDSP_dotpr(ip.baseAddress! + (y + j) * img.width + x, 1, tp.baseAddress! + j * tw, 1, &rowSum, vDSP_Length(tw))
+                    cross += rowSum
                 }
             }
         }
@@ -445,10 +464,11 @@ enum TemplateMatcher {
                                     let sum = s[d] - s[b] - s[c] + s[a]
                                     let varI = s2[d] - s2[b] - s2[c] + s2[a] - sum * sum / n
                                     guard varI > 1e-3 else { continue }
-                                    var cross: Float = 0
+                                    var cross: Float = 0, rowSum: Float = 0
                                     for j in 0..<th {
-                                        let row = (y &+ j) &* W &+ x, trow = j &* tw
-                                        for i in 0..<tw { cross += ip[row &+ i] * tp[trow &+ i] }
+                                        vDSP_dotpr(ip.baseAddress! + ((y &+ j) &* W &+ x), 1, tp.baseAddress! + j &* tw, 1,
+                                                   &rowSum, vDSP_Length(tw))
+                                        cross += rowSum
                                     }
                                     op[y &* cw &+ x] = Float(Double(cross) / (varI.squareRoot() * tNorm))
                                 }
