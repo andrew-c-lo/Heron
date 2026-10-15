@@ -194,15 +194,19 @@ enum TemplateMatcher {
         guard f > 1 else { return g }
         let w = g.width / f, h = g.height / f
         var px = [Float](repeating: 0, count: max(0, w * h))
-        let inv = 1 / Float(f * f)
-        for y in 0..<h {
-            for x in 0..<w {
-                var s: Float = 0
-                for j in 0..<f {
-                    let row = (y * f + j) * g.width + x * f
-                    for i in 0..<f { s += g.pixels[row + i] }
+        let inv = 1 / Float(f * f), gw = g.width
+        g.pixels.withUnsafeBufferPointer { gp in
+            px.withUnsafeMutableBufferPointer { op in
+                for y in 0..<h {
+                    for x in 0..<w {
+                        var s: Float = 0
+                        for j in 0..<f {
+                            let row = (y &* f &+ j) &* gw &+ x &* f
+                            for i in 0..<f { s += gp[row &+ i] }
+                        }
+                        op[y &* w &+ x] = s * inv
+                    }
                 }
-                px[y * w + x] = s * inv
             }
         }
         return GrayImage(width: w, height: h, pixels: px)
@@ -221,8 +225,11 @@ enum TemplateMatcher {
         let full = smooth(gray(px, width: tw, height: th))
         // Keep the coarse template at least ~8 px on its short side. Powers of two only: each factor needs its own
         // shrunken copy of the whole screen on every look, and this way every step shares the same few.
+        // Long thin pictures go by their overall size (a 19×600 strip would otherwise be scanned almost at full size),
+        // as long as the short side keeps at least 2 px.
+        let target = min(max(min(tw, th) / 8, Int((Double(tw * th)).squareRoot() / 12)), min(tw, th) / 2)
         var factor = 1
-        while factor * 2 <= min(tw, th) / 8 { factor *= 2 }
+        while factor * 2 <= target { factor *= 2 }
         var inner: (img: GrayImage, x: Int, y: Int)?
         let ix = tw / 5, iy = th / 4, iw = tw - 2 * ix, ih = th - 2 * iy
         if iw >= 6, ih >= 6 {
@@ -259,7 +266,9 @@ enum TemplateMatcher {
 
         func coarse(_ f: Int) -> (img: GrayImage, ii: Integral) {
             if let c = coarse[f] { return c }
-            let img = TemplateMatcher.downscale(image, by: f)
+            // Powers of two are halved from the level above (the same averages, without re-reading every pixel).
+            let img = f > 2 && f % 2 == 0 ? TemplateMatcher.downscale(coarse(f / 2).img, by: 2)
+                                          : TemplateMatcher.downscale(image, by: f)
             let c = (img, Integral(img))
             coarse[f] = c
             return c

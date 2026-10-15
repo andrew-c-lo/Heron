@@ -29,7 +29,8 @@ final class WindowStream: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked
         config.showsCursor = false
         config.pixelFormat = kCVPixelFormatType_32BGRA
         config.colorSpaceName = CGColorSpace.sRGB
-        config.minimumFrameInterval = CMTime(value: 1, timescale: 60)
+        // Heron looks at most 10 times a second; more frames would only be converted and thrown away.
+        config.minimumFrameInterval = CMTime(value: 1, timescale: 12)
         config.queueDepth = 4
         config.ignoreShadowsSingleWindow = true
         let s = SCStream(filter: SCContentFilter(desktopIndependentWindow: window), configuration: config, delegate: self)
