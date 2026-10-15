@@ -583,9 +583,13 @@ final class Player {
             guard let got = sample else { return .unreadable }
             if got.matches(want, tolerance: tolerance) { return .matched }
             if Timing.now() >= deadline { return .timedOut }
-            guard Timing.wait(until: Timing.now() + 0.05, token) else { return .cancelled }
+            guard Timing.wait(until: Timing.now() + Self.checkInterval, token) else { return .cancelled }
         }
     }
+
+    /// Time between looks at the screen: 10 a second. Checking more often barely speeds up reacting to a button,
+    /// but matching every picture on every frame of an animated game keeps a whole CPU core busy.
+    static let checkInterval = 0.1
 
     /// The colour of one pixel of a frame.
     static func pixel(_ p: CGPoint, in px: ScreenReader.WindowPixels) -> RGB? {
@@ -772,7 +776,7 @@ final class Player {
                 lastAction = Timing.now()
                 if let screen = latest { Task { @MainActor in stuck(screen) } }
             }
-            _ = Timing.wait(until: tick + 1.0 / 30, token) // ~30 checks a second at most
+            _ = Timing.wait(until: tick + Self.checkInterval, token) // at most 10 checks a second
         }
         return nil
     }
@@ -823,8 +827,8 @@ final class Player {
         var lastTextRead = -Double.infinity
         /// Checks the newest frame of the live feed, waiting briefly for one if nothing changed.
         func look() -> Look {
-            // At most ~30 checks a second.
-            let interval = lookup.isText ? 0.15 : 1.0 / 30 // reading text is slow; pictures are cheap
+            // At most 10 checks a second (reading text is slower still).
+            let interval = lookup.isText ? 0.15 : Self.checkInterval
             // “Both”: the picture every check, the words a few times a second.
             let readText = lookup.hasText && Timing.now() - lastTextRead >= 0.15
             let since = Timing.now() - lastLook
