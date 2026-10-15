@@ -115,24 +115,16 @@ struct Lookup {
         return inside.isNull || inside.width < 4 || inside.height < 4 ? nil : a
     }
 
-    /// The pixels inside the search area, and where they sit in the window.
-    private func searchPixels(_ px: ScreenReader.WindowPixels) -> (ScreenReader.WindowPixels, CGPoint) {
-        if let a = scaledArea(for: CGSize(width: px.width, height: px.height))?.integral.intersection(CGRect(x: 0, y: 0, width: px.width, height: px.height)),
-           !a.isEmpty, let cropped = px.cropped(to: a) {
-            return (cropped, a.origin)
-        }
-        return (px, .zero)
-    }
-
     /// Best picture match (any score), window coordinates.
     func matchPicture(in px: ScreenReader.WindowPixels, scene: TemplateMatcher.Scene? = nil) -> TemplateMatcher.Match? {
         guard template != nil else { return nil }
-        let (pixels, offset) = searchPixels(px)
-        let sc = (offset == .zero && area == nil ? scene : nil)
-            ?? TemplateMatcher.Scene(rgba: pixels.rgba, width: pixels.width, height: pixels.height)
+        // The search area is a region of the one prepared screen (shared by every step), not a piece of its own.
+        let sc = scene ?? TemplateMatcher.Scene(rgba: px.rgba, width: px.width, height: px.height)
+        let region = scaledArea(for: CGSize(width: px.width, height: px.height))?.integral
+        let offset = CGPoint.zero
         let base = scale(for: CGSize(width: px.width, height: px.height))
         func best(at s: Double) -> TemplateMatcher.Match? {
-            pictures(at: s).compactMap { TemplateMatcher.find($0, in: sc) }.max { $0.score < $1.score }
+            pictures(at: s).compactMap { TemplateMatcher.find($0, in: sc, region: region) }.max { $0.score < $1.score }
         }
         // A size that matched before (see below) is tried first.
         let learned = sizes.lock.withLock { sizes.factor }

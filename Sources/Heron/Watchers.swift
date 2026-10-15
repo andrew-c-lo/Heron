@@ -270,17 +270,27 @@ enum TemplateMatcher {
         find(t, in: Scene(rgba: rgbaBuf, width: W, height: H))
     }
 
-    static func find(_ t: Prepared, in scene: Scene) -> Match? {
+    /// `region`: only where the picture lies wholly inside this part of the scene (a step's search area), so
+    /// steps with an area share the one prepared scene instead of each preparing their own piece of it.
+    static func find(_ t: Prepared, in scene: Scene, region: CGRect? = nil) -> Match? {
         let W = scene.width, H = scene.height, rgbaBuf = scene.rgba
         let tw = t.full.width, th = t.full.height
         guard W >= tw, H >= th, tw > 0, th > 0 else { return nil }
+        let r = (region ?? CGRect(x: 0, y: 0, width: W, height: H)).intersection(CGRect(x: 0, y: 0, width: W, height: H))
+        guard !r.isNull, Int(r.width) >= tw, Int(r.height) >= th else { return nil }
+        let rx0 = Int(r.minX.rounded(.up)), ry0 = Int(r.minY.rounded(.up)), rx1 = Int(r.maxX), ry1 = Int(r.maxY)
+        /// Top-left positions allowed at a level shrunk by `k` for a picture `w`×`h` there.
+        func allowed(_ k: Int, _ w: Int, _ h: Int) -> (x0: Int, x1: Int, y0: Int, y1: Int) {
+            ((rx0 + k - 1) / k, rx1 / k - w, (ry0 + k - 1) / k, ry1 / k - h)
+        }
         let image = scene.image
         let f = t.factor
         let (coarse, coarseII) = scene.coarse(f)
         guard coarse.width >= t.coarse.width, coarse.height >= t.coarse.height else { return nil }
 
         // 1. Coarse scan: keep the few best, well-separated candidates.
-        let coarseScores = scoreMap(image: coarse, integral: coarseII, template: t.coarse)
+        let ca = allowed(f, t.coarse.width, t.coarse.height)
+        let coarseScores = scoreMap(image: coarse, integral: coarseII, template: t.coarse, within: ca)
         let cw = coarse.width - t.coarse.width + 1
         var candidates: [(x: Int, y: Int)] = []
         var scores = coarseScores
@@ -308,8 +318,9 @@ enum TemplateMatcher {
                 let ratio = Double(level) / Double(l.factor)
                 let r = lw * lh > finestComparison ? Int(ratio.rounded(.up)) : Int(ratio.rounded(.up)) + 1
                 let cx = Int((Double(pos.x) * ratio).rounded()), cy = Int((Double(pos.y) * ratio).rounded())
-                let x0 = max(0, cx - r), x1 = min(img.width - lw, cx + r)
-                let y0 = max(0, cy - r), y1 = min(img.height - lh, cy + r)
+                let la = allowed(l.factor, lw, lh)
+                let x0 = max(0, la.x0, cx - r), x1 = min(img.width - lw, la.x1, cx + r)
+                let y0 = max(0, la.y0, cy - r), y1 = min(img.height - lh, la.y1, cy + r)
                 guard x0 <= x1, y0 <= y1 else { spot.s = -1; break }
                 spot = (0, 0, -1)
                 let zm = zms[n]
@@ -439,18 +450,25 @@ enum TemplateMatcher {
     }
 
     /// ZNCC at every position (row-major, width = image.width - template.width + 1).
-    private static func scoreMap(image: GrayImage, integral ii: Integral, template: GrayImage) -> [Float] {
+    private static func scoreMap(image: GrayImage, integral ii: Integral, template: GrayImage,
+                                 within a: (x0: Int, x1: Int, y0: Int, y1: Int)? = nil) -> [Float] {
         let tw = template.width, th = template.height
         let cw = image.width - tw + 1, ch = image.height - th + 1
         guard cw > 0, ch > 0 else { return [] }
+        // Positions outside `within` score -2 (never picked).
+        let xs = max(0, a?.x0 ?? 0)...max(max(0, a?.x0 ?? 0), min(cw - 1, a?.x1 ?? cw - 1))
+        let ys = max(0, a?.y0 ?? 0)...max(max(0, a?.y0 ?? 0), min(ch - 1, a?.y1 ?? ch - 1))
+        guard xs.upperBound < cw, ys.upperBound < ch, (a?.x1 ?? 0) >= (a?.x0 ?? 0), (a?.y1 ?? 0) >= (a?.y0 ?? 0)
+        else { return [Float](repeating: -2, count: cw * ch) }
         let tz = zeroMean(template)
         if tz.norm < 1 {
             // Flat picture: rare, keep the simple path.
-            var out = [Float](repeating: -1, count: cw * ch)
-            for y in 0..<ch { for x in 0..<cw { out[y * cw + x] = zncc(image, tz.pixels, tw, th, tz.norm, tz.mean, ii, x, y) } }
+            var out = [Float](repeating: -2, count: cw * ch)
+            for y in ys { for x in xs { out[y * cw + x] = zncc(image, tz.pixels, tw, th, tz.norm, tz.mean, ii, x, y) } }
             return out
         }
-        var out = [Float](repeating: 0, count: cw * ch)
+        var out = [Float](repeating: -2, count: cw * ch)
+        for y in ys { for x in xs { out[y * cw + x] = 0 } }
         let n = Double(tw * th), W = image.width, iw = ii.w, tNorm = tz.norm
         // Same maths as `zncc`, with everything hoisted out of the hot loop.
         image.pixels.withUnsafeBufferPointer { ip in
@@ -458,8 +476,8 @@ enum TemplateMatcher {
                 ii.s.withUnsafeBufferPointer { s in
                     ii.s2.withUnsafeBufferPointer { s2 in
                         out.withUnsafeMutableBufferPointer { op in
-                            for y in 0..<ch {
-                                for x in 0..<cw {
+                            for y in ys {
+                                for x in xs {
                                     let a = y &* iw &+ x, b = a &+ tw, c = (y &+ th) &* iw &+ x, d = c &+ tw
                                     let sum = s[d] - s[b] - s[c] + s[a]
                                     let varI = s2[d] - s2[b] - s2[c] + s2[a] - sum * sum / n
