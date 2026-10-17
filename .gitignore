@@ -5,3 +5,7 @@ Heron.app/
 .DS_Store
 dist/
 .qa/
+
+# Eval data: real app screenshots stay local (private, and not app-neutral)
+bench/unstuck/data/
+bench/unstuck/results/*.local.json
