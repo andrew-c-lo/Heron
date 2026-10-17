@@ -70,6 +70,7 @@ struct MacroDetailView: View {
             ui.showingPlayback = panel == .playback
             ui.showingStops = panel == .stops
             ui.showingSchedule = panel == .schedule
+            ui.showingCheck = panel == .check
         })
         .onAppear { model.loadStuck(for: macro.id); model.loadFoundHistory(for: macro) }
         .onChange(of: model.recordedInto) { _, _ in finishTemplate() }
@@ -97,6 +98,18 @@ struct MacroDetailView: View {
             StuckScreensView(macroID: macro.id, onAdd: { step in
                 select(insert(.findImage(step), delay: 0.1))
             }, onDone: { ui.showingStuck = false })
+        }
+        .sheet(isPresented: $ui.showingCheck) {
+            HealthSheet(macroID: macro.id, onStrictness: { step, value in
+                if let i = macro.steps.firstIndex(where: { $0.id == step }), case .findImage(var p) = macro.steps[i].action {
+                    p.strictness = value
+                    macro.steps[i].action = .findImage(p)
+                }
+            }, onShowStep: { step in
+                ui.showingCheck = false
+                select(step)
+                showDetails = true
+            }, onDone: { ui.showingCheck = false })
         }
         .sheet(isPresented: $ui.showingAutopilot) {
             AutopilotView(target: macro.target) { ui.showingAutopilot = false }
@@ -1320,6 +1333,7 @@ final class DetailUIState: ObservableObject {
     @Published var describeText = ""
     @Published var describing = false
     @Published var showingStuck = false
+    @Published var showingCheck = false
     @Published var showingSchedule = false
     @Published var showingStops = false
     @Published var showingPresses = false
@@ -1453,9 +1467,12 @@ struct LiveDot: View {
 
 /// Opens one of the open macro's settings panels; the Macro menu's ⌘1–⌘4 use it.
 struct MacroPanels {
-    enum Panel: CaseIterable { case target, playback, stops, schedule
+    enum Panel: CaseIterable { case target, playback, stops, schedule, check
         var title: String {
-            switch self { case .target: "Target…"; case .playback: "Playback…"; case .stops: "Stops…"; case .schedule: "Schedule…" }
+            switch self {
+            case .target: "Target…"; case .playback: "Playback…"; case .stops: "Stops…"; case .schedule: "Schedule…"
+            case .check: "Check Macro…"
+            }
         }
     }
     let open: (Panel) -> Void

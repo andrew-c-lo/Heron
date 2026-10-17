@@ -1505,6 +1505,30 @@ final class AppModel: ObservableObject {
     }
 
     /// A picture of the app's window to crop the button from.
+    /// Checks a macro's picture steps (see `MacroHealth`) on screens saved from this macro and the window as it is now.
+    func checkMacro(_ id: UUID, progress: @escaping @MainActor (Double) -> Void) async -> (issues: [HealthIssue], screens: Int) {
+        guard let m = macros.first(where: { $0.id == id }) else { return ([], 0) }
+        loadStuck(for: id)
+        var urls = Array((stuckScreens[id] ?? []).prefix(8))
+        let prefix = String(id.uuidString.prefix(8))
+        let evals = ((try? FileManager.default.contentsOfDirectory(at: RescueCapture.folder, includingPropertiesForKeys: nil)) ?? [])
+            .filter { $0.pathExtension == "png" && $0.lastPathComponent.hasPrefix(prefix) }.sorted { $0.lastPathComponent > $1.lastPathComponent }
+        urls += evals.prefix(max(0, 10 - urls.count))
+        var window: CGSize?
+        var now: ScreenReader.WindowPixels?
+        if let app = m.target.app, let win = WindowFinder.find(app) {
+            window = win.frame.size
+            now = await ScreenReader.captureWindowAsync(win)
+        }
+        let target = m
+        return await Task.detached(priority: .userInitiated) {
+            var bgs = urls.compactMap { NSImage(contentsOf: $0).flatMap(ScreenReader.WindowPixels.init(image:)) }
+            if let now { bgs.append(now) }
+            let issues = MacroHealth.check(target, backgrounds: bgs, window: window) { f in Task { @MainActor in progress(f) } }
+            return (issues, bgs.count)
+        }.value
+    }
+
     func windowPicture(for app: TargetApp?) async -> NSImage? {
         guard let app else { flash("Choose the app to watch first."); return nil }
         // A macro that reads from Android picks from the Android screen too (full detail, any window size).
