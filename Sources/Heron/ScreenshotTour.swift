@@ -8,6 +8,10 @@ import SwiftUI
 enum ScreenshotTour {
 
     static let selectAction = Notification.Name("HeronQASelectAction")
+    static let selectTemplate = Notification.Name("HeronQASelectTemplate")
+    /// First-run walkthrough: what a “Tap them yourself” round produces, without anyone tapping.
+    static let fakeWatcher = Notification.Name("HeronQAFakeWatcher")
+    static let openStops = Notification.Name("HeronQAOpenStops")
 
     static func runIfRequested(_ model: AppModel) {
         // The README demo GIF (scripts/record-demo.sh): open this macro and play it, with no clicks needed.
@@ -20,6 +24,10 @@ enum ScreenshotTour {
                 try? await Task.sleep(for: .seconds(delay))
                 if let current = model.macros.first(where: { $0.id == m.id }) { model.play(current) }
             }
+            return
+        }
+        if let dir = ProcessInfo.processInfo.environment["HERON_QA_FIRST_RUN"], !dir.isEmpty {
+            firstRun(model, into: URL(fileURLWithPath: dir, isDirectory: true))
             return
         }
         if let qa = ProcessInfo.processInfo.environment["HERON_QA_DIR"], !qa.isEmpty {
@@ -105,6 +113,44 @@ enum ScreenshotTour {
                     try? png.write(to: out.appendingPathComponent("chain-busy.png"))
                 }
                 model.toggleBackground(w)
+            }
+            NSApp.terminate(nil)
+        }
+    }
+
+    /// First-run walkthrough (HERON_QA_FIRST_RUN=<dir>, with an empty HERON_HOME): what a brand-new user sees at
+    /// each step of starting a macro, saved as numbered pictures, then quits.
+    private static func firstRun(_ model: AppModel, into out: URL) {
+        try? FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
+        if let a = ProcessInfo.processInfo.environment["HERON_QA_APPEARANCE"] {
+            NSApp.appearance = NSAppearance(named: a == "light" ? .aqua : .darkAqua)
+        }
+        func shot(_ name: String) async {
+            try? await Task.sleep(for: .seconds(1))
+            if let w = NSApp.windows.first(where: { $0.isVisible && $0.canBecomeMain && $0.frame.width > 400 }),
+               let png = capture(w.attachedSheet ?? w) {
+                try? png.write(to: out.appendingPathComponent("\(name).png"))
+            }
+        }
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(1.5))
+            NSApp.activate(ignoringOtherApps: true)
+            await shot("1-first-launch")
+            model.newMacro()
+            await shot("2-new-macro")
+            for (i, t) in MacroTemplate.allCases.enumerated() {
+                NotificationCenter.default.post(name: selectTemplate, object: t.rawValue)
+                await shot("3-\(i + 1)-\(t.rawValue)")
+            }
+            NotificationCenter.default.post(name: selectTemplate, object: MacroTemplate.whenItAppears.rawValue)
+            NotificationCenter.default.post(name: fakeWatcher, object: nil)
+            await shot("4-buttons-added")
+            NotificationCenter.default.post(name: openStops, object: nil)
+            try? await Task.sleep(for: .seconds(0.6))
+            // The Stops panel is a popover: its own window.
+            try? await Task.sleep(for: .seconds(0.6))
+            if let pop = NSApp.windows.first(where: { $0.isVisible && $0.className.contains("Popover") }), let png = capture(pop) {
+                try? png.write(to: out.appendingPathComponent("5-set-a-stop.png"))
             }
             NSApp.terminate(nil)
         }

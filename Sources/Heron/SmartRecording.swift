@@ -151,6 +151,26 @@ final class ClickReader: @unchecked Sendable {
     /// Replaces left clicks with “find it, then click” steps: words wait up to 5 s, pictures up to 3 s, then the
     /// recorded spot is clicked. Several quick taps on one spot become “keep tapping until it's gone”. The cursor
     /// travel before a click is dropped (the step clicks wherever its target is), keeping its time as the step's delay.
+    /// “Tap them yourself”: a recording of you playing a round becomes one “click it whenever it appears” step per
+    /// button you tapped (a button tapped more than once is one step). Waits, pointer travel and anything that
+    /// wasn't a recognised tap are left out; `taps` is how many taps were recorded in all.
+    static func watcherSteps(_ steps: [MacroStep]) -> (steps: [MacroStep], taps: Int) {
+        var out: [MacroStep] = []
+        var seen: [(text: String, png: Data)] = []
+        for s in steps {
+            guard case .findImage(var p) = s.action else { continue }
+            let text = (p.text ?? "").trimmingCharacters(in: .whitespaces).lowercased()
+            if seen.contains(where: { (!text.isEmpty && $0.text == text) || (!p.png.isEmpty && $0.png == p.png) }) { continue }
+            seen.append((text, p.png))
+            p.mode = .click
+            p.timeout = -1
+            p.otherwise = .continueAnyway
+            out.append(MacroStep(delay: 0, action: .findImage(p)))
+        }
+        let taps = ActionGrouper.groups(for: steps).filter { if case .click = $0.kind { return true }; return false }.count
+        return (out, taps)
+    }
+
     static func convert(_ steps: [MacroStep], labels: [UUID: Label]) -> (steps: [MacroStep], words: Int, pictures: Int) {
         guard !labels.isEmpty else { return (steps, 0, 0) }
         var out: [MacroStep] = []

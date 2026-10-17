@@ -35,10 +35,33 @@ struct MacroDetailView: View {
 
     private var isPlaying: Bool { model.playingMacroID == macro.id }
 
+    /// The starting points are showing (a new, empty macro).
+    private var choosingStart: Bool { macro.steps.isEmpty && !ui.blankChosen }
+
+    /// After a watcher is set up: it runs until stopped unless told otherwise, so ask once.
+    private var stopPrompt: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "stop.circle").foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 1) {
+                Text("When should it stop?").fontWeight(.medium)
+                Text("It keeps going until you stop it. It can also stop when something shows up, after a number of runs, or after a set time.")
+                    .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 8)
+            Button("Keep Going") { ui.askStop = false }
+            Button("Set a Stop…") { ui.askStop = false; ui.showingStops = true }
+                .keyboardShortcut(.defaultAction)
+        }
+        .padding(12)
+        .background(RoundedRectangle(cornerRadius: 8).fill(Color.accentColor.opacity(0.08)))
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             header
-            toolbarRow
+            // While choosing how to start, the editor's settings and step tools would only compete for attention.
+            if !choosingStart { toolbarRow }
+            if ui.askStop, !macro.steps.isEmpty, !choosingStart { stopPrompt }
             if let run = model.live[macro.id] {
                 liveStrip(run)
                     .transition(.opacity)
@@ -114,6 +137,26 @@ struct MacroDetailView: View {
         .sheet(isPresented: $ui.showingAutopilot) {
             AutopilotView(target: macro.target) { ui.showingAutopilot = false }
         }
+        .onReceive(NotificationCenter.default.publisher(for: ScreenshotTour.fakeWatcher)) { _ in
+            let names = ["Start!", "OK", "Cancel", "GO TO THE NEXT LEVEL"]
+            let steps = names.map { n -> MacroStep in
+                var p = ImageStep(png: Data(), width: 0, height: 0, originX: 0, originY: 0)
+                p.text = n
+                return MacroStep(delay: 0, action: .findImage(p))
+            }
+            macro.steps = ClickReader.watcherSteps(steps).steps
+            macro.playback.order = .allAtOnce
+            macro.playback.repeatMode = .untilStopped
+            ui.askStop = true
+            model.flash("Added \(names.count) buttons: \(names.joined(separator: ", ")). Heron clicks each one whenever it shows up.")
+        }
+        .onReceive(NotificationCenter.default.publisher(for: ScreenshotTour.openStops)) { _ in
+            ui.askStop = false; ui.showingStops = true
+        }
+        // QA first-run walkthrough: show each starting point.
+        .onReceive(NotificationCenter.default.publisher(for: ScreenshotTour.selectTemplate)) { note in
+            if let raw = note.object as? String, let t = MacroTemplate(rawValue: raw) { ui.template = t }
+        }
         // QA tour: select an action by its position so the details panel can be checked.
         .onReceive(NotificationCenter.default.publisher(for: ScreenshotTour.selectAction)) { note in
             guard let i = note.object as? Int else { ui.selection = []; return }
@@ -152,7 +195,9 @@ struct MacroDetailView: View {
                 }
                 .help("Screens where “Tap when stuck” had to step in. Turn them into steps.")
             }
-            if mode == .raw {
+            if choosingStart {
+                // No steps to view yet.
+            } else if mode == .raw {
                 Button { viewMode = Mode.actions.rawValue } label: {
                     Label("Raw Events", systemImage: "xmark.circle.fill")
                 }
@@ -1033,7 +1078,11 @@ struct MacroDetailView: View {
             if macro.steps.isEmpty && !ui.blankChosen {
                 TemplateChooser(app: macro.target.app, selected: $ui.template, isRecording: model.isRecording,
                                 onSelectApp: { model.setMacroTarget(macro.id, $0) },
-                                onStart: startTemplate)
+                                onStart: startTemplate,
+                                onTapYourself: {
+                                    ui.templateFollowUp = .whenItAppears
+                                    model.record(into: macro.id, app: macro.target.app, watcher: true)
+                                })
             } else if macro.steps.isEmpty {
                 EmptyMacroPrompt(appName: macro.target.app?.name, onAddPicture: { addPictureStep() },
                                  onRecord: { model.record(into: macro.id, app: macro.target.app) })
@@ -1069,6 +1118,7 @@ struct MacroDetailView: View {
                     macro.playback.order = .allAtOnce
                     macro.playback.repeatMode = .untilStopped
                     select(insert(.findImage(pic), delay: 0))
+                    ui.askStop = true
                     model.flash("Ready. Press Play, and Heron clicks it whenever it shows up.")
                 case .killswitch:
                     pic.mode = .stop
@@ -1114,6 +1164,8 @@ struct MacroDetailView: View {
             macro.playback.repeatMode = .untilStopped
             ui.showingStops = true
             model.flash("Now choose what it shows when it's finished, under When something appears.")
+        case .whenItAppears:
+            ui.askStop = true
         default:
             break
         }
@@ -1350,6 +1402,8 @@ final class DetailUIState: ObservableObject {
     /// Template picked in an empty macro, “Blank” chosen, and the template waiting for its recording to end.
     @Published var template = MacroTemplate.whenItAppears
     @Published var blankChosen = false
+    /// Show “When should it stop?” (after a “Click it whenever it appears” macro is set up).
+    @Published var askStop = false
     var templateFollowUp: MacroTemplate?
     var picking = Picking.step
     /// Picture step whose editor is open.

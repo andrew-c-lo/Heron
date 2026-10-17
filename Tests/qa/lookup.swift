@@ -1114,5 +1114,19 @@ let movedIssues = MacroHealth.check(moved, backgrounds: [], window: nil)
 check("Check Macro names the app a picture was picked in when the macro has moved",
       movedIssues.contains { $0.kind == .otherApp && $0.number == 2 && $0.title.contains("com.example.first") })
 
+// Tap them yourself: a recorded round becomes one "click it whenever it appears" step per button.
+func tapStep(_ text: String?, _ png: Data = Data()) -> MacroStep {
+    var p = ImageStep(png: png, width: png.isEmpty ? 0 : 40, height: png.isEmpty ? 0 : 20, originX: 0, originY: 0)
+    p.text = text; p.timeout = 5
+    return MacroStep(delay: 1.2, action: .findImage(p))
+}
+let round = [MacroStep(delay: 0.3, action: .move(x: 5, y: 5)), tapStep("Start!"), tapStep("OK"),
+             MacroStep(delay: 0.2, action: .move(x: 9, y: 9)), tapStep("ok"), tapStep(nil, Data([7, 7])), tapStep(nil, Data([7, 7]))]
+let watched = ClickReader.watcherSteps(round)
+let watchedTexts = watched.steps.compactMap { s -> String? in if case .findImage(let p) = s.action { return p.text ?? "picture" }; return nil }
+check("tapping buttons yourself gives one step per button (repeats merged), with no waits or pointer travel",
+      watchedTexts == ["Start!", "OK", "picture"] && watched.steps.allSatisfy { $0.delay == 0 }, "\(watchedTexts)")
+check("…each watching all the time (no timeout)", watched.steps.allSatisfy { if case .findImage(let p) = $0.action { return p.timeout < 0 && p.mode == .click }; return false })
+
 print(failures == 0 ? "ALL PASSED" : "\(failures) FAILED")
 exit(failures == 0 ? 0 : 1)

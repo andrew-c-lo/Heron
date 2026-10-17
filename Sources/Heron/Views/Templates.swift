@@ -40,8 +40,8 @@ enum MacroTemplate: String, CaseIterable, Identifiable {
         switch self {
         case .whenItAppears:
             [("Which app?", "Choose the window to watch."),
-             ("Box the button", "A screenshot opens; drag around it."),
-             ("Done", "Heron watches all the time and clicks it whenever it shows up.")]
+             ("Show it the buttons", "Tap them yourself: play a round, and every button you tap is added. Or box one button on a screenshot."),
+             ("Done", "Heron watches all the time and clicks each one whenever it shows up.")]
         case .inOrder:
             [("Which app?", "Choose the window to record in."),
              ("Record", "Do it once yourself; each tap finds its target when played back."),
@@ -69,6 +69,8 @@ struct TemplateChooser: View {
     let isRecording: Bool
     let onSelectApp: (TargetApp?) -> Void
     let onStart: (MacroTemplate) -> Void
+    /// “Tap them yourself” (Click it whenever it appears): record a round, every button tapped becomes a step.
+    var onTapYourself: () -> Void = {}
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -134,13 +136,29 @@ struct TemplateChooser: View {
                 .padding(.vertical, 10)
                 if i < selected.steps.count - 1 { Divider() }
             }
-            HStack {
+            HStack(spacing: 8) {
+                // Watching for buttons needs the app's window: say so where the button is, not by greying it out.
+                if selected == .whenItAppears && app == nil {
+                    Label("Choose the app first", systemImage: "arrow.up")
+                        .font(.callout).foregroundStyle(.secondary)
+                }
                 Spacer()
-                Button(startLabel) { onStart(selected) }
-                    .keyboardShortcut(.defaultAction)
-                    .controlSize(.large)
-                    // Boxing a picture needs the app's window; recording can also cover the whole screen.
-                    .disabled(isRecording || (selected == .whenItAppears && app == nil))
+                if selected == .whenItAppears {
+                    Button("Box the Button…") { onStart(selected) }
+                        .controlSize(.large)
+                        .disabled(isRecording || app == nil)
+                        .help("A screenshot of the app opens: drag around one button")
+                    Button(isRecording ? "Recording…" : "Tap Them Yourself") { onTapYourself() }
+                        .keyboardShortcut(.defaultAction)
+                        .controlSize(.large)
+                        .disabled(isRecording || app == nil)
+                        .help("Play a round in the app: each button you tap is added. Stop recording when you're done.")
+                } else {
+                    Button(startLabel) { onStart(selected) }
+                        .keyboardShortcut(.defaultAction)
+                        .controlSize(.large)
+                        .disabled(isRecording)
+                }
             }
             .padding(.top, 6)
         }

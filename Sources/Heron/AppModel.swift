@@ -176,7 +176,9 @@ final class AppModel: ObservableObject {
         convertOldWatchers()
         refreshPermissions()
         registerHotkeys()
-        if UserDefaults.standard.string(forKey: "lastTab") == "macros" {
+        // The last tab you used; the first time (no macros, no tab yet), Macros, where New Macro is.
+        let lastTab = UserDefaults.standard.string(forKey: "lastTab")
+        if lastTab == "macros" || (lastTab == nil && macros.isEmpty) {
             sidebar = selectedMacroID.map { .macro($0) } ?? .macros
         }
         ScreenshotTour.runIfRequested(self)
@@ -798,13 +800,18 @@ final class AppModel: ObservableObject {
     }
 
     /// Recording for a template: the steps go into this macro, recorded inside this app.
-    private var recordingInto: (id: UUID, app: TargetApp?)?
+    private var recordingInto: (id: UUID, app: TargetApp?, watcher: Bool)?
     /// Set when a recording into a macro has finished (the editor uses it to continue the template).
     @Published private(set) var recordedInto: UUID?
 
-    func record(into id: UUID, app: TargetApp?) {
+    /// `watcher`: “Tap them yourself”: each button tapped becomes a “click it whenever it appears” step.
+    func record(into id: UUID, app: TargetApp?, watcher: Bool = false) {
         guard !isRecording else { return }
-        recordingInto = (id, app)
+        if watcher, !(hasScreenRecording || ScreenReader.hasPermission) {
+            flash("Tap Them Yourself needs Screen Recording, to see what you tap. Allow it in the Permissions tab.")
+            return
+        }
+        recordingInto = (id, app, watcher)
         recordedInto = nil
         beginRecording()
     }
@@ -833,7 +840,7 @@ final class AppModel: ObservableObject {
         )
         // Smart recording reads what's under each click, inside the chosen app's window.
         clickReader = nil
-        if prefs.smartRecording, hasScreenRecording || ScreenReader.hasPermission {
+        if prefs.smartRecording || recordingInto?.watcher == true, hasScreenRecording || ScreenReader.hasPermission {
             clickReader = ClickReader(target: recordTargetNow)
         }
         if let reader = clickReader { opts.onPress = { id, p in reader.notePress(id, at: p) } }
@@ -872,6 +879,26 @@ final class AppModel: ObservableObject {
         recordingInto = nil
         guard !steps.isEmpty else {
             flash("Nothing was recorded.")
+            return
+        }
+        if let into, into.watcher, var m = macros.first(where: { $0.id == into.id }) {
+            let (found, taps) = ClickReader.watcherSteps(steps)
+            guard !found.isEmpty else {
+                flash(taps == 0 ? "No taps were recorded. Tap the buttons in the \(into.app?.name ?? "app")'s window while recording."
+                                : "Couldn't make out what you tapped. Try Box the Button instead.")
+                return
+            }
+            m.steps += found
+            m.playback.order = .allAtOnce
+            m.playback.repeatMode = .untilStopped
+            m.target.app = into.app ?? smart.app ?? m.target.app
+            m.target.windowSize = m.target.app.flatMap { WindowFinder.find($0)?.frame.size }
+            update(m)
+            show(m.id)
+            recordedInto = m.id
+            let names = found.compactMap { s -> String? in if case .findImage(let p) = s.action { return p.text }; return nil }
+            flash("Added \(found.count) button\(found.count == 1 ? "" : "s")" + (names.isEmpty ? "" : ": " + names.prefix(4).joined(separator: ", "))
+                  + ". Heron clicks each one whenever it shows up.")
             return
         }
         if let into, var m = macros.first(where: { $0.id == into.id }) {
@@ -1695,10 +1722,18 @@ final class AppModel: ObservableObject {
         var m = Macro(name: "New Macro", steps: [])
         // Same app as the macro you're looking at, so picture and text steps work right away.
         m.target.app = selectedMacro?.target.app ?? macros.last?.target.app ?? autoClick.target.app ?? prefs.recordTarget
+            ?? Self.likelyTarget()
         m.target.delivery = Self.startingDelivery(for: m.target.app)
         macros.append(m)
         store.save(m)
         show(m.id)
+    }
+
+    /// For a first macro with nothing else to go on: a phone or Android app on the Mac (iPhone Mirroring, an
+    /// emulator) if one is open, the usual reason to automate; otherwise none.
+    static func likelyTarget() -> TargetApp? {
+        let likely = ["com.apple.ScreenContinuity"] + Array(AndroidBridge.emulators)
+        return TargetApp.running().first { likely.contains($0.bundleID) }
     }
 
     func duplicate(_ m: Macro) {
