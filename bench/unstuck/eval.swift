@@ -1,9 +1,11 @@
 // Scores "what to do on a stuck screen" strategies against the labelled screens in data/.
-//   bench/unstuck/run.sh eval [strategy …]      strategies: fixed, wait, model-point, model-choose
+//   bench/unstuck/run.sh eval [strategy …]
+//   strategies: fixed, wait, model-point, model-choose, memory, model-memory
 // Writes results/<date>-<commit>.local.json (with the machine) and prints a summary table.
 import AppKit
 import Foundation
 import FoundationModels
+import Vision
 
 let root = URL(fileURLWithPath: CommandLine.arguments[1])
 let strategies = Array(CommandLine.arguments.dropFirst(2)).isEmpty ? ["fixed", "wait"] : Array(CommandLine.arguments.dropFirst(2))
@@ -67,6 +69,10 @@ func askModel(_ strategy: String, _ s: Screen) async -> Decision {
     let cands = tappable(s)
     var props = [reason, decision]
     var question = "Goal: \(intent)\nWhat should happen on this screen?"
+    if strategy == "model-memory" {
+        let mem = remembered(s)
+        if !mem.isEmpty { question += "\nWhat happened on the most similar screens seen before, most similar first:\n" + mem.map(memoryLine).joined(separator: "\n") }
+    }
     if strategy == "model-point" {
         props += [DynamicGenerationSchema.Property(name: "x", description: "With tap: how far across the screen to tap, 0 (left) to 1 (right)", schema: DynamicGenerationSchema(type: Double.self), isOptional: true),
                   DynamicGenerationSchema.Property(name: "y", description: "With tap: how far down the screen to tap, 0 (top) to 1 (bottom)", schema: DynamicGenerationSchema(type: Double.self), isOptional: true)]
@@ -81,7 +87,7 @@ func askModel(_ strategy: String, _ s: Screen) async -> Decision {
         let session = LanguageModelSession(model: SystemLanguageModel.default, instructions: instructions)
         let img = image(s)
         let r = try await session.respond(to: Prompt { Attachment(img); question }, schema: schema,
-                                          options: GenerationOptions(sampling: .greedy))
+                                          options: GenerationOptions(sampling: .greedy, maximumResponseTokens: 200))
         let c = r.content
         let d = (try? c.value(String.self, forProperty: "decision")) ?? "wait"
         var note: [String: Any] = ["decision": d, "reason": (try? c.value(String.self, forProperty: "reason")) ?? ""]
@@ -109,6 +115,61 @@ func askModel(_ strategy: String, _ s: Screen) async -> Decision {
         modelErrors += 1
         modelNotes[strategy + "/" + s.file] = ["error": "\(error)"]
         return .wait
+    }
+}
+
+// MARK: Screen memory: what was right on similar earlier screens
+
+/// Image fingerprints (Apple's Vision feature prints), one per screen, made once.
+var fingerprints: [String: VNFeaturePrintObservation] = [:]
+func fingerprint(_ s: Screen) -> VNFeaturePrintObservation? {
+    if let f = fingerprints[s.file] { return f }
+    let req = VNGenerateImageFeaturePrintRequest()
+    try? VNImageRequestHandler(url: root.appendingPathComponent("screens").appendingPathComponent(s.file)).perform([req])
+    fingerprints[s.file] = req.results?.first
+    return fingerprints[s.file]
+}
+/// Screens are named <macro>-<time>; only screens from before this one may be remembered.
+func time(_ file: String) -> Substring { file.dropFirst(9) }
+/// Below this distance the most similar earlier screen had the same right answer every time (set on the practice set).
+let sameScreen: Float = 0.30
+
+struct Memory { let screen: Screen; let label: EvalLabel; let distance: Float }
+
+/// The most similar earlier screens that have an answer, closest first.
+func remembered(_ s: Screen, k: Int = 3) -> [Memory] {
+    guard let fp = fingerprint(s) else { return [] }
+    var out: [Memory] = []
+    for o in screens where time(o.file) < time(s.file) {
+        guard let l = labels[o.file], ["target", "anywhere", "wait", "none", "stop"].contains(l.action), let ofp = fingerprint(o) else { continue }
+        var d: Float = 0
+        guard (try? fp.computeDistance(&d, to: ofp)) != nil else { continue }
+        out.append(Memory(screen: o, label: l, distance: d))
+    }
+    return Array(out.sorted { $0.distance < $1.distance }.prefix(k))
+}
+
+/// Where the right tap was on a remembered screen, and the words on it if any (what a deployment would have
+/// stored: the outcome and what was tapped, not anyone's notes).
+func rememberedTap(_ m: Memory) -> (point: CGPoint, words: String?)? {
+    let byId = (m.label.target ?? []).compactMap { id in m.screen.candidates.first { $0.id == id } }.first
+    let box = byId.map { rect($0.box) } ?? m.label.boxes?.first.map(rect)
+    guard let b = box else { return nil }
+    let c = CGPoint(x: b.midX, y: b.midY)
+    let words = byId?.text ?? m.screen.candidates.first { $0.id < 100 && rect($0.box).contains(c) }?.text
+    return (c, words)
+}
+
+func memoryLine(_ m: Memory) -> String {
+    let how = m.distance < sameScreen ? "almost the same screen" : "a similar screen"
+    switch m.label.action {
+    case "target", "anywhere":
+        if let t = rememberedTap(m) {
+            return "- On \(how), tapping \(t.words.map { "“\($0)”" } ?? "the spot at \(Int(t.point.x)), \(Int(t.point.y))") moved it on."
+        }
+        return "- On \(how), one tap anywhere moved it on."
+    case "wait": return "- On \(how), it finished by itself (no tap needed)."
+    default: return "- On \(how), the right move was to stop: no tap."
     }
 }
 
@@ -141,7 +202,17 @@ func decide(_ strategy: String, _ s: Screen) -> (Decision, Double) {
         } else { d = .wait }
     case "wait":
         d = .wait
-    case "model-point", "model-choose":
+    case "memory":
+        // Do what was right on an almost identical earlier screen; otherwise don't tap.
+        if let m = remembered(s, k: 1).first, m.distance < sameScreen {
+            switch m.label.action {
+            case "target": d = rememberedTap(m).map { .tap($0.point) } ?? .wait
+            case "anywhere": d = .tap(CGPoint(x: s.size[0] / 2, y: s.size[1] / 2))
+            default: d = .wait
+            }
+            modelNotes[strategy + "/" + s.file] = ["remembered": m.screen.file, "distance": m.distance, "action": m.label.action]
+        } else { d = .wait }
+    case "model-point", "model-choose", "model-memory":
         guard #available(macOS 27.0, *), SystemLanguageModel.default.isAvailable else { fatalError("Needs macOS 27 with Apple Intelligence on") }
         d = blocking { await askModel(strategy, s) }
     default:
@@ -168,6 +239,10 @@ func score(_ d: Decision, _ l: EvalLabel, _ s: Screen) -> (correct: Bool, unsafe
     default: return (false, false)
     }
 }
+
+setvbuf(stdout, nil, _IOLBF, 0) // print each line as it's done
+// Fingerprints are made here, on the main thread: Vision called from the model's background work deadlocked.
+if strategies.contains(where: { $0.contains("memory") }) { for s in screens { _ = fingerprint(s) } }
 
 var results: [String: Any] = [:]
 print(String(format: "%-12@ %7@ %8@ %7@  %@", "strategy" as NSString, "scored" as NSString, "correct" as NSString, "unsafe" as NSString, "by label (correct/total)" as NSString))
