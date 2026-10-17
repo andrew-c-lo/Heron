@@ -803,6 +803,8 @@ final class AppModel: ObservableObject {
     private var recordingInto: (id: UUID, app: TargetApp?, watcher: Bool)?
     /// Set when a recording into a macro has finished (the editor uses it to continue the template).
     @Published private(set) var recordedInto: UUID?
+    /// Recording for “Tap them yourself”: the count of raw events means nothing there.
+    @Published private(set) var recordingButtons = false
 
     /// `watcher`: “Tap them yourself”: each button tapped becomes a “click it whenever it appears” step.
     func record(into id: UUID, app: TargetApp?, watcher: Bool = false) {
@@ -812,8 +814,13 @@ final class AppModel: ObservableObject {
             return
         }
         recordingInto = (id, app, watcher)
+        recordingButtons = watcher
         recordedInto = nil
         beginRecording()
+        // Tapping buttons happens in the app: bring it forward rather than leave it behind Heron.
+        if watcher, isRecording || countdown != nil, let id = app?.bundleID {
+            NSRunningApplication.runningApplications(withBundleIdentifier: id).first?.activate()
+        }
     }
 
     private var recordTargetNow: TargetApp? { recordingInto.map { $0.app } ?? prefs.recordTarget }
@@ -877,6 +884,7 @@ final class AppModel: ObservableObject {
         sound("Pop")
         let into = recordingInto
         recordingInto = nil
+        recordingButtons = false
         guard !steps.isEmpty else {
             flash("Nothing was recorded.")
             return

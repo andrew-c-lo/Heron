@@ -156,12 +156,20 @@ final class ClickReader: @unchecked Sendable {
     /// wasn't a recognised tap are left out; `taps` is how many taps were recorded in all.
     static func watcherSteps(_ steps: [MacroStep]) -> (steps: [MacroStep], taps: Int) {
         var out: [MacroStep] = []
-        var seen: [(text: String, png: Data)] = []
+        var seen: [(text: String, png: Data, box: CGRect?)] = []
         for s in steps {
             guard case .findImage(var p) = s.action else { continue }
             let text = (p.text ?? "").trimmingCharacters(in: .whitespaces).lowercased()
-            if seen.contains(where: { (!text.isEmpty && $0.text == text) || (!p.png.isEmpty && $0.png == p.png) }) { continue }
-            seen.append((text, p.png))
+            // A picture taken where an earlier one was, at about its size, is the same button: a pressed button
+            // looks a little different each time, so equal pictures alone miss repeats.
+            let box: CGRect? = p.png.isEmpty ? nil : CGRect(x: p.originX, y: p.originY, width: p.width, height: p.height)
+            func sameSpot(_ a: CGRect?) -> Bool {
+                guard let a, let box else { return false }
+                return hypot(a.midX - box.midX, a.midY - box.midY) <= max(8, min(box.width, box.height) * 0.25)
+                    && abs(a.width - box.width) <= box.width * 0.3 && abs(a.height - box.height) <= box.height * 0.3
+            }
+            if seen.contains(where: { (!text.isEmpty && $0.text == text) || (!p.png.isEmpty && $0.png == p.png) || sameSpot($0.box) }) { continue }
+            seen.append((text, p.png, box))
             p.mode = .click
             p.timeout = -1
             p.otherwise = .continueAnyway

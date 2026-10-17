@@ -81,7 +81,7 @@ struct TemplateChooser: View {
                     Text("Pick a starting point. You can change anything afterwards.")
                         .foregroundStyle(.secondary)
                 }
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 190), spacing: 10)], spacing: 10) {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 160), spacing: 10, alignment: .top)], spacing: 10) {
                     ForEach(MacroTemplate.allCases) { t in card(t) }
                 }
                 guide
@@ -89,6 +89,15 @@ struct TemplateChooser: View {
             .padding(20)
             .frame(maxWidth: 640, alignment: .leading)
             .frame(maxWidth: .infinity)
+        }
+        // The start buttons stay in view however short the window is.
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            actions
+                .padding(.horizontal, 34).padding(.vertical, 10)
+                .frame(maxWidth: 640)
+                .frame(maxWidth: .infinity)
+                .background(.bar)
+                .overlay(alignment: .top) { Divider() }
         }
     }
 
@@ -136,34 +145,36 @@ struct TemplateChooser: View {
                 .padding(.vertical, 10)
                 if i < selected.steps.count - 1 { Divider() }
             }
-            HStack(spacing: 8) {
-                // Watching for buttons needs the app's window: say so where the button is, not by greying it out.
-                if selected == .whenItAppears && app == nil {
-                    Label("Choose the app first", systemImage: "arrow.up")
-                        .font(.callout).foregroundStyle(.secondary)
-                }
-                Spacer()
-                if selected == .whenItAppears {
-                    Button("Box the Button…") { onStart(selected) }
-                        .controlSize(.large)
-                        .disabled(isRecording || app == nil)
-                        .help("A screenshot of the app opens: drag around one button")
-                    Button(isRecording ? "Recording…" : "Tap Them Yourself") { onTapYourself() }
-                        .keyboardShortcut(.defaultAction)
-                        .controlSize(.large)
-                        .disabled(isRecording || app == nil)
-                        .help("Play a round in the app: each button you tap is added. Stop recording when you're done.")
-                } else {
-                    Button(startLabel) { onStart(selected) }
-                        .keyboardShortcut(.defaultAction)
-                        .controlSize(.large)
-                        .disabled(isRecording)
-                }
-            }
-            .padding(.top, 6)
         }
         .padding(.horizontal, 14).padding(.vertical, 4)
         .background(RoundedRectangle(cornerRadius: 10).fill(Color(nsColor: .controlBackgroundColor).opacity(0.6)))
+    }
+
+    private var actions: some View {
+        HStack(spacing: 8) {
+            // Watching for buttons needs the app's window: say so where the button is, not by greying it out.
+            if selected == .whenItAppears && app == nil {
+                Label("Choose the app first", systemImage: "arrow.up")
+                    .font(.callout).foregroundStyle(.secondary)
+            }
+            Spacer()
+            if selected == .whenItAppears {
+                Button("Box the Button…") { onStart(selected) }
+                    .controlSize(.large)
+                    .disabled(isRecording || app == nil)
+                    .help("A screenshot of the app opens: drag around one button")
+                Button(isRecording ? "Recording…" : "Tap Them Yourself") { onTapYourself() }
+                    .keyboardShortcut(.defaultAction)
+                    .controlSize(.large)
+                    .disabled(isRecording || app == nil)
+                    .help("Play a round in the app: each button you tap is added. Stop recording when you're done.")
+            } else {
+                Button(startLabel) { onStart(selected) }
+                    .keyboardShortcut(.defaultAction)
+                    .controlSize(.large)
+                    .disabled(isRecording)
+            }
+        }
     }
 
     private var startLabel: String {

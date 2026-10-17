@@ -356,7 +356,8 @@ struct StatusBar: View {
                            button: "Cancel", hotkey: nil, action: { model.stopAll() })
         }
         if model.isRecording {
-            return Content(dot: .red, title: "Recording", detail: "\(model.recordedSteps) steps so far",
+            return Content(dot: .red, title: "Recording",
+                           detail: model.recordingButtons ? "Tap each button in the app, then Stop Recording" : "\(model.recordedSteps) steps so far",
                            button: "Stop Recording", hotkey: .toggleRecording, tint: .red,
                            action: { model.toggleRecording(fromUI: true) })
         }

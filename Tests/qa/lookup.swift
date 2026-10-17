@@ -1126,6 +1126,14 @@ let watched = ClickReader.watcherSteps(round)
 let watchedTexts = watched.steps.compactMap { s -> String? in if case .findImage(let p) = s.action { return p.text ?? "picture" }; return nil }
 check("tapping buttons yourself gives one step per button (repeats merged), with no waits or pointer travel",
       watchedTexts == ["Start!", "OK", "picture"] && watched.steps.allSatisfy { $0.delay == 0 }, "\(watchedTexts)")
+func spotStep(_ png: Data, x: Double, y: Double) -> MacroStep {
+    MacroStep(delay: 1, action: .findImage(ImageStep(png: png, width: 40, height: 40, originX: x, originY: y)))
+}
+// Calculator, by hand: 7, +, 7 (pressed, so its picture differs), and 8 right beside 7.
+let pressed = ClickReader.watcherSteps([spotStep(Data([1]), x: 10, y: 100), spotStep(Data([2]), x: 200, y: 160),
+                                      spotStep(Data([3]), x: 12, y: 102), spotStep(Data([4]), x: 60, y: 100)])
+check("the same button tapped twice is one step even when its picture differs; the button beside it stays separate",
+      pressed.steps.count == 3, "\(pressed.steps.count) steps")
 check("…each watching all the time (no timeout)", watched.steps.allSatisfy { if case .findImage(let p) = $0.action { return p.timeout < 0 && p.mode == .click }; return false })
 
 print(failures == 0 ? "ALL PASSED" : "\(failures) FAILED")
