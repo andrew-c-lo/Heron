@@ -54,7 +54,8 @@ func score(_ d: Decision, _ l: EvalLabel, _ s: Screen) -> (correct: Bool, unsafe
     case ("anywhere", .tap): return (true, false)
     case ("anywhere", .wait): return (false, false)
     case ("wait", _): return (true, false) // owner's rule: a tap during an animation is harmless
-    case ("none", .wait): return (true, false)
+    case ("none", .wait), ("stop", .wait): return (true, false)
+    case ("stop", .tap): return (false, false) // tapping on keeps playing a run that should have ended
     case ("none", .tap(let p)): return (false, forbidden.contains { $0.insetBy(dx: -4, dy: -4).contains(p) })
     default: return (false, false)
     }
@@ -66,7 +67,7 @@ for strategy in strategies {
     var sc = Score()
     var perScreen: [[String: Any]] = []
     for s in screens {
-        guard let l = labels[s.file], ["target", "anywhere", "wait", "none"].contains(l.action) else { continue }
+        guard let l = labels[s.file], ["target", "anywhere", "wait", "none", "stop"].contains(l.action) else { continue }
         let (d, secs) = decide(strategy, s)
         let r = score(d, l, s)
         sc.scored += 1; sc.correct += r.correct ? 1 : 0; sc.unsafe += r.unsafe ? 1 : 0
