@@ -19,6 +19,7 @@ let dec = JSONDecoder(); dec.dateDecodingStrategy = .iso8601
 let enc = JSONEncoder(); enc.dateEncodingStrategy = .iso8601
 var steps: [(macro: String, index: Int, step: ImageStep, reference: CGSize)] = []
 var unreliable = 0
+var notApplicable = 0
 for f in (try FileManager.default.contentsOfDirectory(atPath: data.appendingPathComponent("macros").path)).sorted() where f.hasSuffix(".json") {
     let d = try Data(contentsOf: data.appendingPathComponent("macros").appendingPathComponent(f))
     guard let m = Lenient.decode(d, defaults: Macro(name: "", steps: []), encoder: enc, decoder: dec) else { continue }
@@ -124,6 +125,11 @@ for st in steps {
         // The picture belongs inside the step's search area (as this layout maps it): when the area was drawn
         // somewhere else than the picture was picked, put it there.
         var original = picked
+        // Outside this layout's game area (e.g. below it in a window BlueStacks would never have): the renderer
+        // paints over it, so the case can't be tested here. Counted as not applicable, not as a miss.
+        if emulator, let a = WindowFit.androidScreen(in: st.reference), !a.insetBy(dx: -2, dy: -2).contains(picked) {
+            notApplicable += 1; continue
+        }
         if let area = st.step.area, let aref = st.step.areaReference(fallback: st.reference) {
             let a = WindowFit.between(aref, st.reference, emulator: emulator).rect(area)
             if !a.contains(original), a.width >= original.width, a.height >= original.height {
@@ -153,8 +159,11 @@ for st in steps {
                     }
                     bySlice[key] = t
                 }
-                if !ok, failures.count < 400 {
+                if !ok, failures.count < 2000 {
+                    let best = lookup.matchPicture(in: pixels(img))
                     failures.append(["macro": st.macro, "step": st.index, "layout": layout.rawValue, "scale": k,
+                                     "score": best.map { ($0.score * 100).rounded() / 100 } as Any, "strictness": (lookup.strictness * 100).rounded() / 100,
+                                     "bestAt": best.map { [Int($0.rect.minX), Int($0.rect.minY)] } as Any,
                                      "picture": [Int(st.step.width), Int(st.step.height)], "reference": [Int(st.reference.width), Int(st.reference.height)],
                                      "found": found.map { [Int($0.minX), Int($0.minY), Int($0.width), Int($0.height)] } as Any,
                                      "expected": [Int(expected.minX), Int(expected.minY), Int(expected.width), Int(expected.height)]])
@@ -168,7 +177,7 @@ func pct(_ k: Int, _ n: Int) -> String {
     let (lo, hi) = wilson(k, n)
     return n == 0 ? "   –" : String(format: "%3.0f%% (%2.0f–%3.0f)", Double(k) / Double(n) * 100, lo * 100, hi * 100)
 }
-print("\(steps.count) pictures (\(unreliable) skipped: saved size can't be right), \(backgrounds.count) backgrounds, \(looks) looks in \(Int(Date().timeIntervalSince(t0))) s")
+print("\(steps.count) pictures (\(unreliable) skipped: saved size can't be right; \(notApplicable) picture-layout pairs outside the game area), \(backgrounds.count) backgrounds, \(looks) looks in \(Int(Date().timeIntervalSince(t0))) s")
 print(String(format: "%-26@ %5@  %-17@ %-17@ %@", "slice" as NSString, "n" as NSString, "found" as NSString, "placed" as NSString, "false alarms" as NSString))
 for key in bySlice.keys.sorted(by: { a, b in
     func order(_ s: String) -> (Int, String) { (s.hasPrefix("plain") ? 0 : s.hasPrefix("bluestacks+") ? 2 : s.hasPrefix("bluestacks") ? 1 : 3, s) }

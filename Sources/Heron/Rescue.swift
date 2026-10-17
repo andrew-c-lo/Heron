@@ -22,6 +22,7 @@ final class RescueCapture {
         var done = false
     }
     private var pending: Pending?
+    private var count = 0
 
     nonisolated static var folder: URL { AppFolder.url.appendingPathComponent("Evals/unstuck", isDirectory: true) }
 
@@ -32,7 +33,8 @@ final class RescueCapture {
         let f = ISO8601DateFormatter(); f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         let stamp = f.string(from: Date()).replacingOccurrences(of: ":", with: "-")
         try? FileManager.default.createDirectory(at: Self.folder, withIntermediateDirectories: true)
-        let base = Self.folder.appendingPathComponent("\(macro.uuidString.prefix(8))-\(stamp)")
+        count += 1 // two in the same millisecond still get their own files
+        let base = Self.folder.appendingPathComponent("\(macro.uuidString.prefix(8))-\(stamp)-\(count)")
         pending = Pending(macro: macro, base: base, window: window, at: Date(), stuckTap: tap)
         DispatchQueue.global(qos: .utility).async {
             guard let cg = screen.cgImage,

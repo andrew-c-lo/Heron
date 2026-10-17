@@ -120,7 +120,11 @@ struct Lookup {
         guard template != nil else { return nil }
         // The search area is a region of the one prepared screen (shared by every step), not a piece of its own.
         let sc = scene ?? TemplateMatcher.Scene(rgba: px.rgba, width: px.width, height: px.height)
+        // A little room around the area: one drawn tight around the picture (29 pt for a 30 pt picture) could
+        // never hold it, and rounding at other window sizes can shave a point off either way.
         let region = scaledArea(for: CGSize(width: px.width, height: px.height))?.integral
+            .insetBy(dx: -max(4, (template?.full.width).map { Double($0) * 0.1 } ?? 4),
+                     dy: -max(4, (template?.full.height).map { Double($0) * 0.1 } ?? 4))
         let offset = CGPoint.zero
         let base = scale(for: CGSize(width: px.width, height: px.height))
         func best(at s: Double) -> TemplateMatcher.Match? {
