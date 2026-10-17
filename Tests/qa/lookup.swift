@@ -1033,5 +1033,18 @@ check("each labelled stuck screen keeps its picture", rescueFiles.filter { $0.pa
 unsetenv("HERON_HOME")
 try? FileManager.default.removeItem(at: rescueHome)
 
+// Score log: a fixed-size sample per step, met and below kept apart, cleared per run.
+let scoredStep = UUID()
+ScoreLog.reset([scoredStep])
+for i in 0..<1000 { ScoreLog.record(scoredStep, score: 0.9 + Double(i % 10) / 1000, met: true) }
+for _ in 0..<5 { ScoreLog.record(scoredStep, score: 0.4, met: false) }
+let scoreReport = ScoreLog.report(scoredStep)
+let metPart = scoreReport?["met"] as? [String: Any], belowPart = scoreReport?["below"] as? [String: Any]
+check("the score log keeps a fixed-size sample of many looks, met and below apart",
+      metPart?["looks"] as? Int == 1000 && (metPart?["sample"] as? [Double])?.count == ScoreLog.keep
+      && belowPart?["looks"] as? Int == 5 && (belowPart?["sample"] as? [Double]) == [0.4, 0.4, 0.4, 0.4, 0.4])
+ScoreLog.reset([scoredStep])
+check("…and starts empty for the next run", ScoreLog.report(scoredStep) == nil)
+
 print(failures == 0 ? "ALL PASSED" : "\(failures) FAILED")
 exit(failures == 0 ? 0 : 1)

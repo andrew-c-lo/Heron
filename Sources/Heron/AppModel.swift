@@ -1098,6 +1098,7 @@ final class AppModel: ObservableObject {
     private func resetHits(for m: Macro) {
         live[m.id] = LiveRun()
         for s in m.steps { stepHits[s.id] = nil; stepFound[s.id] = nil; stepFoundSize[s.id] = nil; stepFoundWindow[s.id] = nil }
+        ScoreLog.reset(m.steps.map(\.id))
         runs[m.id] = RunLog(started: Date())
         _ = pressWatchers.removeValue(forKey: m.id)?.finish()
         if prefs.suggestFromMyPresses, hasInputMonitoring, let app = m.target.app {
@@ -1266,6 +1267,7 @@ final class AppModel: ObservableObject {
             if let r = stepFound[s.id] { d["foundIn"] = [r.minX, r.minY, r.width, r.height].map { Int($0) } }
             if let z = stepFoundSize[s.id] { d["foundSize"] = [Int(z.width), Int(z.height)] }
             if let w = stepFoundWindow[s.id] { d["foundWindow"] = [Int(w.width), Int(w.height)] }
+            if let sc = ScoreLog.report(s.id) { d["scores"] = sc }
             return d
         }
         let report: [String: Any] = [
