@@ -400,6 +400,16 @@ struct ImageStep: Codable, Equatable {
     }
     /// Click a fixed spot without looking (the picture and words are kept, so switching back is one click).
     var spotOnly = false
+    /// When the picture shows more than once: which one (nil = the closest match). The last in a list is often
+    /// the newest or hardest; the first, the top one.
+    var pick: Pick?
+    enum Pick: String, Codable, CaseIterable, Identifiable {
+        case top, bottom, left, right
+        var id: String { rawValue }
+        var label: String {
+            switch self { case .top: "The top one"; case .bottom: "The bottom one"; case .left: "The leftmost"; case .right: "The rightmost" }
+        }
+    }
     /// Words read from inside the picture, for its title (“” when it has none; nil = not read yet).
     var pictureWords: String?
     /// Its main colour, for the title of a picture with no words (“red”; nil = not worked out yet).
@@ -498,6 +508,7 @@ extension ImageStep {
         variants = try c.decodeIfPresent([PictureVariant].self, forKey: .variants) ?? []
         alsoPicture = try c.decodeIfPresent(Bool.self, forKey: .alsoPicture) ?? false
         spotOnly = try c.decodeIfPresent(Bool.self, forKey: .spotOnly) ?? false
+        pick = try c.decodeIfPresent(Pick.self, forKey: .pick)
         pictureWords = try c.decodeIfPresent(String.self, forKey: .pictureWords)
         pictureColor = try c.decodeIfPresent(String.self, forKey: .pictureColor)
         settleMax = try c.decodeIfPresent(Double.self, forKey: .settleMax)

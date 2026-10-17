@@ -125,6 +125,12 @@ struct PictureStepEditor: View {
                               systemImage: "exclamationmark.triangle.fill")
                             .font(.callout).foregroundStyle(.orange)
                     }
+                    if !s.spotOnly && !s.png.isEmpty {
+                        Picker("If it shows more than once", selection: step.pick) {
+                            Text("The closest match").tag(ImageStep.Pick?.none)
+                            ForEach(ImageStep.Pick.allCases) { Text($0.label).tag(Optional($0)) }
+                        }
+                    }
                     if !s.spotOnly {
                     Toggle(isOn: step.repeatUntilGone) {
                         Text("Keep \(touch ? "tapping" : "clicking") until it's gone")

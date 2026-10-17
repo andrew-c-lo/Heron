@@ -1056,6 +1056,33 @@ check("one price next to “Buy” or “Purchase” is a purchase screen; “Bu
       StuckGuard.looksLikeShop([TextFinder.Line(text: "Buy now", rect: .zero, words: []), TextFinder.Line(text: "$4.99", rect: .zero, words: [])])
       && !StuckGuard.looksLikeShop([TextFinder.Line(text: "Buyer", rect: .zero, words: []), TextFinder.Line(text: "$4.99", rect: .zero, words: [])]))
 
+// Which one, when a picture shows more than once: three copies of a badge down a list.
+func listScreen() -> ScreenReader.WindowPixels {
+    let w = 200, h = 500
+    var rgba = [UInt8](repeating: 30, count: w * h * 4)
+    for i in stride(from: 3, to: rgba.count, by: 4) { rgba[i] = 255 }
+    for top in [60, 220, 380] { for y in top..<(top + 40) { for x in 40..<120 {
+        let i = (y * w + x) * 4, ring = ((x - 40) % 20 < 10) != ((y - top) % 20 < 10)
+        rgba[i] = ring ? 240 : 200; rgba[i + 1] = ring ? 180 : 60; rgba[i + 2] = 40
+    } } }
+    return ScreenReader.WindowPixels(rgba: rgba, width: w, height: h)
+}
+let list = listScreen()
+let badge = pngOf(list, CGRect(x: 40, y: 220, width: 80, height: 40))
+var badgeStep = ImageStep(png: badge.0, width: badge.1, height: badge.2, originX: 40, originY: 220)
+badgeStep.strictness = 0.9
+badgeStep.pick = .bottom
+let lowest = Lookup(step: badgeStep, reference: CGSize(width: 200, height: 500))?.matchPicture(in: list)
+check("“the bottom one” picks the last copy down the list", lowest.map { abs($0.rect.minY - 380) < 2 } ?? false, "\(String(describing: lowest?.rect))")
+badgeStep.pick = .top
+let highest = Lookup(step: badgeStep, reference: CGSize(width: 200, height: 500))?.matchPicture(in: list)
+check("…and “the top one” the first", highest.map { abs($0.rect.minY - 60) < 2 } ?? false, "\(String(describing: highest?.rect))")
+badgeStep.pick = nil
+let anyOne = Lookup(step: badgeStep, reference: CGSize(width: 200, height: 500))?.matchPicture(in: list)
+check("…while the default still finds one of them", anyOne.map { m in [60.0, 220, 380].contains(where: { t in abs(m.rect.minY - t) < 2 }) } ?? false)
+let decodedPick = try? JSONDecoder().decode(ImageStep.self, from: JSONEncoder().encode({ var b = badgeStep; b.pick = .bottom; return b }()))
+check("the choice is saved with the step", decodedPick?.pick == .bottom)
+
 // Where a blind tap is safe: a plain screen with a tab bar along the bottom.
 func spotScreen() -> ScreenReader.WindowPixels {
     let w = 300, h = 600

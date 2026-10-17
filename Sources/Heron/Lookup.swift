@@ -24,6 +24,8 @@ struct Lookup {
     var pictureSizeUnknown = false
     /// Where the words are inside the picture, as fractions of it (for steps with a click box).
     var wordsInPicture: CGRect?
+    /// Which one when the picture shows more than once (nil = the closest match).
+    var pick: ImageStep.Pick?
     /// The pictures as stored, for resizing.
     private var sources: [(png: Data, width: Double, height: Double)] = []
     private let resized = ResizedCache()
@@ -36,6 +38,7 @@ struct Lookup {
         self.areaReference = s.areaReference(fallback: reference)
         if s.areaUnreliable(fallback: reference) { self.area = nil }
         self.pictureSizeUnknown = s.pictureSizeUnreliable(fallback: reference)
+        self.pick = s.pick
         // A click box is drawn on the picture: when the words are what's found, the box is placed by where the
         // words sit in the picture, not squeezed onto the words themselves.
         if s.clickArea != nil, !s.png.isEmpty, let t = self.text, !t.isEmpty {
@@ -127,17 +130,37 @@ struct Lookup {
                      dy: -max(4, (template?.full.height).map { Double($0) * 0.1 } ?? 4))
         let offset = CGPoint.zero
         let base = scale(for: CGSize(width: px.width, height: px.height))
-        func best(at s: Double) -> TemplateMatcher.Match? {
-            pictures(at: s).compactMap { TemplateMatcher.find($0, in: sc, region: region) }.max { $0.score < $1.score }
+        func best(at s: Double, in r: CGRect? = region) -> TemplateMatcher.Match? {
+            pictures(at: s).compactMap { TemplateMatcher.find($0, in: sc, region: r) }.max { $0.score < $1.score }
+        }
+        // Several on screen and one is wanted by position: from the best match, look again only beyond it (past
+        // its middle, so the next one is another copy, not the same one again), until there's none further.
+        func picked(_ first: TemplateMatcher.Match?, at s: Double) -> TemplateMatcher.Match? {
+            guard let pick, var m = first, m.score >= strictness else { return first }
+            let all = region ?? CGRect(x: 0, y: 0, width: px.width, height: px.height)
+            for _ in 0..<12 {
+                let beyond: CGRect
+                switch pick {
+                case .bottom: beyond = CGRect(x: all.minX, y: m.rect.midY, width: all.width, height: all.maxY - m.rect.midY)
+                case .top: beyond = CGRect(x: all.minX, y: all.minY, width: all.width, height: m.rect.midY - all.minY)
+                case .right: beyond = CGRect(x: m.rect.midX, y: all.minY, width: all.maxX - m.rect.midX, height: all.height)
+                case .left: beyond = CGRect(x: all.minX, y: all.minY, width: m.rect.midX - all.minX, height: all.height)
+                }
+                guard beyond.width >= m.rect.width, beyond.height >= m.rect.height,
+                      let next = best(at: s, in: beyond.integral), next.score >= strictness else { break }
+                m = next
+            }
+            return m
         }
         // A size that matched before (see below) is tried first.
         let learned = sizes.lock.withLock { sizes.factor }
-        var m = best(at: (base * learned * 100).rounded() / 100)
-        if learned != 1, (m?.score ?? 0) < strictness, let plain = best(at: base), plain.score > (m?.score ?? 0) { m = plain }
+        var mScale = (base * learned * 100).rounded() / 100
+        var m = best(at: mScale)
+        if learned != 1, (m?.score ?? 0) < strictness, let plain = best(at: base), plain.score > (m?.score ?? 0) { m = plain; mScale = base }
         // Other sizes are tried at most once a second: searching several sizes on every look kept the CPU busy.
         let now = Timing.now()
         guard (m?.score ?? 0) < strictness, sizes.lock.withLock({ now - sizes.lastSweep >= 1 }) else {
-            return m.map { TemplateMatcher.Match(rect: $0.rect.offsetBy(dx: offset.x, dy: offset.y), score: $0.score) }
+            return picked(m, at: mScale).map { TemplateMatcher.Match(rect: $0.rect.offsetBy(dx: offset.x, dy: offset.y), score: $0.score) }
         }
         var factors: [Double] = []
         // Its saved size is wrong, so its real size is unknown: look across the sizes a window is likely to have been.
@@ -150,12 +173,13 @@ struct Lookup {
             for k in factors {
                 if let other = best(at: (base * k * 100).rounded() / 100), other.score > (m?.score ?? 0) {
                     m = other
+                    mScale = (base * k * 100).rounded() / 100
                     if other.score >= strictness { sizes.lock.withLock { sizes.factor = k } }
                 }
                 if (m?.score ?? 0) >= strictness { break }
             }
         }
-        return m.map { TemplateMatcher.Match(rect: $0.rect.offsetBy(dx: offset.x, dy: offset.y), score: $0.score) }
+        return picked(m, at: mScale).map { TemplateMatcher.Match(rect: $0.rect.offsetBy(dx: offset.x, dy: offset.y), score: $0.score) }
     }
 
     /// How far below the strictness a picture can score and still get a second look at other sizes.
