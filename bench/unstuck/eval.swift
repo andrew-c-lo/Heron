@@ -8,7 +8,7 @@ import FoundationModels
 let root = URL(fileURLWithPath: CommandLine.arguments[1])
 let strategies = Array(CommandLine.arguments.dropFirst(2)).isEmpty ? ["fixed", "wait"] : Array(CommandLine.arguments.dropFirst(2))
 
-struct Candidate: Codable { let id: Int; let text: String; let box: [Int] }
+struct Candidate: Codable { let id: Int; let text: String; let box: [Int]; var score: Double? }
 struct Screen: Codable { let file: String; let size: [Int]; let candidates: [Candidate] }
 struct EvalLabel: Codable { let action: String; let target: [Int]?; let boxes: [[Int]]?; let unsafe: [Int]?; let note: String? }
 struct Labels: Codable { let labels: [String: EvalLabel] }
@@ -41,9 +41,27 @@ func image(_ s: Screen) -> CGImage {
         .cgImage(forProposedRect: nil, context: nil, hints: nil)!
 }
 
+/// The goal, plus what the macro's own steps tap to get past screens (from the frozen copy in data/macros/).
+func goal(_ s: Screen) -> String {
+    let prefix = String(s.file.prefix(8))
+    let intent = macros[prefix]?.intent ?? defaultIntent
+    let dir = root.appendingPathComponent("macros")
+    guard let f = (try? FileManager.default.contentsOfDirectory(atPath: dir.path))?.first(where: { $0.hasPrefix(prefix) }),
+          let d = FileManager.default.contents(atPath: dir.appendingPathComponent(f).path),
+          let m = try? JSONSerialization.jsonObject(with: d) as? [String: Any], let steps = m["steps"] as? [[String: Any]] else { return intent }
+    var words: [String] = []
+    for st in steps {
+        guard let a = st["action"] as? [String: Any], let fi = a["findImage"] as? [String: Any], let p = fi["_0"] as? [String: Any] else { continue }
+        let w = ((p["text"] as? String) ?? (p["pictureWords"] as? String) ?? "").trimmingCharacters(in: .whitespaces)
+        if w.count >= 2, w.count <= 20, w.rangeOfCharacter(from: .letters) != nil, !words.contains(w) { words.append(w) }
+    }
+    return intent + (words.isEmpty ? "" : " Its own steps tap things like: " + words.joined(separator: ", ") +
+        ", plus numbered dice (it picks the highest) and coloured orbs. Dismissing results and reward screens with OK or Close is part of the goal.")
+}
+
 @available(macOS 27.0, *)
 func askModel(_ strategy: String, _ s: Screen) async -> Decision {
-    let intent = macros[String(s.file.prefix(8))]?.intent ?? defaultIntent
+    let intent = goal(s)
     let decision = DynamicGenerationSchema.Property(name: "decision", schema: DynamicGenerationSchema(name: "Decision", anyOf: ["tap", "wait", "stop"]))
     let reason = DynamicGenerationSchema.Property(name: "reason", description: "A few words on what the screen is", schema: DynamicGenerationSchema(type: String.self))
     let cands = tappable(s)
@@ -53,8 +71,10 @@ func askModel(_ strategy: String, _ s: Screen) async -> Decision {
         props += [DynamicGenerationSchema.Property(name: "x", description: "With tap: how far across the screen to tap, 0 (left) to 1 (right)", schema: DynamicGenerationSchema(type: Double.self), isOptional: true),
                   DynamicGenerationSchema.Property(name: "y", description: "With tap: how far down the screen to tap, 0 (top) to 1 (bottom)", schema: DynamicGenerationSchema(type: Double.self), isOptional: true)]
     } else {
-        props += [DynamicGenerationSchema.Property(name: "button", description: "With tap: the number of the text to tap, from the list", schema: DynamicGenerationSchema(type: Int.self), isOptional: true)]
-        question += "\nText on the screen that could be tapped (number: text):\n" + cands.map { "\($0.id): \($0.text)" }.joined(separator: "\n")
+        props += [DynamicGenerationSchema.Property(name: "label", description: "With tap: the words on the thing to tap, as they appear (e.g. SKIP, OK)", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
+                  DynamicGenerationSchema.Property(name: "button", description: "With tap: its number from the list", schema: DynamicGenerationSchema(type: Int.self), isOptional: true)]
+        question += "\nThings on the screen that could be tapped (number: what it is). Text read off the screen, then pictures from the automation's own steps where they roughly match:\n"
+            + cands.map { "\($0.id): \($0.text)" }.joined(separator: "\n")
     }
     do {
         let schema = try GenerationSchema(root: DynamicGenerationSchema(name: "Answer", properties: props), dependencies: [])
@@ -72,10 +92,18 @@ func askModel(_ strategy: String, _ s: Screen) async -> Decision {
             note["xy"] = [x, y]
             return .tap(CGPoint(x: x * Double(s.size[0]), y: y * Double(s.size[1])))
         }
-        guard let id = try? c.value(Int.self, forProperty: "button"), let cand = cands.first(where: { $0.id == id }) else {
-            note["button"] = "missing"; return .wait
-        }
-        note["button"] = "\(id): \(cand.text)"
+        // The words it wants first (read text is often garbled, e.g. "D) SKIPÙ"), then the number as a fallback.
+        func key(_ t: String) -> String { t.lowercased().filter { $0.isLetter || $0.isNumber } }
+        let said = (try? c.value(String.self, forProperty: "label")).map(key) ?? ""
+        // Exact words first; inside longer text only for 4+ letters ("ok" must not match "Dokkan").
+        let byWords = said.count >= 2 ? (cands.first { key($0.text) == said }
+            ?? cands.first { $0.text.split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map { key(String($0)) }.contains(said) }
+            ?? (said.count >= 4 ? cands.first { key($0.text).contains(said) || said.contains(key($0.text)) && key($0.text).count >= 4 } : nil)) : nil
+        let byNumber = (try? c.value(Int.self, forProperty: "button")).flatMap { id in cands.first { $0.id == id } }
+        note["label"] = said
+        // Only tap what it named and Heron can find: a number on its own has picked unrelated text ("103,303").
+        guard let cand = said.count >= 2 ? byWords : byNumber else { note["button"] = "not found"; return .wait }
+        note["button"] = "\(cand.id): \(cand.text)"
         return .tap(CGPoint(x: cand.box[0] + cand.box[2] / 2, y: cand.box[1] + cand.box[3] / 2))
     } catch {
         modelErrors += 1
