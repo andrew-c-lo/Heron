@@ -267,6 +267,20 @@ func decide(_ strategy: String, _ s: Screen) -> (Decision, Double) {
             }
             modelNotes[strategy + "/" + s.file] = ["remembered": m.screen.file, "distance": m.distance, "action": m.label.action]
         } else { d = .wait }
+    case "repeat-stop-3", "guarded":
+        // As shipped in Heron: stop only when the two previous stuck screens of this macro looked the same as this
+        // one (two taps that changed nothing); "guarded" also stops on a screen showing 2+ prices.
+        let prev = screens.filter { $0.file.prefix(8) == s.file.prefix(8) && time($0.file) < time(s.file) }
+            .sorted { time($0.file) > time($1.file) }.prefix(2)
+        var same = prev.count == 2
+        for p in prev { var dd: Float = .infinity
+            if let a = fingerprint(s), let b = fingerprint(p) { try? a.computeDistance(&dd, to: b) }
+            if dd >= sameScreen { same = false } }
+        let prices = s.candidates.filter { $0.id < 100 && StuckGuard.isPrice($0.text) }.count
+        if same || (strategy == "guarded" && prices >= 2) {
+            d = .wait
+            modelNotes[strategy + "/" + s.file] = ["stopped": same ? "same screen" : "prices"]
+        } else { d = decide("fixed", s).0 }
     case "repeat-stop":
         // No model: today's stuck tap, but if this macro's previous stuck screen looked the same, the tap didn't
         // help and the run is over: stop.
@@ -317,7 +331,7 @@ func score(_ d: Decision, _ l: EvalLabel, _ s: Screen) -> (correct: Bool, unsafe
 
 setvbuf(stdout, nil, _IOLBF, 0) // print each line as it's done
 // Fingerprints are made here, on the main thread: Vision called from the model's background work deadlocked.
-if strategies.contains(where: { $0.contains("memory") || $0 == "repeat-stop" || $0.hasPrefix("knn") || $0 == "logreg" }) { for s in screens { _ = fingerprint(s) } }
+if strategies.contains(where: { $0.contains("memory") || $0.hasPrefix("repeat-stop") || $0 == "guarded" || $0.hasPrefix("knn") || $0 == "logreg" }) { for s in screens { _ = fingerprint(s) } }
 
 var results: [String: Any] = [:]
 print(String(format: "%-12@ %7@ %8@ %7@  %@", "strategy" as NSString, "scored" as NSString, "correct" as NSString, "unsafe" as NSString, "by label (correct/total)" as NSString))

@@ -1,5 +1,6 @@
 import AppKit
 import CoreGraphics
+import Vision
 
 struct RouteError: Error { let message: String }
 
@@ -656,6 +657,8 @@ final class Player {
         var clicks = 0
         /// How each clicked step looked just before its click, until it's seen to change.
         var lookAtClick: [Int: [Double]] = [:]
+        /// Fingerprints of the last stuck screens since a step last fired (StuckGuard's same-screen check).
+        var stuckPrints: [VNFeaturePrintObservation] = []
         while !token.isCancelled {
             if opts.maxClicks > 0, clicks >= opts.maxClicks { break }
             let tick = Timing.now()
@@ -745,6 +748,7 @@ final class Player {
                 performer.spreadBounds = nil
                 performer.spreadPicked = false
                 let firstThisTime = chooser.isFirstClick(index)
+                stuckPrints = [] // something worked: earlier stuck screens no longer count
                 if let px = latest, !s.repeatUntilGone { lookAtClick[index] = AllAtOnceChooser.look(of: rect, in: px) }
                 chooser.clicked(index, at: Timing.now())
                 idle.touch()
@@ -766,7 +770,23 @@ final class Player {
             } else if opts.idleTapAfter > 0, let ix = opts.idleTapX, let iy = opts.idleTapY,
                       Self.quietFor(since: lastAction) >= opts.idleTapAfter {
                 // Nothing known on screen for a while (a “tap to continue” screen, or one never seen before):
-                // tap the idle spot, and keep the screen so it can be looked at later.
+                // tap the idle spot, and keep the screen so it can be looked at later. First, two checks
+                // (StuckGuard, measured in bench/unstuck): don't tap blind on a screen with prices, and stop when
+                // two stuck taps in a row left the screen as it was (the run is over, or tapping isn't helping).
+                if let screen = latest {
+                    let frameNow = resolver.android ? CGRect.null : (resolver.realWindow()?.frame ?? win.frame)
+                    if StuckGuard.looksLikeShop(TextFinder.read(screen)) {
+                        Task { @MainActor in stuck(screen, frameNow) }
+                        return "Stopped instead of tapping when stuck: the screen shows prices, so a blind tap could spend money."
+                    }
+                    if let fp = StuckGuard.fingerprint(screen) {
+                        if stuckPrints.count == 2, stuckPrints.allSatisfy({ StuckGuard.same($0, fp) }) {
+                            Task { @MainActor in stuck(screen, frameNow) }
+                            return Self.done("Stuck on the same screen after two taps, so there was nothing left to do")
+                        }
+                        stuckPrints = Array((stuckPrints + [fp]).suffix(2))
+                    }
+                }
                 switch RouteBuilder.route(for: target, resolver: resolver) {
                 case .success(let r): performer.route = r
                 case .failure(let e): return e.message

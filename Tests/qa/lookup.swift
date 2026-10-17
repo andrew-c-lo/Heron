@@ -1046,5 +1046,12 @@ check("the score log keeps a fixed-size sample of many looks, met and below apar
 ScoreLog.reset([scoredStep])
 check("…and starts empty for the next run", ScoreLog.report(scoredStep) == nil)
 
+// Stuck guard: prices mean a shop (no blind tap there).
+check("prices are recognised in common forms", ["$0.99", "€4,99", "¥120", "1.99 £", "$ 44.99"].allSatisfy(StuckGuard.isPrice))
+check("…and plain numbers, levels and scores aren't prices", !["103,303", "Lv 150", "12", "x80", "STA 12"].contains(where: StuckGuard.isPrice))
+let shopLines = ["Shop", "$0.99", "$3.99", "Daily Capsule"].map { TextFinder.Line(text: $0, rect: .zero, words: []) }
+check("two or more prices on screen look like a shop", StuckGuard.looksLikeShop(shopLines)
+      && !StuckGuard.looksLikeShop([TextFinder.Line(text: "OK", rect: .zero, words: []), TextFinder.Line(text: "$0.99", rect: .zero, words: [])]))
+
 print(failures == 0 ? "ALL PASSED" : "\(failures) FAILED")
 exit(failures == 0 ? 0 : 1)

@@ -21,6 +21,7 @@ What should an automation do when none of its steps match the screen? Heron's an
 | `fixed` | today's behaviour: the macro's stuck-tap spot |
 | `wait` | never tap |
 | `repeat-stop` | the stuck tap, but stop when the previous stuck screen looked the same |
+| `repeat-stop-3`, `guarded` | as shipped in Heron: stop after two taps in a row left the screen unchanged; `guarded` also never taps a screen showing 2+ prices (42/48: taps 4/6, finished runs 7/11, shop refused) |
 | `memory` | repeat what was right on an almost identical earlier screen (Vision feature-print distance < 0.30) |
 | `model-point`, `model-choose` | Apple's on-device model (macOS 27, image input) names a position / a thing to tap from the text and step pictures on screen, given the macro's goal |
 | `model-memory` | `model-choose` plus what happened on the 3 most similar earlier screens |
