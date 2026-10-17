@@ -49,6 +49,9 @@ final class Player {
     private var token: CancelToken?
 
     var isRunning: Bool { token != nil }
+    /// Set when “Learn from stuck screens” is on: when stuck, your own earlier tap on the same screen, if any
+    /// (fingerprint, window size now → window points).
+    var learnedTap: ((VNFeaturePrintObservation, CGSize) -> CGPoint?)?
 
     func play(_ macro: Macro,
               startDelay: Double = 0,
@@ -64,6 +67,7 @@ final class Player {
         self.token = token
         let opts = macro.playback
         let target = macro.target
+        let learned = learnedTap
         // Switched-off steps are skipped entirely (their waits too).
         let enabledSteps = Self.playable(macro.steps)
         let steps = opts.skipMouseMoves ? Self.removingMoves(enabledSteps) : enabledSteps
@@ -162,7 +166,7 @@ final class Player {
             if opts.order == .allAtOnce {
                 error = Self.runAllAtOnce(steps, opts: opts, target: target, resolver: resolver, performer: performer,
                                           pauseable: pauseable, token: token, idle: idle, progress: progress, waiting: waiting,
-                                          clicked: clicked, stuck: stuck, counted: counted)
+                                          clicked: clicked, stuck: stuck, counted: counted, learned: learned)
             } else {
                 outer: while true {
                     if let n = opts.loopCount, loop >= n { break }
@@ -609,7 +613,8 @@ final class Player {
                              waiting: @escaping @MainActor (String?) -> Void,
                              clicked: @escaping @MainActor (UUID, CGRect?) -> Void = { _, _ in },
                              stuck: @escaping @MainActor (ScreenReader.WindowPixels, CGRect) -> Void = { _, _ in },
-                             counted: @escaping @MainActor (Int) -> Void = { _ in }) -> String? {
+                             counted: @escaping @MainActor (Int) -> Void = { _ in },
+                             learned: ((VNFeaturePrintObservation, CGSize) -> CGPoint?)? = nil) -> String? {
         guard let resolver else { return "Picture steps need a target app. Choose one with the Target button." }
         struct Item { let index: Int; let step: ImageStep; let lookup: Lookup }
         let items: [Item] = steps.enumerated().compactMap { i, s in
@@ -774,9 +779,11 @@ final class Player {
                 // tap the idle spot, and keep the screen so it can be looked at later. First, two checks
                 // (StuckGuard, measured in bench/unstuck): don't tap blind on a screen with prices, and stop when
                 // two stuck taps in a row left the screen as it was (the run is over, or tapping isn't helping).
+                var tp = target.fit(for: win.frame.size).point(CGPoint(x: ix, y: iy))
                 if let screen = latest {
                     let frameNow = resolver.android ? CGRect.null : (resolver.realWindow()?.frame ?? win.frame)
-                    if StuckGuard.looksLikeShop(TextFinder.read(screen)) {
+                    let lines = TextFinder.read(screen)
+                    if StuckGuard.looksLikeShop(lines) {
                         Task { @MainActor in stuck(screen, frameNow) }
                         return "Stopped instead of tapping when stuck: the screen shows prices, so a blind tap could spend money."
                     }
@@ -787,13 +794,28 @@ final class Player {
                         }
                         stuckPrints = Array((stuckPrints + [fp]).suffix(2))
                     }
+                    // You've tapped past this very screen before: do what you did (it's a button on purpose, so
+                    // the empty-space rule doesn't apply).
+                    var mine: CGPoint?
+                    if let fp = stuckPrints.last, let learned { mine = learned(fp, win.frame.size) }
+                    if let mine { tp = mine } else {
+                    // Only on empty space (bench/tapspot): the chosen spot can be a shop tab or a menu button on
+                    // this screen. With no empty space at all, don't tap; the same-screen check above ends it.
+                    let sx = Double(screen.width) / max(1, win.frame.width), sy = Double(screen.height) / max(1, win.frame.height)
+                    guard let spot = StuckGuard.safeSpot(screen, lines: lines, preferred: CGPoint(x: tp.x * sx, y: tp.y * sy)) else {
+                        lastAction = Timing.now()
+                        Task { @MainActor in stuck(screen, frameNow) }
+                        _ = Timing.wait(until: tick + Self.checkInterval, token)
+                        continue
+                    }
+                    tp = CGPoint(x: spot.x / sx, y: spot.y / sy)
+                    }
                 }
                 switch RouteBuilder.route(for: target, resolver: resolver) {
                 case .success(let r): performer.route = r
                 case .failure(let e): return e.message
                 }
                 performer.route.origin = win.frame.origin
-                let tp = target.fit(for: win.frame.size).point(CGPoint(x: ix, y: iy))
                 performer.perform(.mouseDown(button: .left, x: Double(tp.x), y: Double(tp.y), clickCount: 1, flags: 0))
                 performer.perform(.mouseUp(button: .left, x: Double(tp.x), y: Double(tp.y), clickCount: 1, flags: 0))
                 Self.logStuckTap(lastAction: lastAction, pointerAt: CGEvent(source: nil)?.location, window: resolver.realWindow()?.frame ?? win.frame)

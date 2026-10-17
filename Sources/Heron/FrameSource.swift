@@ -12,6 +12,9 @@ final class WindowStream: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked
     private let cond = NSCondition()
     private var latest: ScreenReader.WindowPixels?
     private var number = 0
+    /// The last moment of frames, for “what was on screen just before this tap” (a game's tap ripple shows up
+    /// the instant it's touched).
+    private var recent: [(at: Double, pixels: ScreenReader.WindowPixels)] = []
     private(set) var failed = false
     var lastUsed = Timing.now()
     private let queue = DispatchQueue(label: "Heron.windowStream", qos: .userInteractive)
@@ -71,6 +74,9 @@ final class WindowStream: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked
         cond.lock()
         latest = ScreenReader.WindowPixels(rgba: rgba, width: w, height: h)
         number += 1
+        let now = Timing.now()
+        recent.append((now, latest!))
+        recent.removeAll { now - $0.at > 0.6 }
         cond.broadcast()
         cond.unlock()
     }
@@ -95,6 +101,14 @@ final class WindowStream: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked
         guard let latest else { return nil }
         return (latest, number)
     }
+
+    /// The newest frame shown before `time` (Timing.now() clock), if one from the last moment is kept.
+    func frame(before time: Double) -> ScreenReader.WindowPixels? {
+        lastUsed = Timing.now()
+        cond.lock()
+        defer { cond.unlock() }
+        return recent.last { $0.at < time }?.pixels
+    }
 }
 
 /// Hands out window frames: from a live stream when possible, otherwise one-off screenshots.
@@ -115,6 +129,12 @@ final class FrameSource: @unchecked Sendable {
         guard let px = ScreenReader.captureWindow(win) else { return nil }
         let n = lock.withLock { fallbackNumber += 1; return max(after + 1, fallbackNumber) }
         return (px, n)
+    }
+
+    /// What `win` showed just before `time`, from its live stream; nil when there's no stream or no frame that old.
+    func frame(for win: TargetWindow, before time: Double) -> ScreenReader.WindowPixels? {
+        if win.windowNumber == AndroidFrames.windowNumber { return nil }
+        return stream(for: win)?.frame(before: time)
     }
 
     private func stream(for win: TargetWindow) -> WindowStream? {

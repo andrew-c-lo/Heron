@@ -1071,6 +1071,7 @@ final class AppModel: ObservableObject {
         sound("Tink")
         resetHits(for: macro)
         let macroID = macro.id
+        player.learnedTap = prefs.shadowAdvisor ? { fp, size in ShadowAdvisor.learnedTap(fp, macro: macroID, window: size) } : nil
         player.play(macro, startDelay: prep.startDelay, progress: { [weak self] s, l, p in
             if let self, self.playStep != s { self.live[macroID]?.lastActivity = Date() }
             self?.playStep = s
@@ -1408,6 +1409,7 @@ final class AppModel: ObservableObject {
         backgroundClicks[id] = 0
         if !quietly { sound("Tink") }
         resetHits(for: m)
+        player.learnedTap = prefs.shadowAdvisor ? { fp, size in ShadowAdvisor.learnedTap(fp, macro: id, window: size) } : nil
         player.play(m, progress: { _, _, _ in }, clicked: { [weak self] step, found in
             self?.backgroundClicks[id, default: 0] += 1
             self?.recordHit(step, found)

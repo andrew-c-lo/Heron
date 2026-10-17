@@ -39,10 +39,24 @@ final class ClickReader: @unchecked Sendable {
         queue.async { [resolver] in
             if let win = resolver?.window() { _ = FrameSource.shared.frame(for: win, after: 0, timeout: 0.5) }
         }
+        // Keep the feed running between taps (it stops after a few idle seconds), so each tap has a frame from
+        // just before it.
+        if target != nil {
+            let t = DispatchSource.makeTimerSource(queue: queue)
+            t.schedule(deadline: .now() + 1, repeating: 1)
+            t.setEventHandler { [weak self] in
+                if let win = self?.resolver?.window() { _ = FrameSource.shared.frame(for: win, after: 0, timeout: 0) }
+            }
+            t.resume()
+            keepAlive = t
+        }
     }
+    private var keepAlive: DispatchSourceTimer?
+    deinit { keepAlive?.cancel() }
 
     /// `p` is in window points when recording inside one app, otherwise in screen points.
     func notePress(_ id: UUID, at p: CGPoint) {
+        let pressedAt = Timing.now()
         queue.async { [self] in
             let app: TargetApp, win: TargetWindow, local: CGPoint
             if let target, let w = resolver?.window() {
@@ -52,9 +66,11 @@ final class ClickReader: @unchecked Sendable {
                 local = CGPoint(x: p.x - hit.window.frame.minX, y: p.y - hit.window.frame.minY)
             } else { return }
             var press = Press(app: app, origin: win.frame.origin, label: nil)
-            if let frame = FrameSource.shared.frame(for: win, after: 0, timeout: target == nil ? 0.3 : 0.05) {
-                press.label = Self.both(in: frame.pixels, at: local)
-                press.label?.window = CGSize(width: frame.pixels.width, height: frame.pixels.height)
+            // The screen just before the press: after it, a game may already be drawing its tap ripple on the button.
+            let before = FrameSource.shared.frame(for: win, before: pressedAt - 0.02)
+            if let pixels = before ?? FrameSource.shared.frame(for: win, after: 0, timeout: target == nil ? 0.3 : 0.05)?.pixels {
+                press.label = Self.both(in: pixels, at: local)
+                press.label?.window = CGSize(width: pixels.width, height: pixels.height)
             }
             lock.withLock { presses[id] = press }
         }

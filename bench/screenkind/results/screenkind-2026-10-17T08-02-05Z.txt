@@ -1,0 +1,11 @@
+Screen kind (on-device model)  2026-10-17 08:01:29 +0000  screens: 51
+accuracy 37/51, 0.69 s a screen
+store: 3 found, 0 missed, 0 false alarms
+  battle → results: 5
+  menu → results: 3
+  battle → other: 2
+  battle → loading: 2
+  battle → menu: 1
+  dialog → results: 1
+
+machine: Andrew’s MacBook Pro, macOS Version 27.2 (Build 26B5101f), ref: refs/heads/main

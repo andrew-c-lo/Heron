@@ -1,0 +1,95 @@
+Tap-spot safety  2026-10-17 08:12:03 +0000
+synthetic: 300 fit + 300 held-out screens (25 s to render and read)
+
+fit (seed 1): edge limit, enclosed within, hard edge → taps on a control, no tap
+  edges 0.04  enclosed off                  on control   7.0% [ 4.6–10.5] (21/300)   no tap   0.0% [ 0.0– 1.3] (0/300)
+  edges 0.04  enclosed  60 pt, 0.06, win   on control   0.7% [ 0.2– 2.4] (2/300)   no tap   0.0% [ 0.0– 1.3] (0/300)
+  edges 0.04  enclosed  60 pt, 0.06        on control   0.7% [ 0.2– 2.4] (2/300)   no tap   0.0% [ 0.0– 1.3] (0/300)
+  edges 0.04  enclosed  60 pt, 0.10, win   on control   2.7% [ 1.4– 5.2] (8/300)   no tap   0.0% [ 0.0– 1.3] (0/300)
+  edges 0.04  enclosed  60 pt, 0.10        on control   3.0% [ 1.6– 5.6] (9/300)   no tap   0.0% [ 0.0– 1.3] (0/300)
+  edges 0.04  enclosed  60 pt, 0.18, win   on control   4.0% [ 2.3– 6.9] (12/300)   no tap   0.0% [ 0.0– 1.3] (0/300)
+  edges 0.04  enclosed  60 pt, 0.18        on control   3.7% [ 2.1– 6.4] (11/300)   no tap   0.0% [ 0.0– 1.3] (0/300)
+  edges 0.04  enclosed  90 pt, 0.06, win   on control   1.0% [ 0.3– 2.9] (3/300)   no tap   0.0% [ 0.0– 1.3] (0/300)
+  edges 0.04  enclosed  90 pt, 0.06        on control   0.7% [ 0.2– 2.4] (2/300)   no tap   0.0% [ 0.0– 1.3] (0/300)
+  edges 0.04  enclosed  90 pt, 0.10, win   on control   3.0% [ 1.6– 5.6] (9/300)   no tap   0.0% [ 0.0– 1.3] (0/300)
+  edges 0.04  enclosed  90 pt, 0.10        on control   3.0% [ 1.6– 5.6] (9/300)   no tap   0.0% [ 0.0– 1.3] (0/300)
+  edges 0.04  enclosed  90 pt, 0.18, win   on control   4.0% [ 2.3– 6.9] (12/300)   no tap   0.0% [ 0.0– 1.3] (0/300)
+  edges 0.04  enclosed  90 pt, 0.18        on control   3.7% [ 2.1– 6.4] (11/300)   no tap   0.0% [ 0.0– 1.3] (0/300)
+  edges 0.04  enclosed 140 pt, 0.06, win   on control   0.3% [ 0.1– 1.9] (1/300)   no tap   0.0% [ 0.0– 1.3] (0/300)
+  edges 0.04  enclosed 140 pt, 0.06        on control   0.3% [ 0.1– 1.9] (1/300)   no tap   0.0% [ 0.0– 1.3] (0/300)
+  edges 0.04  enclosed 140 pt, 0.10, win   on control   2.3% [ 1.1– 4.7] (7/300)   no tap   0.0% [ 0.0– 1.3] (0/300)
+  edges 0.04  enclosed 140 pt, 0.10        on control   2.7% [ 1.4– 5.2] (8/300)   no tap   0.0% [ 0.0– 1.3] (0/300)
+  edges 0.04  enclosed 140 pt, 0.18, win   on control   3.3% [ 1.8– 6.0] (10/300)   no tap   0.0% [ 0.0– 1.3] (0/300)
+  edges 0.04  enclosed 140 pt, 0.18        on control   3.3% [ 1.8– 6.0] (10/300)   no tap   0.0% [ 0.0– 1.3] (0/300)
+  edges 0.06  enclosed off                  on control   7.0% [ 4.6–10.5] (21/300)   no tap   0.0% [ 0.0– 1.3] (0/300)
+  edges 0.06  enclosed  60 pt, 0.06, win   on control   0.7% [ 0.2– 2.4] (2/300)   no tap   0.0% [ 0.0– 1.3] (0/300)
+  edges 0.06  enclosed  60 pt, 0.06        on control   0.7% [ 0.2– 2.4] (2/300)   no tap   0.0% [ 0.0– 1.3] (0/300)
+  edges 0.06  enclosed  60 pt, 0.10, win   on control   2.7% [ 1.4– 5.2] (8/300)   no tap   0.0% [ 0.0– 1.3] (0/300)
+  edges 0.06  enclosed  60 pt, 0.10        on control   3.0% [ 1.6– 5.6] (9/300)   no tap   0.0% [ 0.0– 1.3] (0/300)
+  edges 0.06  enclosed  60 pt, 0.18, win   on control   4.0% [ 2.3– 6.9] (12/300)   no tap   0.0% [ 0.0– 1.3] (0/300)
+  edges 0.06  enclosed  60 pt, 0.18        on control   3.7% [ 2.1– 6.4] (11/300)   no tap   0.0% [ 0.0– 1.3] (0/300)
+  edges 0.06  enclosed  90 pt, 0.06, win   on control   1.0% [ 0.3– 2.9] (3/300)   no tap   0.0% [ 0.0– 1.3] (0/300)
+  edges 0.06  enclosed  90 pt, 0.06        on control   0.7% [ 0.2– 2.4] (2/300)   no tap   0.0% [ 0.0– 1.3] (0/300)
+  edges 0.06  enclosed  90 pt, 0.10, win   on control   3.0% [ 1.6– 5.6] (9/300)   no tap   0.0% [ 0.0– 1.3] (0/300)
+  edges 0.06  enclosed  90 pt, 0.10        on control   3.0% [ 1.6– 5.6] (9/300)   no tap   0.0% [ 0.0– 1.3] (0/300)
+  edges 0.06  enclosed  90 pt, 0.18, win   on control   4.0% [ 2.3– 6.9] (12/300)   no tap   0.0% [ 0.0– 1.3] (0/300)
+  edges 0.06  enclosed  90 pt, 0.18        on control   3.7% [ 2.1– 6.4] (11/300)   no tap   0.0% [ 0.0– 1.3] (0/300)
+  edges 0.06  enclosed 140 pt, 0.06, win   on control   0.3% [ 0.1– 1.9] (1/300)   no tap   0.0% [ 0.0– 1.3] (0/300)
+  edges 0.06  enclosed 140 pt, 0.06        on control   0.3% [ 0.1– 1.9] (1/300)   no tap   0.0% [ 0.0– 1.3] (0/300)
+  edges 0.06  enclosed 140 pt, 0.10, win   on control   2.3% [ 1.1– 4.7] (7/300)   no tap   0.0% [ 0.0– 1.3] (0/300)
+  edges 0.06  enclosed 140 pt, 0.10        on control   2.7% [ 1.4– 5.2] (8/300)   no tap   0.0% [ 0.0– 1.3] (0/300)
+  edges 0.06  enclosed 140 pt, 0.18, win   on control   3.3% [ 1.8– 6.0] (10/300)   no tap   0.0% [ 0.0– 1.3] (0/300)
+  edges 0.06  enclosed 140 pt, 0.18        on control   3.3% [ 1.8– 6.0] (10/300)   no tap   0.0% [ 0.0– 1.3] (0/300)
+  edges off   enclosed off                  on control   7.0% [ 4.6–10.5] (21/300)   no tap   0.0% [ 0.0– 1.3] (0/300)
+  edges off   enclosed  60 pt, 0.06, win   on control   0.7% [ 0.2– 2.4] (2/300)   no tap   0.0% [ 0.0– 1.3] (0/300)
+  edges off   enclosed  60 pt, 0.06        on control   0.7% [ 0.2– 2.4] (2/300)   no tap   0.0% [ 0.0– 1.3] (0/300)
+  edges off   enclosed  60 pt, 0.10, win   on control   2.7% [ 1.4– 5.2] (8/300)   no tap   0.0% [ 0.0– 1.3] (0/300)
+  edges off   enclosed  60 pt, 0.10        on control   3.0% [ 1.6– 5.6] (9/300)   no tap   0.0% [ 0.0– 1.3] (0/300)
+  edges off   enclosed  60 pt, 0.18, win   on control   4.0% [ 2.3– 6.9] (12/300)   no tap   0.0% [ 0.0– 1.3] (0/300)
+  edges off   enclosed  60 pt, 0.18        on control   3.7% [ 2.1– 6.4] (11/300)   no tap   0.0% [ 0.0– 1.3] (0/300)
+  edges off   enclosed  90 pt, 0.06, win   on control   1.0% [ 0.3– 2.9] (3/300)   no tap   0.0% [ 0.0– 1.3] (0/300)
+  edges off   enclosed  90 pt, 0.06        on control   0.7% [ 0.2– 2.4] (2/300)   no tap   0.0% [ 0.0– 1.3] (0/300)
+  edges off   enclosed  90 pt, 0.10, win   on control   3.0% [ 1.6– 5.6] (9/300)   no tap   0.0% [ 0.0– 1.3] (0/300)
+  edges off   enclosed  90 pt, 0.10        on control   3.0% [ 1.6– 5.6] (9/300)   no tap   0.0% [ 0.0– 1.3] (0/300)
+  edges off   enclosed  90 pt, 0.18, win   on control   4.0% [ 2.3– 6.9] (12/300)   no tap   0.0% [ 0.0– 1.3] (0/300)
+  edges off   enclosed  90 pt, 0.18        on control   3.7% [ 2.1– 6.4] (11/300)   no tap   0.0% [ 0.0– 1.3] (0/300)
+  edges off   enclosed 140 pt, 0.06, win   on control   0.3% [ 0.1– 1.9] (1/300)   no tap   0.0% [ 0.0– 1.3] (0/300)
+  edges off   enclosed 140 pt, 0.06        on control   0.3% [ 0.1– 1.9] (1/300)   no tap   0.0% [ 0.0– 1.3] (0/300)
+  edges off   enclosed 140 pt, 0.10, win   on control   2.3% [ 1.1– 4.7] (7/300)   no tap   0.0% [ 0.0– 1.3] (0/300)
+  edges off   enclosed 140 pt, 0.10        on control   2.7% [ 1.4– 5.2] (8/300)   no tap   0.0% [ 0.0– 1.3] (0/300)
+  edges off   enclosed 140 pt, 0.18, win   on control   3.3% [ 1.8– 6.0] (10/300)   no tap   0.0% [ 0.0– 1.3] (0/300)
+  edges off   enclosed 140 pt, 0.18        on control   3.3% [ 1.8– 6.0] (10/300)   no tap   0.0% [ 0.0– 1.3] (0/300)
+chosen: edges 0.04  enclosed 140 pt, 0.06, win
+in the app: edges 0.04, enclosed 60 pt, 0.06
+
+held out (seed 2): taps that land on a control
+  fixed spot (today)         12.0% [ 8.8–16.2] (36/300)
+  empty space, text only      9.0% [ 6.3–12.8] (27/300)   no tap   0.0% [ 0.0– 1.3] (0/300)
+  fitted on seed 1            1.7% [ 0.7– 3.8] (5/300)   no tap   0.0% [ 0.0– 1.3] (0/300)
+  as shipped (standard)       1.7% [ 0.7– 3.8] (5/300)   no tap   0.0% [ 0.0– 1.3] (0/300)
+
+  by screen (fixed → shipped rule, taps on a control):
+    dialog / blurred real              4/17 → 0/17
+    dialog / plain                     2/22 → 0/22
+    dialog / textured                  2/19 → 0/19
+    icons / blurred real               2/15 → 0/15
+    icons / plain                      1/20 → 0/20
+    icons / textured                   3/37 → 1/37
+    menu / blurred real                3/14 → 1/14
+    menu / plain                       9/22 → 3/22
+    menu / textured                    4/13 → 0/13
+    tab bar / blurred real             2/20 → 0/20
+    tab bar / plain                    3/20 → 0/20
+    tab bar / textured                 1/20 → 0/20
+    tap to continue / blurred real     0/24 → 0/24
+    tap to continue / plain            0/23 → 0/23
+    tap to continue / textured         0/14 → 0/14
+
+real stuck screens (bench/unstuck/data)
+  screens with a stuck-tap spot: 48
+  tap on text:        fixed  14.6% [ 7.2–27.2] (7/48)   rule   0.0% [ 0.0– 7.4] (0/48)
+  rule moved the tap:  54.2% [40.3–67.4] (26/48); no tap:   0.0% [ 0.0– 7.4] (0/48)
+  shop screens, tap on a never-tap button: fixed 0/1, rule 0/1
+  “tap anywhere” screens that still get a tap: 1/1
+
+machine: Andrew’s MacBook Pro, macOS Version 27.2 (Build 26B5101f), ref: refs/heads/main

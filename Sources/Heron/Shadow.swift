@@ -24,6 +24,7 @@ enum ShadowAdvisor {
             guard let fp = StuckGuard.fingerprint(screen) else { return }
             out["knn"] = knn(fp, excluding: base.lastPathComponent)
             if let m = await askModel(screen, macro: macro) { out["model"] = m }
+            if let kind = await screenKind(screen) { out["screen"] = kind }
             out["seconds"] = (Date().timeIntervalSince(started) * 100).rounded() / 100
             if let d = try? JSONSerialization.data(withJSONObject: out, options: [.prettyPrinted, .sortedKeys]) {
                 try? d.write(to: base.appendingPathExtension("shadow.json"))
@@ -63,6 +64,31 @@ enum ShadowAdvisor {
         var out: [String: Any] = ["decision": best, "examples": near.count, "nearest": (top.first!.d * 100).rounded() / 100]
         if best == "tap", let t = top.first(where: { $0.decision == "tap" })?.tap { out["tap"] = t }
         return out
+    }
+
+    /// Your own tap on a screen like this one: the nearest earlier stuck screen of the same macro with a known
+    /// outcome, when that was a rescue (you tapped past it) and it's the same screen (StuckGuard.sameScreen).
+    /// Measured online in bench/tapspot/learned.swift: on the first 24 outcomes, 2 right, 1 elsewhere, and no tap
+    /// on any screen that moved on by itself. Window points, scaled to the window's size now.
+    static func learnedTap(_ fp: VNFeaturePrintObservation, macro: UUID, window: CGSize) -> CGPoint? {
+        let prefix = String(macro.uuidString.prefix(8))
+        let labelled = ((try? FileManager.default.contentsOfDirectory(at: RescueCapture.folder, includingPropertiesForKeys: nil)) ?? [])
+            .filter { $0.lastPathComponent.hasPrefix(prefix) && $0.pathExtension == "json" && !$0.lastPathComponent.hasSuffix(".shadow.json") }
+            .sorted { $0.lastPathComponent > $1.lastPathComponent }.prefix(400)
+        var best: (d: Float, label: [String: Any])?
+        for url in labelled {
+            guard let data = try? Data(contentsOf: url),
+                  let label = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+                  let o = label["outcome"] as? String, decision(forOutcome: o) != nil,
+                  let other = print(for: url.deletingPathExtension().appendingPathExtension("png")) else { continue }
+            var d: Float = .infinity
+            try? fp.computeDistance(&d, to: other)
+            if d < (best?.d ?? .infinity) { best = (d, label) }
+        }
+        guard let best, best.d < StuckGuard.sameScreen, best.label["outcome"] as? String == "rescue",
+              let tap = best.label["tap"] as? [Double], tap.count == 2 else { return nil }
+        let was = (best.label["window"] as? [Double]).map { CGSize(width: $0[0], height: $0[1]) } ?? window
+        return CGPoint(x: tap[0] * window.width / max(1, was.width), y: tap[1] * window.height / max(1, was.height))
     }
 
     /// A saved screen's fingerprint, made once.
@@ -147,6 +173,38 @@ enum ShadowAdvisor {
             return out
         } catch {
             return ["error": "\(error)"]
+        }
+        #else
+        return nil
+        #endif
+    }
+
+    /// Kinds of screen the on-device model is asked to tell apart (any app): what a stuck screen is says more
+    /// about what to do than where to tap.
+    static let screenKinds = ["store", "results", "loading", "battle", "menu", "map", "dialog", "other"]
+
+    /// The on-device model's label for a screen, nil where the model isn't available. Measured in
+    /// bench/screenkind against the labelled stuck screens before anything relies on it.
+    static func screenKind(_ screen: ScreenReader.WindowPixels) async -> String? {
+        #if canImport(FoundationModels)
+        guard #available(macOS 27, *), Assistant.modelAvailable, let image = screen.cgImage else { return nil }
+        let instructions = """
+            You label app screenshots by the kind of screen. store: buying things, prices, packs, currency offers. \
+            results: rewards or a summary after something finished. loading: a loading screen, transition, or blank. \
+            battle: fighting, attacks, effects, a fight in progress. menu: lists, settings, navigation, choosing a \
+            level or item. map: a board or world map to move around. dialog: a popup or message asking to confirm or \
+            dismiss, or story dialogue. other: none of these.
+            """
+        do {
+            let schema = try GenerationSchema(root: DynamicGenerationSchema(name: "Kind", properties: [
+                DynamicGenerationSchema.Property(name: "kind", schema: DynamicGenerationSchema(name: "ScreenKind", anyOf: screenKinds)),
+            ]), dependencies: [])
+            let session = LanguageModelSession(model: SystemLanguageModel.default, instructions: instructions)
+            let r = try await session.respond(to: Prompt { Attachment(image); "What kind of screen is this?" }, schema: schema,
+                                              options: GenerationOptions(sampling: .greedy, maximumResponseTokens: 40))
+            return try? r.content.value(String.self, forProperty: "kind")
+        } catch {
+            return nil
         }
         #else
         return nil

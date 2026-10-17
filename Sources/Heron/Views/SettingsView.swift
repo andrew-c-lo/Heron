@@ -53,7 +53,7 @@ struct RecordingSettingsView: View {
                 }
                 Toggle(isOn: $model.prefs.shadowAdvisor) {
                     Text("Learn from stuck screens")
-                    Text("When a macro gets stuck, Heron notes what its learned classifier and Apple's on-device model (where available) would have done, next to what actually got it going, to test them. They never act. Everything stays on this Mac.")
+                    Text("When a macro gets stuck on a screen you've tapped past yourself before, Heron taps where you did. It also notes what its learned classifier and Apple's on-device model (where available) would have done, to test them; those never act. Everything stays on this Mac.")
                 }
                 if model.prefs.smartRecording, !model.hasScreenRecording {
                     Label("Needs Screen Recording permission (Permissions tab).", systemImage: "exclamationmark.triangle.fill")

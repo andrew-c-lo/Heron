@@ -1,0 +1,47 @@
+Tap-spot safety  2026-10-17 07:38:16 +0000
+synthetic: 60 fit + 60 held-out screens (34 s to render and read)
+
+fit (seed 1): edge limit → taps on a control, no tap
+  0.02       on control   8.3% [ 3.6–18.1] (5/60)   no tap   0.0% [ 0.0– 6.0] (0/60)
+  0.03       on control   8.3% [ 3.6–18.1] (5/60)   no tap   0.0% [ 0.0– 6.0] (0/60)
+  0.04       on control   8.3% [ 3.6–18.1] (5/60)   no tap   0.0% [ 0.0– 6.0] (0/60)
+  0.05       on control   8.3% [ 3.6–18.1] (5/60)   no tap   0.0% [ 0.0– 6.0] (0/60)
+  0.06       on control   8.3% [ 3.6–18.1] (5/60)   no tap   0.0% [ 0.0– 6.0] (0/60)
+  0.08       on control   8.3% [ 3.6–18.1] (5/60)   no tap   0.0% [ 0.0– 6.0] (0/60)
+  0.10       on control   8.3% [ 3.6–18.1] (5/60)   no tap   0.0% [ 0.0– 6.0] (0/60)
+  0.12       on control   8.3% [ 3.6–18.1] (5/60)   no tap   0.0% [ 0.0– 6.0] (0/60)
+  0.15       on control   8.3% [ 3.6–18.1] (5/60)   no tap   0.0% [ 0.0– 6.0] (0/60)
+  text only  on control   8.3% [ 3.6–18.1] (5/60)   no tap   0.0% [ 0.0– 6.0] (0/60)
+chosen edge limit: 0.02 (standard in the app: 0.06)
+
+held out (seed 2): taps that land on a control
+  fixed spot (today)         15.0% [ 8.1–26.1] (9/60)
+  empty space, text only     15.0% [ 8.1–26.1] (9/60)   no tap   0.0% [ 0.0– 6.0] (0/60)
+  empty space, text + edges  10.0% [ 4.7–20.1] (6/60)   no tap   0.0% [ 0.0– 6.0] (0/60)  (fitted limit)
+  as shipped (standard)      15.0% [ 8.1–26.1] (9/60)   no tap   0.0% [ 0.0– 6.0] (0/60)
+
+  by screen (fixed → shipped rule, taps on a control):
+    dialog / blurred real              1/5 → 1/5
+    dialog / plain                     0/3 → 0/3
+    dialog / textured                  1/2 → 1/2
+    icons / blurred real               1/2 → 1/2
+    icons / plain                      0/2 → 0/2
+    icons / textured                   0/10 → 0/10
+    menu / blurred real                1/3 → 1/3
+    menu / plain                       3/4 → 3/4
+    menu / textured                    1/4 → 1/4
+    tab bar / blurred real             0/5 → 0/5
+    tab bar / plain                    1/3 → 1/3
+    tab bar / textured                 0/5 → 0/5
+    tap to continue / blurred real     0/3 → 0/3
+    tap to continue / plain            0/7 → 0/7
+    tap to continue / textured         0/2 → 0/2
+
+real stuck screens (bench/unstuck/data)
+  screens with a stuck-tap spot: 48
+  tap on text:        fixed  14.6% [ 7.2–27.2] (7/48)   rule   0.0% [ 0.0– 7.4] (0/48)
+  rule moved the tap:  37.5% [25.2–51.6] (18/48); no tap:   0.0% [ 0.0– 7.4] (0/48)
+  shop screens, tap on a never-tap button: fixed 0/1, rule 0/1
+  “tap anywhere” screens that still get a tap: 1/1
+
+machine: Andrew’s MacBook Pro, macOS Version 27.2 (Build 26B5101f), ref: refs/heads/main

@@ -1052,6 +1052,31 @@ check("…and plain numbers, levels and scores aren't prices", !["103,303", "Lv 
 let shopLines = ["Shop", "$0.99", "$3.99", "Daily Capsule"].map { TextFinder.Line(text: $0, rect: .zero, words: []) }
 check("two or more prices on screen look like a shop", StuckGuard.looksLikeShop(shopLines)
       && !StuckGuard.looksLikeShop([TextFinder.Line(text: "OK", rect: .zero, words: []), TextFinder.Line(text: "$0.99", rect: .zero, words: [])]))
+check("one price next to “Buy” or “Purchase” is a purchase screen; “Buyer” or “Paying respects” isn't spending",
+      StuckGuard.looksLikeShop([TextFinder.Line(text: "Buy now", rect: .zero, words: []), TextFinder.Line(text: "$4.99", rect: .zero, words: [])])
+      && !StuckGuard.looksLikeShop([TextFinder.Line(text: "Buyer", rect: .zero, words: []), TextFinder.Line(text: "$4.99", rect: .zero, words: [])]))
+
+// Where a blind tap is safe: a plain screen with a tab bar along the bottom.
+func spotScreen() -> ScreenReader.WindowPixels {
+    let w = 300, h = 600
+    var rgba = [UInt8](repeating: 0, count: w * h * 4)
+    for y in 0..<h { for x in 0..<w {
+        let i = (y * w + x) * 4
+        let bar = y >= 540 && y < 596 && x >= 4 && x < 296 && (x - 4) % 98 < 92 // three buttons
+        let border = bar && ((x - 4) % 98 < 2 || (x - 4) % 98 >= 90 || y < 542 || y >= 594)
+        let v: UInt8 = border ? 250 : bar ? 40 : 120
+        rgba[i] = v; rgba[i + 1] = v; rgba[i + 2] = border ? 250 : bar ? 90 : 160; rgba[i + 3] = 255
+    } }
+    return ScreenReader.WindowPixels(rgba: rgba, width: w, height: h)
+}
+let plainBar = spotScreen()
+let keep = StuckGuard.safeSpot(plainBar, lines: [], preferred: CGPoint(x: 150, y: 300))
+check("a stuck tap on empty space stays where it was chosen", keep == CGPoint(x: 150, y: 300), "\(String(describing: keep))")
+let off = StuckGuard.safeSpot(plainBar, lines: [], preferred: CGPoint(x: 150, y: 568))
+check("a stuck tap that would land on a tab-bar button moves off it, nearby", off.map { $0.y < 530 && abs($0.x - 150) < 80 } ?? false, "\(String(describing: off))")
+let labelled = StuckGuard.safeSpot(plainBar, lines: [TextFinder.Line(text: "Shop", rect: CGRect(x: 130, y: 290, width: 40, height: 20), words: [])],
+                                   preferred: CGPoint(x: 150, y: 300))
+check("…and one on text (a label) moves too", labelled.map { !CGRect(x: 120, y: 280, width: 60, height: 40).contains($0) } ?? false)
 
 // Shadow mode: the learned classifier votes from earlier stuck screens with known outcomes.
 let shadowHome = FileManager.default.temporaryDirectory.appendingPathComponent("heron-shadow-\(UUID().uuidString)")
