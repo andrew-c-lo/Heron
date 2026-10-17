@@ -1094,5 +1094,25 @@ check("stopping a macro soon after it got stuck is saved as a stop", stoppedLabe
 unsetenv("HERON_HOME")
 try? FileManager.default.removeItem(at: shadowHome)
 
+// Which app a picture was picked in: stamped on new and re-picked pictures only.
+let oldPic = ImageStep(png: Data([1, 2]), width: 40, height: 30, originX: 10, originY: 10)
+var stampMacro = Macro(name: "stamp", steps: [MacroStep(delay: 0, action: .findImage(oldPic))])
+stampMacro.target.app = TargetApp(bundleID: "com.example.first", name: "First")
+let stampBefore = stampMacro
+var stampAfter = stampMacro
+stampAfter.steps.append(MacroStep(delay: 0, action: .findImage(ImageStep(png: Data([3]), width: 40, height: 30, originX: 10, originY: 10))))
+AppModel.stampNewPictures(&stampAfter, old: stampBefore)
+func appOf(_ m: Macro, _ i: Int) -> String? { if case .findImage(let p) = m.steps[i].action { return p.captureApp }; return nil }
+check("a new picture records the app it was picked in; an untouched older one stays unknown",
+      appOf(stampAfter, 1) == "com.example.first" && appOf(stampAfter, 0) == nil)
+var moved = stampAfter
+moved.target.app = TargetApp(bundleID: "com.example.second", name: "Second")
+let movedBefore = moved
+AppModel.stampNewPictures(&moved, old: movedBefore)
+check("moving the macro to another app doesn't re-stamp its pictures", appOf(moved, 1) == "com.example.first")
+let movedIssues = MacroHealth.check(moved, backgrounds: [], window: nil)
+check("Check Macro names the app a picture was picked in when the macro has moved",
+      movedIssues.contains { $0.kind == .otherApp && $0.number == 2 && $0.title.contains("com.example.first") })
+
 print(failures == 0 ? "ALL PASSED" : "\(failures) FAILED")
 exit(failures == 0 ? 0 : 1)

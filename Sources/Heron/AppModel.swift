@@ -1516,6 +1516,27 @@ final class AppModel: ObservableObject {
     }
 
     /// A picture of the app's window to crop the button from.
+    /// Pictures that are new, or picked again, were picked in the macro's app as it is now: recorded on the step,
+    /// so Check Macro can tell exactly when a macro has since moved to another app. Older pictures are left unknown.
+    nonisolated static func stampNewPictures(_ m: inout Macro, old: Macro?) {
+        guard let app = m.target.app?.bundleID else { return }
+        func fresh(_ p: ImageStep, _ before: ImageStep?) -> Bool { !p.png.isEmpty && (before == nil || before!.png != p.png) }
+        for i in m.steps.indices {
+            let before = old?.steps.first { $0.id == m.steps[i].id }
+            switch m.steps[i].action {
+            case .findImage(var p):
+                var was: ImageStep?
+                if case .findImage(let q)? = before?.action { was = q }
+                if fresh(p, was) { p.captureApp = app; m.steps[i].action = .findImage(p) }
+            case .ifStart(var c):
+                var was: ImageStep?
+                if case .ifStart(let q)? = before?.action { was = q.look }
+                if fresh(c.look, was) { c.look.captureApp = app; m.steps[i].action = .ifStart(c) }
+            default: break
+            }
+        }
+    }
+
     /// Ordinary screens from running macros, one every 90 s (at most 30 per macro, local): screens for Check Macro
     /// to calibrate on even when a macro never gets stuck, and examples for the eval and learned models.
     nonisolated static var framesFolder: URL { AppFolder.url.appendingPathComponent("Evals/frames", isDirectory: true) }
@@ -1628,6 +1649,7 @@ final class AppModel: ObservableObject {
             m.playback.stopAfterStep = nil
         }
         let old = macros[i]
+        Self.stampNewPictures(&m, old: old)
         macros[i] = m
         if !bookkeeping { readPictureWords() }
         // The run goal applies to a run in progress straight away (no restart, so its count carries on).

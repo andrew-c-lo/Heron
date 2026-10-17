@@ -381,6 +381,8 @@ struct ImageStep: Codable, Equatable {
         get { captureWindowWidth.flatMap { w in captureWindowHeight.map { CGSize(width: w, height: $0) } } }
         set { captureWindowWidth = newValue.map { Double($0.width) }; captureWindowHeight = newValue.map { Double($0.height) } }
     }
+    /// The app the picture was picked in (bundle ID); nil for pictures picked before this was recorded.
+    var captureApp: String?
     /// The window's size (points) when the search area was drawn, when that's not the picture's window.
     var areaWindowWidth: Double?
     var areaWindowHeight: Double?
@@ -502,6 +504,7 @@ extension ImageStep {
         captureWindowWidth = try c.decodeIfPresent(Double.self, forKey: .captureWindowWidth)
         captureWindowHeight = try c.decodeIfPresent(Double.self, forKey: .captureWindowHeight)
         areaWindowWidth = try c.decodeIfPresent(Double.self, forKey: .areaWindowWidth)
+        captureApp = try c.decodeIfPresent(String.self, forKey: .captureApp)
         areaWindowHeight = try c.decodeIfPresent(Double.self, forKey: .areaWindowHeight)
         spotX = try c.decodeIfPresent(Double.self, forKey: .spotX)
         spotY = try c.decodeIfPresent(Double.self, forKey: .spotY)

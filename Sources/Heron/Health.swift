@@ -6,7 +6,7 @@ import AppKit
 /// a look-alike scores. A strictness above the real copies misses them; one near the look-alikes risks clicking
 /// the wrong thing. (The same method as bench/resize, where it's measured.)
 struct HealthIssue: Identifiable {
-    enum Kind { case tooStrict, tooLoose, unreliableSize, areaMissesPicture, otherShape }
+    enum Kind { case tooStrict, tooLoose, unreliableSize, areaMissesPicture, otherShape, otherApp }
     enum Fix { case strictness(Double), showStep }
     let id = UUID()
     let step: UUID
@@ -50,7 +50,12 @@ enum MacroHealth {
                         fix: .showStep))
                 }
             }
-            if let w = window, w.width > 0, ref.width > 0 {
+            if let picked = p.captureApp, let now = m.target.app?.bundleID, picked != now {
+                issues.append(HealthIssue(step: s.id, number: n, kind: .otherApp, title: "Step \(n): picked in \(appName(picked))",
+                    detail: "This macro now runs in \(m.target.app?.name ?? "another app"), so the picture's size, position and area may not line up. Pick it again there.",
+                    fix: .showStep))
+            } else if p.captureApp == nil, let w = window, w.width > 0, ref.width > 0 {
+                // Picked before Heron recorded the app: guess from the window's shape.
                 let shapeNow = w.height / w.width, shapeThen = ref.height / ref.width
                 if abs(shapeNow - shapeThen) / shapeThen > 0.12 {
                     issues.append(HealthIssue(step: s.id, number: n, kind: .otherShape, title: "Step \(n): picked in a differently shaped window",
@@ -110,8 +115,8 @@ enum MacroHealth {
     /// The same problem on many steps (a macro moved to another app: every picture was picked in a differently
     /// shaped window) reads as one entry naming the steps, not a wall of repeats.
     static func grouped(_ issues: [HealthIssue]) -> [HealthIssue] {
-        var out = issues.filter { $0.kind != .otherShape && $0.kind != .unreliableSize && $0.kind != .areaMissesPicture }
-        for kind in [HealthIssue.Kind.otherShape, .unreliableSize, .areaMissesPicture] {
+        var out = issues.filter { ![.otherShape, .otherApp, .unreliableSize, .areaMissesPicture].contains($0.kind) }
+        for kind in [HealthIssue.Kind.otherShape, .otherApp, .unreliableSize, .areaMissesPicture] {
             let same = issues.filter { $0.kind == kind }
             guard same.count >= 3, let first = same.first else { out += same; continue }
             let list = steps(same.map(\.number))
@@ -120,6 +125,9 @@ enum MacroHealth {
                 case .otherShape:
                     return ("\(same.count) steps were picked in a differently shaped window",
                             "Steps \(list). If this macro was made in another app or on another device, their positions and areas may not line up here. Pick those pictures again in this window.")
+                case .otherApp:
+                    return ("\(same.count) steps were picked in another app",
+                            "Steps \(list). \(first.title.components(separatedBy: ": ").last.map { "They were " + $0 + ", " } ?? "")this macro runs somewhere else now, so their sizes, positions and areas may not line up. Pick those pictures again here.")
                 case .unreliableSize:
                     return ("\(same.count) steps were picked in a window of unknown size",
                             "Steps \(list): their saved window size can't be right, so Heron guesses how to resize them. Pick those pictures again.")
@@ -145,6 +153,12 @@ enum MacroHealth {
             i = j + 1
         }
         return parts.joined(separator: ", ")
+    }
+
+    /// An app's name from its bundle ID (the ID itself if it isn't installed).
+    static func appName(_ bundleID: String) -> String {
+        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) else { return bundleID }
+        return FileManager.default.displayName(atPath: url.path).replacingOccurrences(of: ".app", with: "")
     }
 
     // MARK: Rendering (top-left coordinates)

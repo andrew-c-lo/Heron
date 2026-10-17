@@ -108,6 +108,7 @@ struct HealthSheet: View {
         case .tooStrict: "eye.slash"
         case .tooLoose: "exclamationmark.triangle"
         case .unreliableSize, .otherShape: "aspectratio"
+        case .otherApp: "macwindow.on.rectangle"
         case .areaMissesPicture: "viewfinder"
         }
     }
