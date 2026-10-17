@@ -108,6 +108,10 @@ func wilson(_ k: Int, _ n: Int) -> (Double, Double) {
     return (max(0, c - h), min(1, c + h))
 }
 
+/// Per step: best score where the picture is (positives, at every size) and where it isn't (negatives: the
+/// best score anywhere on backgrounds without it), for calibrating its strictness.
+var positives: [String: [Double]] = [:], negatives: [String: [Double]] = [:], strictnessOf: [String: Double] = [:]
+
 struct Tally { var n = 0, found = 0, placed = 0, negatives = 0, falseAlarms = 0 }
 var bySlice: [String: Tally] = [:]
 var failures: [[String: Any]] = []
@@ -146,6 +150,14 @@ for st in steps {
                 let expected = WindowFit.between(st.reference, size, emulator: emulator).rect(original)
                 let found = lookup.locatePicture(in: pixels(img))
                 looks += 1
+                let key = "\(st.macro) step \(st.index)"
+                strictnessOf[key] = lookup.strictness
+                if let m = lookup.matchPicture(in: pixels(img)), iou(m.rect, expected) >= 0.5 { positives[key, default: []].append(m.score) }
+                else { positives[key, default: []].append(0) }
+                if !presentAtOriginal, layout == .plain || layout == .bluestacks {
+                    let (neg, _) = resized(without, st.reference, k, layout)
+                    negatives[key, default: []].append(lookup.matchPicture(in: pixels(neg))?.score ?? 0)
+                }
                 let ok = found.map { iou($0, expected) >= 0.5 } ?? false
                 for key in ["\(layout.rawValue) ×\(k)", "\(layout.rawValue) all", "size \(sizeBucket)"] {
                     var t = bySlice[key] ?? Tally()
@@ -195,11 +207,28 @@ func sh(_ cmd: String) -> String {
 let commit = sh("git rev-parse --short HEAD") + (sh("git status --porcelain Sources bench | head -1").isEmpty ? "" : "+dirty")
 try? FileManager.default.createDirectory(at: outDir, withIntermediateDirectories: true)
 let file = outDir.appendingPathComponent("\(ISO8601DateFormatter().string(from: Date()).prefix(10))-\(commit).local.json")
+// Calibration: where a step's strictness sits between its positive and negative scores.
+func percentile(_ v: [Double], _ p: Double) -> Double { let s = v.sorted(); return s.isEmpty ? 0 : s[min(s.count - 1, Int(Double(s.count - 1) * p))] }
+var calibration: [[String: Any]] = []
+print("\ncalibration (steps whose strictness misses real copies, or sits close to look-alikes):")
+for key in positives.keys.sorted() {
+    let pos = positives[key]!, neg = negatives[key] ?? [], strict = strictnessOf[key]!
+    let p05 = percentile(pos, 0.05), negMax = neg.max() ?? 0
+    let missRate = Double(pos.filter { $0 < strict }.count) / Double(pos.count)
+    // A safe strictness: halfway between the worst real copy (5th percentile) and the best look-alike.
+    let suggested = negMax < p05 ? ((p05 + negMax) / 2 * 100).rounded() / 100 : nil
+    calibration.append(["step": key, "strictness": strict, "positiveP05": p05, "negativeMax": negMax, "missRate": missRate, "suggested": suggested as Any])
+    if missRate > 0.02 || p05 - negMax < 0.15 {
+        print(String(format: "  %-26@ strictness %.2f  real copies ≥ %.2f (5th pct)  look-alikes ≤ %.2f  misses %3.0f%%  → %@", key as NSString, strict, p05, negMax,
+                     missRate * 100, (suggested.map { String(format: "%.2f", $0) } ?? "no safe value") as NSString))
+    }
+}
+
 let slices = bySlice.mapValues { ["n": $0.n, "found": $0.found, "placed": $0.placed, "negatives": $0.negatives, "falseAlarms": $0.falseAlarms] }
 try JSONSerialization.data(withJSONObject: ["meta": ["commit": commit, "machine": sh("sysctl -n machdep.cpu.brand_string"),
                                                      "os": ProcessInfo.processInfo.operatingSystemVersionString,
                                                      "pictures": steps.count, "backgrounds": backgrounds.count, "scales": scales],
-                                            "slices": slices, "failures": failures], options: [.prettyPrinted, .sortedKeys]).write(to: file)
+                                            "slices": slices, "failures": failures, "calibration": calibration], options: [.prettyPrinted, .sortedKeys]).write(to: file)
 print("saved \(file.path)")
 
 // Regression gate: resizing must not cost detection. Every layout at every size has to place at least 93% of
