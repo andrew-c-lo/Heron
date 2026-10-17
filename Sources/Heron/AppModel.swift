@@ -148,7 +148,10 @@ final class AppModel: ObservableObject {
     private var messageClear: DispatchWorkItem?
 
     init() {
-        defer { YouActivity.onClick = { [weak self] p in self?.rescue.click(at: p) } }
+        defer {
+            YouActivity.onClick = { [weak self] p in self?.rescue.click(at: p) }
+            startFrameSampling()
+        }
         autoClick = Persist.load("autoClick", default: AutoClickSettings())
         let loadedPrefs = Persist.load("prefs", default: Preferences())
         prefs = loadedPrefs
@@ -1507,6 +1510,37 @@ final class AppModel: ObservableObject {
     }
 
     /// A picture of the app's window to crop the button from.
+    /// Ordinary screens from running macros, one every 90 s (at most 30 per macro, local): screens for Check Macro
+    /// to calibrate on even when a macro never gets stuck, and examples for the eval and learned models.
+    nonisolated static var framesFolder: URL { AppFolder.url.appendingPathComponent("Evals/frames", isDirectory: true) }
+    private var frameTimer: Timer?
+
+    private func startFrameSampling() {
+        frameTimer = Timer.scheduledTimer(withTimeInterval: 90, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.sampleFrames() }
+        }
+    }
+
+    private func sampleFrames() {
+        for id in live.keys {
+            guard let m = macros.first(where: { $0.id == id }), let app = m.target.app, let win = WindowFinder.find(app) else { continue }
+            let prefix = String(id.uuidString.prefix(8))
+            Task {
+                guard let px = await ScreenReader.captureWindowAsync(win) else { return }
+                DispatchQueue.global(qos: .utility).async {
+                    let dir = Self.framesFolder
+                    try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+                    guard let cg = px.cgImage, let png = NSBitmapImageRep(cgImage: cg).representation(using: .png, properties: [:]) else { return }
+                    let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
+                    try? png.write(to: dir.appendingPathComponent("\(prefix)-\(stamp).png"))
+                    let mine = ((try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? [])
+                        .filter { $0.lastPathComponent.hasPrefix(prefix) }.sorted { $0.lastPathComponent > $1.lastPathComponent }
+                    for old in mine.dropFirst(30) { try? FileManager.default.removeItem(at: old) }
+                }
+            }
+        }
+    }
+
     /// Checks a macro's picture steps (see `MacroHealth`) on screens saved from this macro and the window as it is now.
     func checkMacro(_ id: UUID, progress: @escaping @MainActor (Double) -> Void) async -> (issues: [HealthIssue], screens: Int) {
         guard let m = macros.first(where: { $0.id == id }) else { return ([], 0) }
@@ -1516,6 +1550,9 @@ final class AppModel: ObservableObject {
         let evals = ((try? FileManager.default.contentsOfDirectory(at: RescueCapture.folder, includingPropertiesForKeys: nil)) ?? [])
             .filter { $0.pathExtension == "png" && $0.lastPathComponent.hasPrefix(prefix) }.sorted { $0.lastPathComponent > $1.lastPathComponent }
         urls += evals.prefix(max(0, 10 - urls.count))
+        let frames = ((try? FileManager.default.contentsOfDirectory(at: Self.framesFolder, includingPropertiesForKeys: nil)) ?? [])
+            .filter { $0.pathExtension == "png" && $0.lastPathComponent.hasPrefix(prefix) }.sorted { $0.lastPathComponent > $1.lastPathComponent }
+        urls += frames.prefix(max(0, 14 - urls.count))
         var window: CGSize?
         var now: ScreenReader.WindowPixels?
         if let app = m.target.app, let win = WindowFinder.find(app) {
