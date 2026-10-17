@@ -40,6 +40,12 @@ enum MacroHealth {
                     fix: .showStep))
                 continue
             }
+            // Picked in another app than the macro runs in now (known exactly for pictures picked since it's recorded).
+            if let picked = p.captureApp, let now = m.target.app?.bundleID, picked != now {
+                issues.append(HealthIssue(step: s.id, number: n, kind: .otherApp, title: "Step \(n): picked in \(appName(picked))",
+                    detail: "This macro now runs in \(m.target.app?.name ?? "another app"), so the picture's size, position and area may not line up. Pick it again there.",
+                    fix: .showStep))
+            }
             guard let ref = p.reference(fallback: m.target.windowSize) else { continue }
             let picked = CGRect(x: p.originX, y: p.originY, width: p.width, height: p.height)
             if let area = p.area, let aref = p.areaReference(fallback: m.target.windowSize) {
@@ -50,11 +56,7 @@ enum MacroHealth {
                         fix: .showStep))
                 }
             }
-            if let picked = p.captureApp, let now = m.target.app?.bundleID, picked != now {
-                issues.append(HealthIssue(step: s.id, number: n, kind: .otherApp, title: "Step \(n): picked in \(appName(picked))",
-                    detail: "This macro now runs in \(m.target.app?.name ?? "another app"), so the picture's size, position and area may not line up. Pick it again there.",
-                    fix: .showStep))
-            } else if p.captureApp == nil, let w = window, w.width > 0, ref.width > 0 {
+            if p.captureApp == nil, let w = window, w.width > 0, ref.width > 0 {
                 // Picked before Heron recorded the app: guess from the window's shape.
                 let shapeNow = w.height / w.width, shapeThen = ref.height / ref.width
                 if abs(shapeNow - shapeThen) / shapeThen > 0.12 {
