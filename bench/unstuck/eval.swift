@@ -277,10 +277,15 @@ func decide(_ strategy: String, _ s: Screen) -> (Decision, Double) {
             d = .wait
             modelNotes[strategy + "/" + s.file] = ["stopped": true, "distance": dist]
         } else { d = decide("fixed", s).0 }
-    case "knn", "logreg":
-        let predicted = (strategy == "knn" ? knn(s) : logreg(s)) ?? "?"
+    case "knn", "logreg", "knn-fixed":
+        let predicted = (strategy == "logreg" ? logreg(s) : knn(s)) ?? "?"
         classified[strategy, default: [:]][s.file] = predicted
-        d = predicted == "?" ? decide("fixed", s).0 : act(predicted, s, near: remembered(s, k: 5))
+        if strategy == "knn-fixed" {
+            // Ablation: the classifier decides whether to tap; where comes from today's stuck-tap spot.
+            d = ["target", "anywhere", "?"].contains(predicted) ? decide("fixed", s).0 : .wait
+        } else {
+            d = predicted == "?" ? decide("fixed", s).0 : act(predicted, s, near: remembered(s, k: 5))
+        }
         modelNotes[strategy + "/" + s.file] = ["predicted": predicted]
     case "model-point", "model-choose", "model-memory":
         guard #available(macOS 27.0, *), SystemLanguageModel.default.isAvailable else { fatalError("Needs macOS 27 with Apple Intelligence on") }
@@ -312,7 +317,7 @@ func score(_ d: Decision, _ l: EvalLabel, _ s: Screen) -> (correct: Bool, unsafe
 
 setvbuf(stdout, nil, _IOLBF, 0) // print each line as it's done
 // Fingerprints are made here, on the main thread: Vision called from the model's background work deadlocked.
-if strategies.contains(where: { $0.contains("memory") || $0 == "repeat-stop" || $0 == "knn" || $0 == "logreg" }) { for s in screens { _ = fingerprint(s) } }
+if strategies.contains(where: { $0.contains("memory") || $0 == "repeat-stop" || $0.hasPrefix("knn") || $0 == "logreg" }) { for s in screens { _ = fingerprint(s) } }
 
 var results: [String: Any] = [:]
 print(String(format: "%-12@ %7@ %8@ %7@  %@", "strategy" as NSString, "scored" as NSString, "correct" as NSString, "unsafe" as NSString, "by label (correct/total)" as NSString))
