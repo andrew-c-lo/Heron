@@ -115,6 +115,8 @@ final class AppModel: ObservableObject {
     private var stepFoundSize: [UUID: CGSize] = [:]
     /// The window's size when each step was found this run (areas are measured in it).
     private var stepFoundWindow: [UUID: CGSize] = [:]
+    /// Stuck screens and what got past them, kept as examples for the unstuck eval (Evals/unstuck/).
+    let rescue = RescueCapture()
     /// Screens where the idle tap had to step in, per macro (newest first).
     @Published private(set) var stuckScreens: [UUID: [URL]] = [:]
     /// Things you pressed yourself while a macro played, per macro (most pressed first).
@@ -146,6 +148,7 @@ final class AppModel: ObservableObject {
     private var messageClear: DispatchWorkItem?
 
     init() {
+        defer { YouActivity.onClick = { [weak self] p in self?.rescue.click(at: p) } }
         autoClick = Persist.load("autoClick", default: AutoClickSettings())
         let loadedPrefs = Persist.load("prefs", default: Preferences())
         prefs = loadedPrefs
@@ -1035,8 +1038,8 @@ final class AppModel: ObservableObject {
             self?.playWaitingColor = color
         }, clicked: { [weak self] step, found in
             self?.recordHit(step, found)
-        }, stuck: { [weak self] screen in
-            self?.saveStuck(screen, macro: macroID)
+        }, stuck: { [weak self] screen, window in
+            self?.saveStuck(screen, macro: macroID, window: window)
         }, listAdvanced: { [weak self] step, next in
             self?.setListNext(step, next)
         }, counted: { [weak self] n in
@@ -1135,6 +1138,10 @@ final class AppModel: ObservableObject {
     private var runs: [UUID: RunLog] = [:]
 
     private func recordHit(_ step: UUID, _ found: CGRect?) {
+        if let m = macros.first(where: { $0.steps.contains { $0.id == step } }),
+           let i = m.steps.firstIndex(where: { $0.id == step }) {
+            rescue.stepFired(macro: m.id, step: i + 1)
+        }
         if let macro = macros.first(where: { $0.steps.contains { $0.id == step } })?.id, runs[macro] != nil {
             runs[macro]!.events.append((Date().timeIntervalSince(runs[macro]!.started), step))
         }
@@ -1278,8 +1285,10 @@ final class AppModel: ObservableObject {
         loadFoundHistory(for: m)
     }
 
-    private func saveStuck(_ screen: ScreenReader.WindowPixels, macro: UUID) {
+    private func saveStuck(_ screen: ScreenReader.WindowPixels, macro: UUID, window: CGRect = .null) {
         if runs[macro] != nil { runs[macro]!.events.append((Date().timeIntervalSince(runs[macro]!.started), nil)) }
+        rescue.stuck(screen, macro: macro, window: window,
+                     tap: macros.first { $0.id == macro }.flatMap { m in m.playback.idleTapX.map { CGPoint(x: $0, y: m.playback.idleTapY ?? 0) } })
         let dir = Self.stuckFolder(macro)
         DispatchQueue.global(qos: .utility).async { [weak self] in
             try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -1353,8 +1362,8 @@ final class AppModel: ObservableObject {
         player.play(m, progress: { _, _, _ in }, clicked: { [weak self] step, found in
             self?.backgroundClicks[id, default: 0] += 1
             self?.recordHit(step, found)
-        }, stuck: { [weak self] screen in
-            self?.saveStuck(screen, macro: id)
+        }, stuck: { [weak self] screen, window in
+            self?.saveStuck(screen, macro: id, window: window)
         }, listAdvanced: { [weak self] step, next in
             self?.setListNext(step, next)
         }, counted: { [weak self] n in

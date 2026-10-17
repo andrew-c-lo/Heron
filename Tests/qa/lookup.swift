@@ -1008,5 +1008,30 @@ check("a point picked in the BlueStacks window lands on the same spot of the And
 let identity = AndroidScreen(rect: CGRect(x: 0, y: 32, width: 1080, height: 1920), size: CGSize(width: 1080, height: 1920), serial: "x")
 check("…and a tap there goes to that Android pixel", identity.pixel(CGPoint(x: 540, y: 992)) == CGPoint(x: 540, y: 960))
 
+// Rescue capture: a stuck screen, then what happened next, written beside it (in a scratch Heron folder).
+let rescueHome = FileManager.default.temporaryDirectory.appendingPathComponent("heron-rescue-\(UUID().uuidString)")
+setenv("HERON_HOME", rescueHome.path, 1)
+MainActor.assumeIsolated {
+    let rc = RescueCapture()
+    let screenPx = ScreenReader.WindowPixels(rgba: [UInt8](repeating: 128, count: 40 * 30 * 4), width: 40, height: 30)
+    let macroA = UUID()
+    rc.stuck(screenPx, macro: macroA, window: CGRect(x: 100, y: 200, width: 40, height: 30), tap: CGPoint(x: 5, y: 6))
+    rc.click(at: CGPoint(x: 500, y: 500))            // outside the window: not a rescue
+    rc.click(at: CGPoint(x: 110, y: 215))            // inside: the rescue
+    rc.stepFired(macro: macroA, step: 3)             // too late to count: already rescued
+    rc.stuck(screenPx, macro: macroA, window: CGRect(x: 100, y: 200, width: 40, height: 30), tap: nil)
+    rc.stepFired(macro: macroA, step: 4)             // resolved by itself
+}
+Thread.sleep(forTimeInterval: 1.5)
+let rescueFiles = ((try? FileManager.default.contentsOfDirectory(at: RescueCapture.folder, includingPropertiesForKeys: nil)) ?? []).sorted { $0.lastPathComponent < $1.lastPathComponent }
+let rescueLabels = rescueFiles.filter { $0.pathExtension == "json" }.compactMap { (try? JSONSerialization.jsonObject(with: Data(contentsOf: $0))) as? [String: Any] }
+check("a click inside the stuck window is saved as a rescue, at its window position",
+      rescueLabels.contains { $0["outcome"] as? String == "rescue" && ($0["tap"] as? [Int]) == [10, 15] }, "\(rescueLabels)")
+check("a step firing soon after, with no help, is saved as resolved",
+      rescueLabels.contains { $0["outcome"] as? String == "resolved" && $0["step"] as? Int == 4 })
+check("each labelled stuck screen keeps its picture", rescueFiles.filter { $0.pathExtension == "png" }.count == 2, "\(rescueFiles.map(\.lastPathComponent))")
+unsetenv("HERON_HOME")
+try? FileManager.default.removeItem(at: rescueHome)
+
 print(failures == 0 ? "ALL PASSED" : "\(failures) FAILED")
 exit(failures == 0 ? 0 : 1)

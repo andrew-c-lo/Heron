@@ -10,7 +10,7 @@ let strategies = Array(CommandLine.arguments.dropFirst(2)).isEmpty ? ["fixed", "
 
 struct Candidate: Codable { let id: Int; let text: String; let box: [Int]; var score: Double? }
 struct Screen: Codable { let file: String; let size: [Int]; let candidates: [Candidate] }
-struct EvalLabel: Codable { let action: String; let target: [Int]?; let boxes: [[Int]]?; let unsafe: [Int]?; let note: String? }
+struct EvalLabel: Codable { let set: String?; let action: String; let target: [Int]?; let boxes: [[Int]]?; let unsafe: [Int]?; let note: String? }
 struct Labels: Codable { let labels: [String: EvalLabel] }
 struct MacroInfo: Codable { let macro: String; let window: [Double]?; let idleTap: [Double?]?; let intent: String? }
 
@@ -176,6 +176,8 @@ for strategy in strategies {
     var perScreen: [[String: Any]] = []
     for s in screens {
         guard let l = labels[s.file], ["target", "anywhere", "wait", "none", "stop"].contains(l.action) else { continue }
+        // EVAL_SET=fresh scores only screens captured while playing; practice = the original, tuned-on set.
+        if let only = ProcessInfo.processInfo.environment["EVAL_SET"], only != (l.set ?? "practice") { continue }
         let (d, secs) = decide(strategy, s)
         let r = score(d, l, s)
         sc.scored += 1; sc.correct += r.correct ? 1 : 0; sc.unsafe += r.unsafe ? 1 : 0

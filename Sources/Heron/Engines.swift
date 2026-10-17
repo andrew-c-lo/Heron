@@ -54,7 +54,7 @@ final class Player {
               progress: @escaping @MainActor (_ step: Int, _ loop: Int, _ pausing: Double?) -> Void,
               waiting: @escaping @MainActor (_ color: String?) -> Void = { _ in },
               clicked: @escaping @MainActor (_ step: UUID, _ found: CGRect?) -> Void = { _, _ in },
-              stuck: @escaping @MainActor (_ screen: ScreenReader.WindowPixels) -> Void = { _ in },
+              stuck: @escaping @MainActor (_ screen: ScreenReader.WindowPixels, _ window: CGRect) -> Void = { _, _ in },
               listAdvanced: @escaping @MainActor (_ step: UUID, _ next: Int) -> Void = { _, _ in },
               counted: @escaping @MainActor (_ times: Int) -> Void = { _ in },
               finished: @escaping @MainActor (_ error: String?) -> Void) {
@@ -607,7 +607,7 @@ final class Player {
                              progress: @escaping @MainActor (Int, Int, Double?) -> Void,
                              waiting: @escaping @MainActor (String?) -> Void,
                              clicked: @escaping @MainActor (UUID, CGRect?) -> Void = { _, _ in },
-                             stuck: @escaping @MainActor (ScreenReader.WindowPixels) -> Void = { _ in },
+                             stuck: @escaping @MainActor (ScreenReader.WindowPixels, CGRect) -> Void = { _, _ in },
                              counted: @escaping @MainActor (Int) -> Void = { _ in }) -> String? {
         guard let resolver else { return "Picture steps need a target app. Choose one with the Target button." }
         struct Item { let index: Int; let step: ImageStep; let lookup: Lookup }
@@ -774,7 +774,9 @@ final class Player {
                 performer.perform(.mouseUp(button: .left, x: Double(tp.x), y: Double(tp.y), clickCount: 1, flags: 0))
                 Self.logStuckTap(lastAction: lastAction, pointerAt: CGEvent(source: nil)?.location, window: resolver.realWindow()?.frame ?? win.frame)
                 lastAction = Timing.now()
-                if let screen = latest { Task { @MainActor in stuck(screen) } }
+                // With the real window's frame, so a click you make to get past it can be matched to the screen.
+                let frame = resolver.android ? CGRect.null : (resolver.realWindow()?.frame ?? win.frame)
+                if let screen = latest { Task { @MainActor in stuck(screen, frame) } }
             }
             _ = Timing.wait(until: tick + Self.checkInterval, token) // at most 10 checks a second
         }
@@ -1117,10 +1119,20 @@ enum YouActivity {
     static var secondsSince: Double { Timing.now() - lock.withLock { lastAt } }
     static func mark() { lock.withLock { lastAt = Timing.now() } }
 
+    /// Told about each of your own left clicks, with where it was (screen points, top-left origin).
+    @MainActor static var onClick: ((CGPoint) -> Void)?
+
     @MainActor static func start() {
         guard monitor == nil else { return }
         monitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown, .keyDown,
-                                                               .leftMouseDragged, .scrollWheel]) { _ in mark() }
+                                                               .leftMouseDragged, .scrollWheel]) { e in
+            // Heron's own clicks (Jump & return) carry its marker: they aren't you.
+            if let cg = e.cgEvent, cg.getIntegerValueField(.eventSourceUserData) >> 32 == EventSynth.marker { return }
+            mark()
+            if e.type == .leftMouseDown, let p = CGEvent(source: nil)?.location {
+                MainActor.assumeIsolated { onClick?(p) }
+            }
+        }
     }
 }
 
