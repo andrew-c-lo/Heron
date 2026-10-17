@@ -1019,6 +1019,9 @@ struct Preferences: Codable, Equatable {
     var screenAwake: ScreenAwake = .whileRunning
     /// While a macro plays, your own clicks in its app are noticed and offered as steps.
     var suggestFromMyPresses = true
+    /// Shadow mode: on stuck screens, record what the learned classifier and the on-device model would have done
+    /// (never acted on), to measure them on real use.
+    var shadowAdvisor = true
 }
 
 enum ScreenAwake: String, Codable, CaseIterable, Identifiable {

@@ -1053,5 +1053,46 @@ let shopLines = ["Shop", "$0.99", "$3.99", "Daily Capsule"].map { TextFinder.Lin
 check("two or more prices on screen look like a shop", StuckGuard.looksLikeShop(shopLines)
       && !StuckGuard.looksLikeShop([TextFinder.Line(text: "OK", rect: .zero, words: []), TextFinder.Line(text: "$0.99", rect: .zero, words: [])]))
 
+// Shadow mode: the learned classifier votes from earlier stuck screens with known outcomes.
+let shadowHome = FileManager.default.temporaryDirectory.appendingPathComponent("heron-shadow-\(UUID().uuidString)")
+setenv("HERON_HOME", shadowHome.path, 1)
+try? FileManager.default.createDirectory(at: RescueCapture.folder, withIntermediateDirectories: true)
+func stripes(_ vertical: Bool, _ shade: UInt8) -> ScreenReader.WindowPixels {
+    var px = [UInt8](repeating: 255, count: 200 * 300 * 4)
+    for y in 0..<300 { for x in 0..<200 where (vertical ? x : y) % 40 < 20 { let i = (y * 200 + x) * 4; px[i] = shade; px[i + 1] = shade / 2; px[i + 2] = 30 } }
+    return ScreenReader.WindowPixels(rgba: px, width: 200, height: 300)
+}
+func saveExample(_ name: String, _ px: ScreenReader.WindowPixels, _ label: [String: Any]) {
+    let base = RescueCapture.folder.appendingPathComponent(name)
+    try? NSBitmapImageRep(cgImage: px.cgImage!).representation(using: .png, properties: [:])!.write(to: base.appendingPathExtension("png"))
+    try? JSONSerialization.data(withJSONObject: label).write(to: base.appendingPathExtension("json"))
+}
+saveExample("A-1", stripes(true, 20), ["outcome": "resolved"])
+saveExample("A-2", stripes(true, 25), ["outcome": "resolved"])
+saveExample("B-1", stripes(false, 200), ["outcome": "rescue", "tap": [50, 60]])
+saveExample("B-2", stripes(false, 210), ["outcome": "stopped"])
+let shadowBase = RescueCapture.folder.appendingPathComponent("Q-1")
+ShadowAdvisor.advise(stripes(true, 22), macro: Macro(name: "test", steps: []), base: shadowBase)
+var shadowRecord: [String: Any]?
+for _ in 0..<60 where shadowRecord == nil {
+    Thread.sleep(forTimeInterval: 0.25)
+    shadowRecord = (try? JSONSerialization.jsonObject(with: Data(contentsOf: shadowBase.appendingPathExtension("shadow.json")))) as? [String: Any]
+}
+check("shadow mode records what the learned classifier would do (a screen like the resolved ones: wait)",
+      (shadowRecord?["knn"] as? [String: Any])?["decision"] as? String == "wait", "\(String(describing: shadowRecord))")
+MainActor.assumeIsolated {
+    let rc2 = RescueCapture()
+    let m2 = UUID()
+    rc2.stuck(stripes(true, 22), macro: m2, window: CGRect(x: 0, y: 0, width: 200, height: 300), tap: nil)
+    rc2.userStopped(macro: m2)
+}
+Thread.sleep(forTimeInterval: 1)
+let stoppedLabels = ((try? FileManager.default.contentsOfDirectory(at: RescueCapture.folder, includingPropertiesForKeys: nil)) ?? [])
+    .filter { $0.lastPathComponent.hasSuffix(".json") && !$0.lastPathComponent.hasSuffix(".shadow.json") }
+    .compactMap { (try? JSONSerialization.jsonObject(with: Data(contentsOf: $0))) as? [String: Any] }
+check("stopping a macro soon after it got stuck is saved as a stop", stoppedLabels.contains { $0["outcome"] as? String == "stopped" && $0["macro"] != nil })
+unsetenv("HERON_HOME")
+try? FileManager.default.removeItem(at: shadowHome)
+
 print(failures == 0 ? "ALL PASSED" : "\(failures) FAILED")
 exit(failures == 0 ? 0 : 1)

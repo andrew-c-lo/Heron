@@ -52,6 +52,15 @@ final class RescueCapture {
         }
     }
 
+    /// Where the current stuck screen is saved (without extension), for writing beside it.
+    var currentBase: URL? { pending?.base }
+
+    /// You stopped the macro: shortly after it got stuck, that means the run was over (a "stop" example).
+    func userStopped(macro: UUID) {
+        guard let w = pending, !w.done, w.macro == macro, Date().timeIntervalSince(w.at) <= Self.rescueWindow else { return }
+        finish(outcome: ["outcome": "stopped"])
+    }
+
     /// One of your own left clicks (screen points, top-left origin).
     func click(at p: CGPoint) {
         guard let w = pending, !w.done, !w.window.isNull, Date().timeIntervalSince(w.at) <= Self.rescueWindow,

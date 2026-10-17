@@ -1,6 +1,6 @@
 // Scores "what to do on a stuck screen" strategies against the labelled screens in data/.
 //   bench/unstuck/run.sh eval [strategy …]
-//   strategies: fixed, wait, repeat-stop, model-point, model-choose, memory, model-memory, knn, logreg
+//   strategies: fixed, wait, shadow-knn, shadow-model (recorded in use), repeat-stop, model-point, model-choose, memory, model-memory, knn, logreg
 // Writes results/<date>-<commit>.local.json (with the machine) and prints a summary table.
 import AppKit
 import Foundation
@@ -267,6 +267,16 @@ func decide(_ strategy: String, _ s: Screen) -> (Decision, Double) {
             }
             modelNotes[strategy + "/" + s.file] = ["remembered": m.screen.file, "distance": m.distance, "action": m.label.action]
         } else { d = .wait }
+    case "shadow-knn", "shadow-model":
+        // What the advisers actually said at the time (Heron's shadow mode), not recomputed.
+        let shadowFile = root.appendingPathComponent("shadow.json")
+        let all = (try? JSONSerialization.jsonObject(with: Data(contentsOf: shadowFile))) as? [String: [String: Any]] ?? [:]
+        if let rec = all[s.file]?[strategy == "shadow-knn" ? "knn" : "model"] as? [String: Any], let dec = rec["decision"] as? String {
+            if dec == "tap", let t = rec["tap"] as? [Int], t.count == 2 { d = .tap(CGPoint(x: t[0], y: t[1])) }
+            else if dec == "tap" { d = .tap(CGPoint(x: s.size[0] / 2, y: s.size[1] / 2)) }
+            else { d = .wait }
+            modelNotes[strategy + "/" + s.file] = rec
+        } else { d = .wait; modelNotes[strategy + "/" + s.file] = ["missing": true] }
     case "repeat-stop-3", "guarded":
         // As shipped in Heron: stop only when the two previous stuck screens of this macro looked the same as this
         // one (two taps that changed nothing); "guarded" also stops on a screen showing 2+ prices.
@@ -330,6 +340,7 @@ func score(_ d: Decision, _ l: EvalLabel, _ s: Screen) -> (correct: Bool, unsafe
 }
 
 setvbuf(stdout, nil, _IOLBF, 0) // print each line as it's done
+let shadowRecords = (try? JSONSerialization.jsonObject(with: Data(contentsOf: root.appendingPathComponent("shadow.json")))) as? [String: [String: Any]] ?? [:]
 // Fingerprints are made here, on the main thread: Vision called from the model's background work deadlocked.
 if strategies.contains(where: { $0.contains("memory") || $0.hasPrefix("repeat-stop") || $0 == "guarded" || $0.hasPrefix("knn") || $0 == "logreg" }) { for s in screens { _ = fingerprint(s) } }
 
@@ -342,6 +353,8 @@ for strategy in strategies {
         guard let l = labels[s.file], ["target", "anywhere", "wait", "none", "stop"].contains(l.action) else { continue }
         // EVAL_SET=fresh scores only screens captured while playing; practice = the original, tuned-on set.
         if let only = ProcessInfo.processInfo.environment["EVAL_SET"], only != (l.set ?? "practice") { continue }
+        // Shadow strategies are scored only where something was recorded at the time.
+        if strategy.hasPrefix("shadow-"), shadowRecords[s.file]?[strategy == "shadow-knn" ? "knn" : "model"] == nil { continue }
         let (d, secs) = decide(strategy, s)
         let r = score(d, l, s)
         sc.scored += 1; sc.correct += r.correct ? 1 : 0; sc.unsafe += r.unsafe ? 1 : 0

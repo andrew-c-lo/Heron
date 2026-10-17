@@ -26,6 +26,7 @@ What should an automation do when none of its steps match the screen? Heron's an
 | `model-point`, `model-choose` | Apple's on-device model (macOS 27, image input) names a position / a thing to tap from the text and step pictures on screen, given the macro's goal |
 | `model-memory` | `model-choose` plus what happened on the 3 most similar earlier screens |
 | `knn-fixed` | ablation: knn decides whether to tap; the location is the fixed stuck-tap spot (45/48, but only because that spot happens to sit near the dice here) |
+| `shadow-knn`, `shadow-model` | what Heron's shadow mode recorded at the time (its learned classifier; the on-device model), scored against what really happened; only screens with a record count |
 | `knn`, `logreg` | learned classifiers on the feature-print vector (k-nearest neighbours; Create ML logistic regression), retrained on earlier screens only (rolling evaluation) |
 
 Retrieval and training only ever see screens from **before** the one being decided, so nothing leaks from the future.

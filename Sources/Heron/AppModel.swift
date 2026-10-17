@@ -1068,6 +1068,7 @@ final class AppModel: ObservableObject {
 
     func stopPlayback() {
         guard let id = playingMacroID else { return }
+        rescue.userStopped(macro: id)
         player.stop()
         saveRunReport(id)
         playingMacroID = nil
@@ -1294,6 +1295,10 @@ final class AppModel: ObservableObject {
         if runs[macro] != nil { runs[macro]!.events.append((Date().timeIntervalSince(runs[macro]!.started), nil)) }
         rescue.stuck(screen, macro: macro, window: window,
                      tap: macros.first { $0.id == macro }.flatMap { m in m.playback.idleTapX.map { CGPoint(x: $0, y: m.playback.idleTapY ?? 0) } })
+        // Shadow mode: what the advisers would have done here, recorded beside the screen, never acted on.
+        if prefs.shadowAdvisor, let m = macros.first(where: { $0.id == macro }), let base = rescue.currentBase {
+            ShadowAdvisor.advise(screen, macro: m, base: base)
+        }
         let dir = Self.stuckFolder(macro)
         DispatchQueue.global(qos: .utility).async { [weak self] in
             try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -1395,6 +1400,7 @@ final class AppModel: ObservableObject {
 
     func stopBackground(_ id: UUID, quietly: Bool = false) {
         guard let player = backgroundPlayers.removeValue(forKey: id) else { return }
+        if !quietly { rescue.userStopped(macro: id) }
         player.stop()
         saveRunReport(id)
         backgroundRunning.remove(id)
