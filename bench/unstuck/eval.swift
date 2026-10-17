@@ -1,11 +1,12 @@
 // Scores "what to do on a stuck screen" strategies against the labelled screens in data/.
 //   bench/unstuck/run.sh eval [strategy …]
-//   strategies: fixed, wait, repeat-stop, model-point, model-choose, memory, model-memory
+//   strategies: fixed, wait, repeat-stop, model-point, model-choose, memory, model-memory, knn, logreg
 // Writes results/<date>-<commit>.local.json (with the machine) and prints a summary table.
 import AppKit
 import Foundation
 import FoundationModels
 import Vision
+import CreateML
 
 let root = URL(fileURLWithPath: CommandLine.arguments[1])
 let strategies = Array(CommandLine.arguments.dropFirst(2)).isEmpty ? ["fixed", "wait"] : Array(CommandLine.arguments.dropFirst(2))
@@ -173,6 +174,60 @@ func memoryLine(_ m: Memory) -> String {
     }
 }
 
+// MARK: Learned classifiers (ML): what kind of screen is this, from its fingerprint vector
+
+/// The fingerprint as numbers (Vision feature print: a fixed-length float vector).
+func vector(_ s: Screen) -> [Double] {
+    guard let fp = fingerprint(s) else { return [] }
+    return fp.data.withUnsafeBytes { raw -> [Double] in
+        if fp.elementType == .float { return raw.bindMemory(to: Float.self).map(Double.init) }
+        return raw.bindMemory(to: Double.self).map { $0 }
+    }
+}
+let classes = ["target", "anywhere", "wait", "none", "stop"]
+/// Earlier labelled screens: the only ones a model predicting `s` may learn from (rolling evaluation).
+func history(_ s: Screen) -> [(Screen, EvalLabel)] {
+    screens.filter { time($0.file) < time(s.file) }.compactMap { o in labels[o.file].flatMap { classes.contains($0.action) ? (o, $0) : nil } }
+}
+var classified: [String: [String: String]] = [:] // strategy -> file -> predicted class
+
+/// The class a learned model predicts, then what that means on screen: a tap class taps (where the nearest
+/// earlier screen of that class was tapped, else today's stuck-tap spot); the rest don't tap.
+func act(_ predicted: String, _ s: Screen, near: [Memory]) -> Decision {
+    switch predicted {
+    case "target":
+        if let m = near.first(where: { $0.label.action == "target" }), let t = rememberedTap(m) { return .tap(t.point) }
+        return decide("fixed", s).0
+    case "anywhere": return .tap(CGPoint(x: s.size[0] / 2, y: s.size[1] / 2))
+    default: return .wait
+    }
+}
+
+func knn(_ s: Screen, k: Int = 3) -> String? {
+    let near = remembered(s, k: k)
+    guard !near.isEmpty else { return nil }
+    var votes: [String: Double] = [:]
+    for m in near { votes[m.label.action, default: 0] += 1 / Double(max(m.distance, 0.01)) }
+    return votes.max { $0.value < $1.value }?.key
+}
+
+func logreg(_ s: Screen) -> String? {
+    let past = history(s)
+    guard Set(past.map(\.1.action)).count >= 2 else { return past.first?.1.action }
+    let dims = vector(s).count
+    var cols: [String: MLDataValueConvertible] = ["label": past.map(\.1.action)]
+    let rows = past.map { vector($0.0) }
+    for d in 0..<dims { cols["f\(d)"] = rows.map { $0.count > d ? $0[d] : 0 } }
+    guard let table = try? MLDataTable(dictionary: cols),
+          let model = try? MLLogisticRegressionClassifier(trainingData: table, targetColumn: "label",
+                                                          parameters: .init(maxIterations: 50, l1Penalty: 0, l2Penalty: 0.1)) else { return nil }
+    let me = vector(s)
+    var one: [String: MLDataValueConvertible] = [:]
+    for d in 0..<dims { one["f\(d)"] = [me.count > d ? me[d] : 0] }
+    guard let t = try? MLDataTable(dictionary: one), let p = try? model.predictions(from: t) else { return nil }
+    return p.count > 0 ? p[0].stringValue : nil
+}
+
 /// Runs async work from this synchronous tool.
 final class Box<T>: @unchecked Sendable { var v: T?; init() {} }
 func blocking<T>(_ work: @escaping () async -> T) -> T {
@@ -222,6 +277,11 @@ func decide(_ strategy: String, _ s: Screen) -> (Decision, Double) {
             d = .wait
             modelNotes[strategy + "/" + s.file] = ["stopped": true, "distance": dist]
         } else { d = decide("fixed", s).0 }
+    case "knn", "logreg":
+        let predicted = (strategy == "knn" ? knn(s) : logreg(s)) ?? "?"
+        classified[strategy, default: [:]][s.file] = predicted
+        d = predicted == "?" ? decide("fixed", s).0 : act(predicted, s, near: remembered(s, k: 5))
+        modelNotes[strategy + "/" + s.file] = ["predicted": predicted]
     case "model-point", "model-choose", "model-memory":
         guard #available(macOS 27.0, *), SystemLanguageModel.default.isAvailable else { fatalError("Needs macOS 27 with Apple Intelligence on") }
         d = blocking { await askModel(strategy, s) }
@@ -252,7 +312,7 @@ func score(_ d: Decision, _ l: EvalLabel, _ s: Screen) -> (correct: Bool, unsafe
 
 setvbuf(stdout, nil, _IOLBF, 0) // print each line as it's done
 // Fingerprints are made here, on the main thread: Vision called from the model's background work deadlocked.
-if strategies.contains(where: { $0.contains("memory") || $0 == "repeat-stop" }) { for s in screens { _ = fingerprint(s) } }
+if strategies.contains(where: { $0.contains("memory") || $0 == "repeat-stop" || $0 == "knn" || $0 == "logreg" }) { for s in screens { _ = fingerprint(s) } }
 
 var results: [String: Any] = [:]
 print(String(format: "%-12@ %7@ %8@ %7@  %@", "strategy" as NSString, "scored" as NSString, "correct" as NSString, "unsafe" as NSString, "by label (correct/total)" as NSString))
@@ -280,6 +340,15 @@ for strategy in strategies {
                  Double(sc.correct) / Double(max(1, sc.scored)) * 100, sc.unsafe, by as NSString,
                  lat.isEmpty ? 0 : lat[lat.count / 2], lat.isEmpty ? 0 : lat[min(lat.count - 1, Int(Double(lat.count) * 0.95))], modelErrors))
     modelErrors = 0
+    // Classification accuracy, and what each class was mistaken for.
+    if let pred = classified[strategy] {
+        var right = 0, total = 0
+        var confusion: [String: [String: Int]] = [:]
+        for (f, p) in pred { guard let l = labels[f]?.action else { continue }
+            total += 1; right += p == l ? 1 : 0; confusion[l, default: [:]][p, default: 0] += 1 }
+        print(String(format: "    classified right: %d/%d. ", right, total) +
+              confusion.sorted { $0.key < $1.key }.map { "\($0.key) -> " + $0.value.sorted { $0.key < $1.key }.map { "\($0.key) \($0.value)" }.joined(separator: ", ") }.joined(separator: "; "))
+    }
     results[strategy] = ["scored": sc.scored, "correct": sc.correct, "unsafe": sc.unsafe,
                          "byLabel": Dictionary(uniqueKeysWithValues: sc.byAction.map { ($0.key, ["correct": $0.value.0, "total": $0.value.1]) }),
                          "latencyMedian": lat.isEmpty ? 0 : lat[lat.count / 2], "latencyP95": lat.isEmpty ? 0 : lat[min(lat.count - 1, Int(Double(lat.count) * 0.95))],
