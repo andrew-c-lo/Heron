@@ -9,3 +9,4 @@ dist/
 # Eval data: real app screenshots stay local (private, and not app-neutral)
 bench/unstuck/data/
 bench/unstuck/results/*.local.json
+bench/resize/results/*.local.json
