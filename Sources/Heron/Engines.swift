@@ -708,6 +708,7 @@ final class Player {
                     if let m = pictureMatch { ScoreLog.record(steps[it.index].id, score: m.score, met: m.score >= it.lookup.strictness) }
                     if let m = pictureMatch, m.score >= it.lookup.strictness {
                         found[it.index] = m.rect
+                        ScoreLog.found(steps[it.index].id, at: m.rect, window: size)
                     } else if let text = it.lookup.text, !text.isEmpty {
                         if readText { textFound[it.index] = TextFinder.find(text, in: lines, area: it.lookup.textArea(for: size)) }
                         if let r = textFound[it.index] ?? nil { found[it.index] = it.lookup.pictureFrame(forWords: r) }

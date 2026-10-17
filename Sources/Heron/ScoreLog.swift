@@ -1,4 +1,5 @@
 import Foundation
+import CoreGraphics
 
 /// Picture match scores seen during runs, per step: when the picture met its strictness (it was there) and the
 /// best score when it didn't (a near-miss, or something else on screen). Written into each run report, they're
@@ -9,6 +10,22 @@ enum ScoreLog {
     private static let lock = NSLock()
     private nonisolated(unsafe) static var met: [UUID: Reservoir] = [:]
     private nonisolated(unsafe) static var below: [UUID: Reservoir] = [:]
+    /// Where each step was found (window coordinates, with the window's size): data for suggesting search areas
+    /// that ignore the odd stray match, instead of the union of everything.
+    private nonisolated(unsafe) static var places: [UUID: (sample: [[Int]], seen: Int)] = [:]
+
+    static func found(_ step: UUID, at r: CGRect, window: CGSize) {
+        let row = [Int(r.midX), Int(r.midY), Int(r.width), Int(r.height), Int(window.width), Int(window.height)]
+        lock.withLock {
+            var p = places[step] ?? ([], 0)
+            p.seen += 1
+            if p.sample.count < keep { p.sample.append(row) } else {
+                let j = Int.random(in: 0..<p.seen)
+                if j < keep { p.sample[j] = row }
+            }
+            places[step] = p
+        }
+    }
 
     struct Reservoir {
         var sample: [Double] = []
@@ -29,17 +46,19 @@ enum ScoreLog {
     }
 
     static func reset(_ steps: [UUID]) {
-        lock.withLock { for s in steps { met[s] = nil; below[s] = nil } }
+        lock.withLock { for s in steps { met[s] = nil; below[s] = nil; places[s] = nil } }
     }
 
     /// For the run report: the sampled scores (two decimals) and how many looks they were drawn from.
     static func report(_ step: UUID) -> [String: Any]? {
         lock.withLock {
-            guard met[step] != nil || below[step] != nil else { return nil }
+            guard met[step] != nil || below[step] != nil || places[step] != nil else { return nil }
             func r(_ x: Reservoir?) -> [String: Any] {
                 ["looks": x?.seen ?? 0, "sample": (x?.sample ?? []).map { ($0 * 100).rounded() / 100 }]
             }
-            return ["met": r(met[step]), "below": r(below[step])]
+            var out: [String: Any] = ["met": r(met[step]), "below": r(below[step])]
+            if let p = places[step] { out["places"] = ["seen": p.seen, "sample": p.sample, "columns": "midX, midY, w, h, windowW, windowH"] }
+            return out
         }
     }
 }
