@@ -11,7 +11,7 @@ struct HelpView: View {
     static let topics: [Topic] = [
         Topic(id: "Macros and steps", icon: "list.bullet", body: [
             "A macro is a list of steps that play from top to bottom: clicks, key presses, typing, waits, and steps that look at the screen.",
-            "Record what you do, add steps with Add or Find Picture, or start from a template. Drag steps to reorder them, or use ⌥⌘↑ and ⌥⌘↓.",
+            "New Macro (at the bottom of the list) starts one from what you want it to do: click a picture whenever it shows up, steps in order, on a schedule, or until something appears. You can also record what you do (the record button next to it), and add steps with Add or Find Picture. Drag steps to reorder them, or use ⌥⌘↑ and ⌥⌘↓.",
             "Mini mode (the arrows button at the top) shrinks Heron to a small card you can drag anywhere: one macro at a time (swipe or use ‹ › to move between them, and play or stop it there; the big number counts its runs, from 0), or the auto clicker (start, speed, and Set Spot to pick a new spot in 3 seconds). The button at the top right switches between the two. It stays above other windows; the pin turns that off.",
             "Select a step to edit it in the panel beside the list, and double-click a picture step to pick its picture again. Click the pencil next to a step's title to give it a name.",
         ]),

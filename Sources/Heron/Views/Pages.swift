@@ -21,12 +21,12 @@ struct MacrosPage: View {
                         .id(id)
                 } else {
                     ContentUnavailableView {
-                        Label("No macro yet", systemImage: "record.circle")
+                        Label("No macro yet", systemImage: "square.stack.3d.up")
                     } description: {
-                        Text("Record what you do, or build steps by hand.")
+                        Text("Start from what you want it to do, or record it once.")
                     } actions: {
+                        Button("New Macro") { model.newMacro() }.keyboardShortcut(.defaultAction)
                         Button("Record") { model.toggleRecording(fromUI: true) }
-                        Button("New Empty Macro") { model.newMacro() }
                     }
                 }
             }
@@ -50,17 +50,27 @@ private struct MacroList: View {
         }
         .listStyle(.sidebar)
         .safeAreaInset(edge: .bottom) {
-            // Record is the main way to start, so it keeps its label; the rest are small icon buttons.
+            // New Macro is the way in: it offers the ways to build one (click a picture whenever it shows up,
+            // steps in order, on a schedule, until done, or record). Recording is one of those, so it's a small
+            // button here, except while it's on: then stopping it is the one thing that matters.
             HStack(spacing: 4) {
-                Button {
-                    model.toggleRecording(fromUI: true)
-                } label: {
-                    Label(model.isRecording ? "Stop" : "Record", systemImage: model.isRecording ? "stop.fill" : "record.circle")
-                        .frame(maxWidth: .infinity)
+                if model.isRecording {
+                    Button { model.toggleRecording(fromUI: true) } label: {
+                        Label("Stop Recording", systemImage: "stop.fill").frame(maxWidth: .infinity)
+                    }
+                    .controlSize(.large)
+                    .tint(.red)
+                    .help(model.liveHotkey(.toggleRecording).map { "Stop recording (\($0.display) from anywhere)" } ?? "Stop recording")
+                } else {
+                    Button { model.newMacro() } label: {
+                        Label("New Macro", systemImage: "plus").frame(maxWidth: .infinity)
+                    }
+                    .controlSize(.large)
+                    .help("Start a macro: click a picture whenever it shows up, steps in order, on a schedule, until something appears, or record what you do")
+                    iconButton("record.circle", model.liveHotkey(.toggleRecording).map { "Record what you do (\($0.display) from anywhere)" } ?? "Record what you do") {
+                        model.toggleRecording(fromUI: true)
+                    }
                 }
-                .controlSize(.large)
-                .help(model.liveHotkey(.toggleRecording).map { "Record what you do (\($0.display) from anywhere)" } ?? "Record what you do")
-                iconButton("plus", "New macro: build it step by step") { model.newMacro() }
                 iconButton("eye", "Watch for something: runs in the background and clicks a picture or some words whenever they show up") {
                     model.newBackgroundChain()
                 }
