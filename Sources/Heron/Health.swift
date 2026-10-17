@@ -90,7 +90,9 @@ enum MacroHealth {
             let misses = Double(positives.filter { $0 < lookup.strictness }.count) / Double(positives.count)
             let percent = { (v: Double) in "\(Int((v * 100).rounded()))%" }
             if misses > 0.1, p10 - negMax >= 0.1 {
-                let suggested = max(0.5, min(lookup.strictness - 0.01, ((p10 + negMax) / 2 * 100).rounded() / 100))
+                // The smallest change that catches real copies: just under the worst of them, while staying well
+                // clear of the look-alikes.
+                let suggested = max(0.5, min(lookup.strictness - 0.01, (max(negMax + 0.1, p10 - 0.05) * 100).rounded() / 100))
                 issues.append(HealthIssue(step: s.id, number: n, kind: .tooStrict, title: "Step \(n): stricter than its own picture can meet",
                     detail: "Needs a \(percent(lookup.strictness)) match, but the real thing scores as low as \(percent(p10)) once it's captured and resized, so it was missed \(percent(misses)) of the time. Look-alikes never scored above \(percent(negMax)): \(percent(suggested)) is still safe.",
                     fix: .strictness(suggested)))

@@ -7,6 +7,8 @@ struct HealthSheet: View {
     let onStrictness: (UUID, Double) -> Void
     let onShowStep: (UUID) -> Void
     let onDone: () -> Void
+    /// Results to show instead of running the check (rendering the window off-screen for QA).
+    var preset: (issues: [HealthIssue], screens: Int)? = nil
     @StateObject private var state = CheckState()
 
     final class CheckState: ObservableObject {
@@ -50,7 +52,9 @@ struct HealthSheet: View {
             .padding(14)
         }
         .frame(width: 520, height: 460)
+        .onAppear { if let p = preset { state.issues = p.issues; state.screens = p.screens } }
         .task {
+            guard preset == nil else { return }
             let r = await model.checkMacro(macroID) { state.progress = $0 }
             state.screens = r.screens
             state.issues = r.issues
@@ -65,8 +69,19 @@ struct HealthSheet: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
+    @ViewBuilder
     private func list(_ issues: [HealthIssue]) -> some View {
-        List(issues) { issue in
+        let rows = VStack(alignment: .leading, spacing: 0) {
+            ForEach(issues) { issue in
+                row(issue).padding(.horizontal, 20).padding(.vertical, 12)
+                if issue.id != issues.last?.id { Divider().padding(.leading, 48) }
+            }
+        }
+        // Off-screen rendering (QA) can't draw scroll views.
+        if preset != nil { rows.frame(maxHeight: .infinity, alignment: .top).clipped() } else { ScrollView { rows } }
+    }
+
+    private func row(_ issue: HealthIssue) -> some View {
             HStack(alignment: .top, spacing: 10) {
                 Image(systemName: icon(issue.kind)).foregroundStyle(color(issue.kind)).frame(width: 18)
                 VStack(alignment: .leading, spacing: 3) {
@@ -83,11 +98,9 @@ struct HealthSheet: View {
                             .help("Sets this step's strictness")
                     }
                 case .showStep:
-                    Button("Show Step") { onShowStep(issue.step) }
+                    Button("Show Step \(issue.number)") { onShowStep(issue.step) }
                 }
             }
-            .padding(.vertical, 4)
-        }
     }
 
     private func icon(_ k: HealthIssue.Kind) -> String {
