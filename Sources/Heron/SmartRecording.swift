@@ -154,9 +154,15 @@ final class ClickReader: @unchecked Sendable {
     /// “Tap them yourself”: a recording of you playing a round becomes one “click it whenever it appears” step per
     /// button you tapped (a button tapped more than once is one step). Waits, pointer travel and anything that
     /// wasn't a recognised tap are left out; `taps` is how many taps were recorded in all.
-    static func watcherSteps(_ steps: [MacroStep]) -> (steps: [MacroStep], taps: Int) {
+    /// `existing`: the macro's steps already there, so a button it already has isn't added twice.
+    static func watcherSteps(_ steps: [MacroStep], existing: [MacroStep] = []) -> (steps: [MacroStep], taps: Int) {
         var out: [MacroStep] = []
         var seen: [(text: String, png: Data, box: CGRect?)] = []
+        for s in existing {
+            guard case .findImage(let p) = s.action else { continue }
+            seen.append(((p.text ?? "").trimmingCharacters(in: .whitespaces).lowercased(), p.png,
+                         p.png.isEmpty ? nil : CGRect(x: p.originX, y: p.originY, width: p.width, height: p.height)))
+        }
         for s in steps {
             guard case .findImage(var p) = s.action else { continue }
             let text = (p.text ?? "").trimmingCharacters(in: .whitespaces).lowercased()

@@ -932,6 +932,13 @@ struct MacroDetailView: View {
                 Section("Find on screen") {
                     Button { addPictureStep() } label: { Label("Find Picture…", systemImage: "viewfinder") }
                     Button { addTextStep() } label: { Label("Find Text", systemImage: "text.viewfinder") }
+                    // More buttons for a “click it whenever it appears” macro: tap them in the app, each one is added.
+                    if macro.playback.order == .allAtOnce, macro.target.app != nil {
+                        Button { model.record(into: macro.id, app: macro.target.app, watcher: true) } label: {
+                            Label("Tap Buttons Yourself…", systemImage: "hand.tap")
+                        }
+                        .disabled(model.isRecording)
+                    }
                     Button {
                         model.captureSpot(in: macro.target.app) { p, hex in
                             select(insert(.waitForColor(at: p, .detect(hex ?? "#FFFFFF")), delay: 0.1))

@@ -890,17 +890,21 @@ final class AppModel: ObservableObject {
             return
         }
         if let into, into.watcher, var m = macros.first(where: { $0.id == into.id }) {
-            let (found, taps) = ClickReader.watcherSteps(steps)
+            let (found, taps) = ClickReader.watcherSteps(steps, existing: m.steps)
             guard !found.isEmpty else {
                 flash(taps == 0 ? "No taps were recorded. Tap the buttons in the \(into.app?.name ?? "app")'s window while recording."
-                                : "Couldn't make out what you tapped. Try Box the Button instead.")
+                      : !m.steps.isEmpty ? "The macro already has every button you tapped."
+                      : "Couldn't make out what you tapped. Try Box the Button instead.")
                 return
             }
+            // A new macro takes its setup from this; one with steps keeps its own (its pictures know their window size).
+            if m.steps.isEmpty {
+                m.playback.order = .allAtOnce
+                m.playback.repeatMode = .untilStopped
+                m.target.app = into.app ?? smart.app ?? m.target.app
+                m.target.windowSize = m.target.app.flatMap { WindowFinder.find($0)?.frame.size }
+            }
             m.steps += found
-            m.playback.order = .allAtOnce
-            m.playback.repeatMode = .untilStopped
-            m.target.app = into.app ?? smart.app ?? m.target.app
-            m.target.windowSize = m.target.app.flatMap { WindowFinder.find($0)?.frame.size }
             update(m)
             show(m.id)
             recordedInto = m.id

@@ -1134,6 +1134,9 @@ let pressed = ClickReader.watcherSteps([spotStep(Data([1]), x: 10, y: 100), spot
                                       spotStep(Data([3]), x: 12, y: 102), spotStep(Data([4]), x: 60, y: 100)])
 check("the same button tapped twice is one step even when its picture differs; the button beside it stays separate",
       pressed.steps.count == 3, "\(pressed.steps.count) steps")
+let more = ClickReader.watcherSteps([spotStep(Data([9]), x: 11, y: 101), spotStep(Data([5]), x: 300, y: 300), tapStep("Start!")],
+                                    existing: pressed.steps + watched.steps)
+check("tapping more buttons into a macro adds only the ones it doesn't have yet", more.steps.count == 1, "\(more.steps.count) added")
 check("…each watching all the time (no timeout)", watched.steps.allSatisfy { if case .findImage(let p) = $0.action { return p.timeout < 0 && p.mode == .click }; return false })
 
 print(failures == 0 ? "ALL PASSED" : "\(failures) FAILED")
