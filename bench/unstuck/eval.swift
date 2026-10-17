@@ -1,6 +1,6 @@
 // Scores "what to do on a stuck screen" strategies against the labelled screens in data/.
 //   bench/unstuck/run.sh eval [strategy …]
-//   strategies: fixed, wait, model-point, model-choose, memory, model-memory
+//   strategies: fixed, wait, repeat-stop, model-point, model-choose, memory, model-memory
 // Writes results/<date>-<commit>.local.json (with the machine) and prints a summary table.
 import AppKit
 import Foundation
@@ -212,6 +212,16 @@ func decide(_ strategy: String, _ s: Screen) -> (Decision, Double) {
             }
             modelNotes[strategy + "/" + s.file] = ["remembered": m.screen.file, "distance": m.distance, "action": m.label.action]
         } else { d = .wait }
+    case "repeat-stop":
+        // No model: today's stuck tap, but if this macro's previous stuck screen looked the same, the tap didn't
+        // help and the run is over: stop.
+        let prev = screens.filter { $0.file.prefix(8) == s.file.prefix(8) && time($0.file) < time(s.file) }.max { time($0.file) < time($1.file) }
+        var dist: Float = .infinity
+        if let p = prev, let a = fingerprint(s), let b = fingerprint(p) { try? a.computeDistance(&dist, to: b) }
+        if dist < sameScreen {
+            d = .wait
+            modelNotes[strategy + "/" + s.file] = ["stopped": true, "distance": dist]
+        } else { d = decide("fixed", s).0 }
     case "model-point", "model-choose", "model-memory":
         guard #available(macOS 27.0, *), SystemLanguageModel.default.isAvailable else { fatalError("Needs macOS 27 with Apple Intelligence on") }
         d = blocking { await askModel(strategy, s) }
@@ -242,7 +252,7 @@ func score(_ d: Decision, _ l: EvalLabel, _ s: Screen) -> (correct: Bool, unsafe
 
 setvbuf(stdout, nil, _IOLBF, 0) // print each line as it's done
 // Fingerprints are made here, on the main thread: Vision called from the model's background work deadlocked.
-if strategies.contains(where: { $0.contains("memory") }) { for s in screens { _ = fingerprint(s) } }
+if strategies.contains(where: { $0.contains("memory") || $0 == "repeat-stop" }) { for s in screens { _ = fingerprint(s) } }
 
 var results: [String: Any] = [:]
 print(String(format: "%-12@ %7@ %8@ %7@  %@", "strategy" as NSString, "scored" as NSString, "correct" as NSString, "unsafe" as NSString, "by label (correct/total)" as NSString))
